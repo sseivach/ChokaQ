@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ChokaQ.Storage.SqlServer\ChokaQ.Storage.SqlServer.csproj" />
+    <ProjectReference Include="..\..\src\ChokaQ.Dashboard\ChokaQ.Dashboard.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>
