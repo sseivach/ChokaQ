@@ -1,14 +1,18 @@
 using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Handlers;
 using ChokaQ.Core.Jobs;
 using ChokaQ.Core.Queues;
+using ChokaQ.Core.Storage;
 using ChokaQ.Core.Workers;
 using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Register the Queue as Singleton (The "Pipe")
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System); // .NET 8+ feature
+builder.Services.AddSingleton<IJobStorage, InMemoryJobStorage>();
 builder.Services.AddSingleton<InMemoryQueue>();
+
 // Alias for the interface
 builder.Services.AddSingleton<IChokaQQueue>(sp => sp.GetRequiredService<InMemoryQueue>());
 

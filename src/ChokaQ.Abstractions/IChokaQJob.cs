@@ -5,4 +5,9 @@
 /// </summary>
 public interface IChokaQJob
 {
+    /// <summary>
+    /// Unique identifier for the job instance.
+    /// Must be globally unique (Guid).
+    /// </summary>
+    string Id { get; }
 }

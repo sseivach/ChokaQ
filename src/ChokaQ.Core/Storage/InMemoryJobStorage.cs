@@ -34,12 +34,12 @@ public class InMemoryJobStorage : IJobStorage
 
     /// <inheritdoc />
     public ValueTask<string> CreateJobAsync(
+        string id, // <--- Take ID from outside
         string queue,
         string jobType,
         string payload,
         CancellationToken ct = default)
     {
-        var id = Guid.NewGuid().ToString();
         var now = _timeProvider.GetUtcNow();
 
         var job = new JobStorageDto(

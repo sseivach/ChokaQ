@@ -1,6 +1,10 @@
 ﻿using ChokaQ.Abstractions;
+using System;
 
 namespace ChokaQ.Core.Jobs;
 
-// Simple record is perfect for DTOs
-public record PrintMessageJob(string Text) : IChokaQJob;
+public record PrintMessageJob(string Text) : IChokaQJob
+{
+    // Auto-generate ID on creation
+    public string Id { get; init; } = Guid.NewGuid().ToString();
+}
