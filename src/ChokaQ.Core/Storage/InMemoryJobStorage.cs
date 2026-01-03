@@ -110,4 +110,17 @@ public class InMemoryJobStorage : IJobStorage
             // No sleep needed, this spin is extremely fast.
         }
     }
+
+    /// <inheritdoc />
+    public ValueTask<IEnumerable<JobStorageDto>> GetJobsAsync(int limit = 50, CancellationToken ct = default)
+    {
+        // Snapshot the values. 
+        // In a real DB (SQL), this would be a SELECT * ORDER BY CreatedAt DESC LIMIT @limit
+        // For InMemory, LINQ is fine for now.
+        var items = _jobs.Values
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Take(limit);
+
+        return new ValueTask<IEnumerable<JobStorageDto>>(items);
+    }
 }

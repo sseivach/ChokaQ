@@ -40,4 +40,12 @@ public interface IJobStorage
     /// <param name="ct">Cancellation token.</param>
     /// <returns>True if updated, False if job not found.</returns>
     ValueTask<bool> UpdateJobStateAsync(string id, JobStatus status, CancellationToken ct = default);
+
+    /// <summary>
+    /// Retrieves a paginated list of jobs for monitoring purposes.
+    /// </summary>
+    /// <param name="limit">Max number of jobs to fetch.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>A collection of job DTOs.</returns>
+    ValueTask<IEnumerable<JobStorageDto>> GetJobsAsync(int limit = 50, CancellationToken ct = default);
 }
