@@ -1,8 +1,8 @@
 using ChokaQ.Abstractions;
+using ChokaQ.Core.Handlers;
+using ChokaQ.Core.Jobs;
 using ChokaQ.Core.Queues;
 using ChokaQ.Core.Workers;
-using ChokaQ.Core.Jobs;
-using ChokaQ.Core.Handlers;
 using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);

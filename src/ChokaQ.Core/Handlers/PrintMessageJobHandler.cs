@@ -1,6 +1,6 @@
-﻿using Microsoft.Extensions.Logging;
-using ChokaQ.Abstractions;
+﻿using ChokaQ.Abstractions;
 using ChokaQ.Core.Jobs;
+using Microsoft.Extensions.Logging;
 
 namespace ChokaQ.Core.Handlers;
 

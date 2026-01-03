@@ -2,10 +2,7 @@
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Storage;
 using Microsoft.Extensions.Logging;
-using System;
 using System.Collections.Concurrent;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace ChokaQ.Core.Storage;
 
@@ -84,7 +81,6 @@ public class InMemoryJobStorage : IJobStorage
     public ValueTask<bool> UpdateJobStateAsync(string id, JobStatus status, CancellationToken ct = default)
     {
         // CAS (Compare-And-Swap) Loop.
-        // This is the "Staff Engineer" way to handle concurrency in lock-free structures.
         // We read, modify, and try to update ONLY if the value hasn't changed in the meantime.
         while (true)
         {

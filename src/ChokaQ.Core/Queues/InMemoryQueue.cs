@@ -1,5 +1,5 @@
-﻿using System.Threading.Channels;
-using ChokaQ.Abstractions;
+﻿using ChokaQ.Abstractions;
+using System.Threading.Channels;
 
 namespace ChokaQ.Core.Queues;
 
