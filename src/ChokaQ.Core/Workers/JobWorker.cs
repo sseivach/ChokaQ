@@ -1,7 +1,7 @@
 ﻿using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.Enums; // <--- Need enums
-using ChokaQ.Abstractions.Storage; // <--- Need storage
-using ChokaQ.Core.Queues; // Need concrete queue class for Reader property? Better use interface if possible but here concrete is OK.
+using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Storage;
+using ChokaQ.Core.Queues;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -11,18 +11,21 @@ namespace ChokaQ.Core.Workers;
 public class JobWorker : BackgroundService
 {
     private readonly ILogger<JobWorker> _logger;
-    private readonly InMemoryQueue _queue; // Or IChokaQQueue if you expose Reader there
-    private readonly IJobStorage _storage; // <--- Reporting line
+    private readonly InMemoryQueue _queue;
+    private readonly IJobStorage _storage;
+    private readonly IChokaQNotifier _notifier; // Service for real-time notifications
     private readonly IServiceScopeFactory _scopeFactory;
 
     public JobWorker(
         InMemoryQueue queue,
-        IJobStorage storage, // <--- Inject Storage
+        IJobStorage storage,
+        IChokaQNotifier notifier, // Injecting the notifier
         ILogger<JobWorker> logger,
         IServiceScopeFactory scopeFactory)
     {
         _queue = queue;
         _storage = storage;
+        _notifier = notifier;
         _logger = logger;
         _scopeFactory = scopeFactory;
     }
@@ -31,44 +34,71 @@ public class JobWorker : BackgroundService
     {
         _logger.LogInformation("[ChokaQ] Worker started. Ready to rumble.");
 
+        // Wait until data is available in the channel
         while (await _queue.Reader.WaitToReadAsync(stoppingToken))
         {
+            // Try to read the job from the channel
             while (_queue.Reader.TryRead(out var job))
             {
                 try
                 {
-                    // 1. Report: RUNNING
-                    await _storage.UpdateJobStateAsync(job.Id, JobStatus.Processing, stoppingToken);
+                    // 1. Report state: PROCESSING
+                    await UpdateStateAndNotifyAsync(job.Id, JobStatus.Processing, stoppingToken);
 
-                    // 2. Do the work
+                    // 2. Execute the actual job logic
                     await ProcessJobAsync(job, stoppingToken);
 
-                    // 3. Report: SUCCEEDED
-                    await _storage.UpdateJobStateAsync(job.Id, JobStatus.Succeeded, stoppingToken);
+                    // 3. Report state: SUCCEEDED
+                    await UpdateStateAndNotifyAsync(job.Id, JobStatus.Succeeded, stoppingToken);
+
                     _logger.LogInformation("Job done. ID: {JobId}", job.Id);
                 }
                 catch (Exception ex)
                 {
-                    // 4. Report: FAILED
+                    // 4. Handle failure and report state: FAILED
                     _logger.LogError(ex, "Job failed. ID: {JobId}", job.Id);
-                    await _storage.UpdateJobStateAsync(job.Id, JobStatus.Failed, stoppingToken);
+                    await UpdateStateAndNotifyAsync(job.Id, JobStatus.Failed, stoppingToken);
                 }
             }
         }
     }
 
+    /// <summary>
+    /// Helper method to update the job status in storage and send a real-time notification.
+    /// </summary>
+    private async Task UpdateStateAndNotifyAsync(string jobId, JobStatus status, CancellationToken ct)
+    {
+        // 1. Update the persistence layer (Database/Memory)
+        await _storage.UpdateJobStateAsync(jobId, status, ct);
+
+        // 2. Send notification via SignalR (wrapped in try-catch to ensure worker stability)
+        try
+        {
+            await _notifier.NotifyJobUpdatedAsync(jobId, status);
+        }
+        catch (Exception ex)
+        {
+            // Log the error but do not stop the worker if notification fails
+            _logger.LogError(ex, "Failed to send SignalR notification for Job {JobId}", jobId);
+        }
+    }
+
     private async Task ProcessJobAsync(IChokaQJob job, CancellationToken ct)
     {
+        // Create a DI scope for the handler to support scoped services (like EF Core DbContext)
         using var scope = _scopeFactory.CreateScope();
         var jobType = job.GetType();
+
+        // Resolve the specific handler for this job type
         var handlerType = typeof(IChokaQJobHandler<>).MakeGenericType(jobType);
         var handler = scope.ServiceProvider.GetService(handlerType);
 
         if (handler == null)
         {
-            throw new InvalidOperationException($"No handler for {jobType.Name}");
+            throw new InvalidOperationException($"No handler registered for {jobType.Name}");
         }
 
+        // Invoke the HandleAsync method via Reflection
         var method = handlerType.GetMethod("HandleAsync");
         if (method != null)
         {

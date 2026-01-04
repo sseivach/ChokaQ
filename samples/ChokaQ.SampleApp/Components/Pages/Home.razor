@@ -1,7 +1,11 @@
 ﻿@page "/"
+@using ChokaQ.Dashboard 
 
-<PageTitle>Home</PageTitle>
+<PageTitle>ChokaQ Dashboard</PageTitle>
 
-<h1>Hello, world!</h1>
+<div class="container mt-4">
+    <h1>Mission Control</h1>
+    <p>Real-time job monitoring.</p>
 
-Welcome to your new app.
+    <JobsList @rendermode="InteractiveServer" />
+</div>
