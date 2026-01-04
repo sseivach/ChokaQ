@@ -1,0 +1,120 @@
+@using Microsoft.AspNetCore.SignalR.Client
+@using ChokaQ.Abstractions.Enums
+@implements IAsyncDisposable
+@inject NavigationManager Navigation
+
+<div class="card">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <span>Live Job Feed</span>
+        @if (isConnected)
+        {
+            <span class="badge bg-success">Connected</span>
+        }
+        else
+        {
+            <span class="badge bg-danger">Disconnected</span>
+        }
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-striped mb-0">
+            <thead>
+                <tr>
+                    <th>Job ID</th>
+                    <th>Status</th>
+                    <th>Last Updated</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var job in jobs)
+                {
+                    <tr>
+                        <td><small>@job.Id</small></td>
+                        <td>
+                            <span class="badge @GetBadgeClass(job.Status)">
+                                @job.Status
+                            </span>
+                        </td>
+                        <td>@job.LastUpdated.ToString("HH:mm:ss")</td>
+                    </tr>
+                }
+                @if (!jobs.Any())
+                {
+                    <tr>
+                        <td colspan="3" class="text-center text-muted py-4">
+                            Waiting for jobs...
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private HubConnection? hubConnection;
+    private List<JobViewModel> jobs = new();
+    private bool isConnected => hubConnection?.State == HubConnectionState.Connected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // 1. Build the connection to the Hub
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/chokaq-hub"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        // 2. Listen for "JobUpdated" messages from Server
+        hubConnection.On<string, int>("JobUpdated", (jobId, statusInt) =>
+        {
+            var status = (JobStatus)statusInt;
+            UpdateJob(jobId, status);
+            InvokeAsync(StateHasChanged); // Refresh UI
+        });
+
+        // 3. Start Connection
+        await hubConnection.StartAsync();
+    }
+
+    private void UpdateJob(string jobId, JobStatus status)
+    {
+        var existing = jobs.FirstOrDefault(j => j.Id == jobId);
+        if (existing != null)
+        {
+            existing.Status = status;
+            existing.LastUpdated = DateTime.Now;
+        }
+        else
+        {
+            // Add new job to the top
+            jobs.Insert(0, new JobViewModel { Id = jobId, Status = status, LastUpdated = DateTime.Now });
+
+            // Keep list size manageable
+            if (jobs.Count > 50) jobs.RemoveAt(jobs.Count - 1);
+        }
+    }
+
+    private string GetBadgeClass(JobStatus status) => status switch
+    {
+        JobStatus.Pending => "bg-secondary",
+        JobStatus.Processing => "bg-warning text-dark",
+        JobStatus.Succeeded => "bg-success",
+        JobStatus.Failed => "bg-danger",
+        _ => "bg-light text-dark"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+
+    // Simple view model for the UI
+    public class JobViewModel
+    {
+        public string Id { get; set; } = "";
+        public JobStatus Status { get; set; }
+        public DateTime LastUpdated { get; set; }
+    }
+}

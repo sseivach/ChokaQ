@@ -13,10 +13,12 @@ public class PrintMessageJobHandler : IChokaQJobHandler<PrintMessageJob>
         _logger = logger;
     }
 
-    public Task HandleAsync(PrintMessageJob job, CancellationToken ct)
+    public async Task HandleAsync(PrintMessageJob job, CancellationToken ct)
     {
-        // Simulate some work
-        _logger.LogWarning($"[>>> HANDLER <<<] Received message: {job.Text}");
-        return Task.CompletedTask;
+        _logger.LogWarning($"[>>> HANDLER <<<] Starting to process: {job.Text}");
+
+        await Task.Delay(2000, ct);
+
+        _logger.LogWarning($"[>>> HANDLER <<<] Finished processing: {job.Text}");
     }
 }
