@@ -1,7 +1,7 @@
 ﻿using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
 
-namespace ChokaQ.Abstractions.Storage;
+namespace ChokaQ.Abstractions;
 
 /// <summary>
 /// Defines the contract for job persistence providers.

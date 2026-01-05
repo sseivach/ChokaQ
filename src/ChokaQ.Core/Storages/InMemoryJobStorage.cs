@@ -1,10 +1,10 @@
-﻿using ChokaQ.Abstractions.DTOs;
+﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
-using ChokaQ.Abstractions.Storage;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 
-namespace ChokaQ.Core.Storage;
+namespace ChokaQ.Core.Storages;
 
 /// <summary>
 /// Uses ConcurrentDictionary for thread-safe operations without locking overhead.
