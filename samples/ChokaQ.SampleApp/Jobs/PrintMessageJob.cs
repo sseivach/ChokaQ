@@ -2,7 +2,4 @@
 
 namespace ChokaQ.SampleApp.Jobs;
 
-public record PrintMessageJob(string Text) : IChokaQJob
-{
-    public string Id { get; init; } = Guid.NewGuid().ToString();
-}
+public record PrintMessageJob(string Text) : ChokaQBaseJob;
