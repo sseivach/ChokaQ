@@ -1,9 +1,9 @@
 ﻿using ChokaQ.Abstractions;
-using ChokaQ.Core.Jobs;
-using Microsoft.Extensions.Logging;
+using ChokaQ.SampleApp.Jobs;
 
-namespace ChokaQ.Core.Handlers;
+namespace ChokaQ.SampleApp.Handlers;
 
+// The logic is also fully controlled by the Consumer App.
 public class PrintMessageJobHandler : IChokaQJobHandler<PrintMessageJob>
 {
     private readonly ILogger<PrintMessageJobHandler> _logger;
@@ -15,10 +15,11 @@ public class PrintMessageJobHandler : IChokaQJobHandler<PrintMessageJob>
 
     public async Task HandleAsync(PrintMessageJob job, CancellationToken ct)
     {
-        _logger.LogWarning($"[>>> HANDLER <<<] Starting to process: {job.Text}");
+        _logger.LogInformation($"[APP HANDLER] Processing: {job.Text}");
 
-        await Task.Delay(2000, ct);
+        // Simulating some heavy work defined by the app
+        await Task.Delay(1000, ct);
 
-        _logger.LogWarning($"[>>> HANDLER <<<] Finished processing: {job.Text}");
+        _logger.LogInformation($"[APP HANDLER] Completed: {job.Text}");
     }
 }

@@ -193,7 +193,7 @@
 
     private string getRowClass(JobViewModel job)
     {
-        // [Translating from Russian]: Row highlighting in dark mode needs to be subtle.
+        // Subtle row highlighting for dark mode.
         return job.Status == JobStatus.Processing ? "table-active" : "";
     }
 
