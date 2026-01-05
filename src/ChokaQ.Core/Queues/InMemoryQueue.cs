@@ -1,5 +1,7 @@
 ﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Storage;
+using Microsoft.Extensions.Logging;
 using System.Threading.Channels;
 using System.Text.Json;
 
@@ -9,10 +11,17 @@ public class InMemoryQueue : IChokaQQueue
 {
     private readonly Channel<IChokaQJob> _queue;
     private readonly IJobStorage _storage;
+    private readonly IChokaQNotifier _notifier;
+    private readonly ILogger<InMemoryQueue> _logger;
 
-    public InMemoryQueue(IJobStorage storage)
+    public InMemoryQueue(
+        IJobStorage storage,
+        IChokaQNotifier notifier,
+        ILogger<InMemoryQueue> logger)
     {
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
+        _notifier = notifier ?? throw new ArgumentNullException(nameof(notifier));
+        _logger = logger;
 
         var options = new UnboundedChannelOptions
         {
@@ -29,7 +38,7 @@ public class InMemoryQueue : IChokaQQueue
         // 1. Serialize payload
         var payload = JsonSerializer.Serialize(job);
 
-        // 2. Save to "Safe" (Storage) using the Job's ID
+        // 2. Save to "Safe" (Storage) -> Status is Pending by default inside CreateJobAsync
         await _storage.CreateJobAsync(
              id: job.Id,
              queue: "default",
@@ -38,7 +47,18 @@ public class InMemoryQueue : IChokaQQueue
              ct: ct
         );
 
-        // 3. Push to Channel
+        // 3. [NEW] Notify UI immediately! (Status = Pending)
+        try
+        {
+            await _notifier.NotifyJobUpdatedAsync(job.Id, JobStatus.Pending);
+        }
+        catch (Exception ex)
+        {
+            // Don't crash the queue if SignalR is down
+            _logger.LogWarning("Failed to notify UI about new job: {Message}", ex.Message);
+        }
+
+        // 4. Push to Channel for the Worker
         await _queue.Writer.WriteAsync(job, ct);
     }
 }

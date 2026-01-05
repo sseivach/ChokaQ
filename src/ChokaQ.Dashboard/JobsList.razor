@@ -1,52 +1,121 @@
-@using Microsoft.AspNetCore.SignalR.Client
+﻿@using Microsoft.AspNetCore.SignalR.Client
 @using ChokaQ.Abstractions.Enums
 @implements IAsyncDisposable
 @inject NavigationManager Navigation
 
-<div class="card">
-    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-        <span>Live Job Feed</span>
-        @if (isConnected)
-        {
-            <span class="badge bg-success">Connected</span>
-        }
-        else
-        {
-            <span class="badge bg-danger">Disconnected</span>
-        }
+<div class="container-fluid p-0">
+    <div class="row mb-4 g-3">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase mb-2">Processing</h6>
+                    <h2 class="mb-0 text-warning">
+                        @jobs.Count(x => x.Status == JobStatus.Processing)
+                        <span class="fs-6">⚡</span>
+                    </h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase mb-2">Succeeded</h6>
+                    <h2 class="mb-0 text-success">
+                        @jobs.Count(x => x.Status == JobStatus.Succeeded)
+                        <span class="fs-6">✅</span>
+                    </h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase mb-2">Failed</h6>
+                    <h2 class="mb-0 text-danger">
+                        @jobs.Count(x => x.Status == JobStatus.Failed)
+                        <span class="fs-6">🔥</span>
+                    </h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase mb-2">Total Jobs</h6>
+                    <h2 class="mb-0 text-primary">@jobs.Count</h2>
+                </div>
+            </div>
+        </div>
     </div>
-    <div class="card-body p-0">
-        <table class="table table-striped mb-0">
-            <thead>
-                <tr>
-                    <th>Job ID</th>
-                    <th>Status</th>
-                    <th>Last Updated</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var job in jobs)
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 fw-bold">🚀 Live Job Feed</h5>
+
+            <div class="d-flex gap-2 align-items-center">
+                @if (isConnected)
                 {
-                    <tr>
-                        <td><small>@job.Id</small></td>
-                        <td>
-                            <span class="badge @GetBadgeClass(job.Status)">
-                                @job.Status
-                            </span>
-                        </td>
-                        <td>@job.LastUpdated.ToString("HH:mm:ss")</td>
-                    </tr>
+                    <span class="badge bg-success-subtle text-success border border-success px-3">
+                        ● SignalR Connected
+                    </span>
                 }
-                @if (!jobs.Any())
+                else
                 {
-                    <tr>
-                        <td colspan="3" class="text-center text-muted py-4">
-                            Waiting for jobs...
-                        </td>
-                    </tr>
+                    <span class="badge bg-danger-subtle text-danger border border-danger px-3">
+                        ● Disconnected
+                    </span>
                 }
-            </tbody>
-        </table>
+
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ClearHistory" title="Clear local history">
+                    🗑️ Clear
+                </button>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th scope="col" style="width: 40%">Job ID</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Last Update</th>
+                        <th scope="col" class="text-end">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var job in jobs)
+                    {
+                        <tr @key="job.Id" class="@getRowClass(job)">
+                            <td>
+                                <code class="text-primary fw-bold">@job.Id</code>
+                            </td>
+                            <td>
+                                <span class="badge rounded-pill @GetBadgeClass(job.Status)">
+                                    @GetStatusIcon(job.Status) @job.Status
+                                </span>
+                            </td>
+                            <td class="text-muted small">
+                                @job.LastUpdated.ToString("HH:mm:ss.fff")
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-link btn-sm text-decoration-none p-0" title="View Details (Mock)">
+                                    Details ➝
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                    @if (!jobs.Any())
+                    {
+                        <tr>
+                            <td colspan="4" class="text-center py-5 text-muted">
+                                <div class="fs-1 mb-2">💤</div>
+                                <p>No active jobs. Enqueue something to see magic!</p>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
@@ -57,21 +126,18 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // 1. Build the connection to the Hub
         hubConnection = new HubConnectionBuilder()
             .WithUrl(Navigation.ToAbsoluteUri("/chokaq-hub"))
             .WithAutomaticReconnect()
             .Build();
 
-        // 2. Listen for "JobUpdated" messages from Server
         hubConnection.On<string, int>("JobUpdated", (jobId, statusInt) =>
         {
             var status = (JobStatus)statusInt;
             UpdateJob(jobId, status);
-            InvokeAsync(StateHasChanged); // Refresh UI
+            InvokeAsync(StateHasChanged);
         });
 
-        // 3. Start Connection
         await hubConnection.StartAsync();
     }
 
@@ -82,25 +148,44 @@
         {
             existing.Status = status;
             existing.LastUpdated = DateTime.Now;
+            // Move to top if updated? Optional.
         }
         else
         {
-            // Add new job to the top
             jobs.Insert(0, new JobViewModel { Id = jobId, Status = status, LastUpdated = DateTime.Now });
-
-            // Keep list size manageable
-            if (jobs.Count > 50) jobs.RemoveAt(jobs.Count - 1);
+            // Keep memory sane
+            if (jobs.Count > 100) jobs.RemoveAt(jobs.Count - 1);
         }
+    }
+
+    private void ClearHistory()
+    {
+        jobs.Clear();
     }
 
     private string GetBadgeClass(JobStatus status) => status switch
     {
-        JobStatus.Pending => "bg-secondary",
-        JobStatus.Processing => "bg-warning text-dark",
-        JobStatus.Succeeded => "bg-success",
-        JobStatus.Failed => "bg-danger",
+        JobStatus.Pending => "bg-secondary-subtle text-secondary border border-secondary",
+        JobStatus.Processing => "bg-warning-subtle text-warning-emphasis border border-warning",
+        JobStatus.Succeeded => "bg-success-subtle text-success border border-success",
+        JobStatus.Failed => "bg-danger-subtle text-danger border border-danger",
         _ => "bg-light text-dark"
     };
+
+    private string GetStatusIcon(JobStatus status) => status switch
+    {
+        JobStatus.Pending => "⏳",
+        JobStatus.Processing => "⚙️",
+        JobStatus.Succeeded => "✅",
+        JobStatus.Failed => "❌",
+        _ => "❓"
+    };
+
+    private string getRowClass(JobViewModel job)
+    {
+        // Simple highlight logic for active jobs
+        return job.Status == JobStatus.Processing ? "table-warning" : "";
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -110,7 +195,6 @@
         }
     }
 
-    // Simple view model for the UI
     public class JobViewModel
     {
         public string Id { get; set; } = "";
