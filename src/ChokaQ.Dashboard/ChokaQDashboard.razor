@@ -132,15 +132,18 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Initialize the SignalR connection to the ChokaQ Hub
         hubConnection = new HubConnectionBuilder()
             .WithUrl(Navigation.ToAbsoluteUri("/chokaq-hub"))
             .WithAutomaticReconnect()
             .Build();
 
+        // Register the handler for the "JobUpdated" event sent by the backend
         hubConnection.On<string, int>("JobUpdated", (jobId, statusInt) =>
         {
             var status = (JobStatus)statusInt;
             UpdateJob(jobId, status);
+            // Force UI refresh as this happens on a background thread
             InvokeAsync(StateHasChanged);
         });
 
@@ -157,7 +160,10 @@
         }
         else
         {
+            // Add new jobs to the top of the list
             jobs.Insert(0, new JobViewModel { Id = jobId, Status = status, LastUpdated = DateTime.Now });
+
+            // Limit the list size to prevent memory bloat in the browser
             if (jobs.Count > 100) jobs.RemoveAt(jobs.Count - 1);
         }
     }
@@ -187,7 +193,7 @@
 
     private string getRowClass(JobViewModel job)
     {
-        // Подсветка строки в темной теме должна быть аккуратной
+        // [Translating from Russian]: Row highlighting in dark mode needs to be subtle.
         return job.Status == JobStatus.Processing ? "table-active" : "";
     }
 
