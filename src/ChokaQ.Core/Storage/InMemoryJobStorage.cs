@@ -7,9 +7,7 @@ using System.Collections.Concurrent;
 namespace ChokaQ.Core.Storage;
 
 /// <summary>
-/// A high-performance, volatile implementation of job storage.
 /// Uses ConcurrentDictionary for thread-safe operations without locking overhead.
-/// Ideally suited for development, testing, or non-critical ephemeral workloads.
 /// </summary>
 public class InMemoryJobStorage : IJobStorage
 {

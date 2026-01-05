@@ -18,7 +18,7 @@ public interface IJobStorage
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The unique ID of the created job.</returns>
     ValueTask<string> CreateJobAsync(
-        string id, // <--- NEW param
+        string id,
         string queue,
         string jobType,
         string payload,
