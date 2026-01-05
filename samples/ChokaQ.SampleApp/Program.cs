@@ -1,9 +1,9 @@
 ﻿using ChokaQ.Abstractions;
 using ChokaQ.Core.Extensions;
-using ChokaQ.Core.Handlers;
-using ChokaQ.Core.Jobs;
 using ChokaQ.Dashboard.Extensions;
 using ChokaQ.SampleApp.Components;
+using ChokaQ.SampleApp.Handlers;
+using ChokaQ.SampleApp.Jobs;
 using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -12,13 +12,13 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-// Register HttpClient to allow the Blazor components (like JobGenerator) 
+// Register HttpClient to allow the Blazor components
 // to call the API endpoints hosted in this same application.
 builder.Services.AddHttpClient();
 
-// ==========================================
+// =+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
 // CHOKAQ REGISTRATION
-// ==========================================
+// =+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
 
 // 1. Core Services (Queue, Storage, Background Workers)
 // This registers the essential infrastructure to run background jobs.
@@ -32,7 +32,7 @@ builder.Services.AddChokaQDashboard();
 // Register the specific logic for processing PrintMessageJob.
 builder.Services.AddTransient<IChokaQJobHandler<PrintMessageJob>, PrintMessageJobHandler>();
 
-// ==========================================
+// =+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
 
 var app = builder.Build();
 
