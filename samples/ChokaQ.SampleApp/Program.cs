@@ -1,8 +1,8 @@
 ﻿using ChokaQ.Abstractions;
 using ChokaQ.Core.Extensions;
-using ChokaQ.Dashboard;
-using ChokaQ.Core.Jobs;
 using ChokaQ.Core.Handlers;
+using ChokaQ.Core.Jobs;
+using ChokaQ.Dashboard.Extensions;
 using ChokaQ.SampleApp.Components;
 using Microsoft.AspNetCore.Mvc;
 

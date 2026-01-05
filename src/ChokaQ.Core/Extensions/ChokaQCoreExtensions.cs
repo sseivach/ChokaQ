@@ -1,8 +1,7 @@
 ﻿using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Notifiers;
 using ChokaQ.Core.Queues;
-using ChokaQ.Core.Storage;
+using ChokaQ.Core.Storages;
 using ChokaQ.Core.Workers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions; // Need this for TryAdd

@@ -4,7 +4,7 @@ using ChokaQ.Dashboard.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace ChokaQ.Dashboard;
+namespace ChokaQ.Dashboard.Extensions;
 
 public static class ChokaQDashboardExtensions
 {

@@ -1,5 +1,4 @@
-﻿using Microsoft.AspNetCore.SignalR.Client;
-using Microsoft.AspNetCore.SignalR;
+﻿using Microsoft.AspNetCore.SignalR;
 
 namespace ChokaQ.Dashboard.Hubs;
 
