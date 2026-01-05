@@ -34,7 +34,9 @@ public static class ChokaQCoreExtensions
         services.TryAddSingleton<IChokaQQueue>(sp => sp.GetRequiredService<InMemoryQueue>());
 
         // 5. The Engine (Background Worker)
-        services.AddHostedService<JobWorker>();
+        services.TryAddSingleton<JobWorker>();
+        services.TryAddSingleton<IWorkerManager>(sp => sp.GetRequiredService<JobWorker>());
+        services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
 
         return services;
     }
