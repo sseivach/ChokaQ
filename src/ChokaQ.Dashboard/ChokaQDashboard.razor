@@ -3,12 +3,18 @@
 @implements IAsyncDisposable
 @inject NavigationManager Navigation
 
-<div class="container-fluid p-0">
+<div class="p-4 rounded shadow-lg border border-secondary" style="background-color: #1e1e1e;">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4 class="text-white mb-0">🔌 ChokaQ Dashboard Component</h4>
+        <small class="text-secondary">v1.0.0</small>
+    </div>
+
     <div class="row mb-4 g-3">
         <div class="col-md-3">
-            <div class="card border-0 shadow-sm">
+            <div class="card bg-dark text-white border-secondary shadow-sm">
                 <div class="card-body">
-                    <h6 class="text-muted text-uppercase mb-2">Processing</h6>
+                    <h6 class="text-secondary text-uppercase mb-2">Processing</h6>
                     <h2 class="mb-0 text-warning">
                         @jobs.Count(x => x.Status == JobStatus.Processing)
                         <span class="fs-6">⚡</span>
@@ -17,9 +23,9 @@
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card border-0 shadow-sm">
+            <div class="card bg-dark text-white border-secondary shadow-sm">
                 <div class="card-body">
-                    <h6 class="text-muted text-uppercase mb-2">Succeeded</h6>
+                    <h6 class="text-secondary text-uppercase mb-2">Succeeded</h6>
                     <h2 class="mb-0 text-success">
                         @jobs.Count(x => x.Status == JobStatus.Succeeded)
                         <span class="fs-6">✅</span>
@@ -28,9 +34,9 @@
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card border-0 shadow-sm">
+            <div class="card bg-dark text-white border-secondary shadow-sm">
                 <div class="card-body">
-                    <h6 class="text-muted text-uppercase mb-2">Failed</h6>
+                    <h6 class="text-secondary text-uppercase mb-2">Failed</h6>
                     <h2 class="mb-0 text-danger">
                         @jobs.Count(x => x.Status == JobStatus.Failed)
                         <span class="fs-6">🔥</span>
@@ -39,43 +45,43 @@
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card border-0 shadow-sm">
+            <div class="card bg-dark text-white border-secondary shadow-sm">
                 <div class="card-body">
-                    <h6 class="text-muted text-uppercase mb-2">Total Jobs</h6>
+                    <h6 class="text-secondary text-uppercase mb-2">Total Jobs</h6>
                     <h2 class="mb-0 text-primary">@jobs.Count</h2>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="card shadow-sm border-0">
-        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-            <h5 class="mb-0 fw-bold">🚀 Live Job Feed</h5>
+    <div class="card bg-dark border-secondary shadow-sm">
+        <div class="card-header bg-dark border-secondary py-3 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 fw-bold text-white">🚀 Live Job Feed</h5>
 
             <div class="d-flex gap-2 align-items-center">
                 @if (isConnected)
                 {
-                    <span class="badge bg-success-subtle text-success border border-success px-3">
-                        ● SignalR Connected
+                    <span class="badge bg-success text-white border border-success px-3">
+                        ● Online
                     </span>
                 }
                 else
                 {
-                    <span class="badge bg-danger-subtle text-danger border border-danger px-3">
-                        ● Disconnected
+                    <span class="badge bg-danger text-white border border-danger px-3">
+                        ● Offline
                     </span>
                 }
 
-                <button class="btn btn-sm btn-outline-secondary" @onclick="ClearHistory" title="Clear local history">
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ClearHistory">
                     🗑️ Clear
                 </button>
             </div>
         </div>
 
         <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead class="table-light">
-                    <tr>
+            <table class="table table-dark table-hover align-middle mb-0">
+                <thead>
+                    <tr class="text-secondary">
                         <th scope="col" style="width: 40%">Job ID</th>
                         <th scope="col">Status</th>
                         <th scope="col">Last Update</th>
@@ -87,18 +93,18 @@
                     {
                         <tr @key="job.Id" class="@getRowClass(job)">
                             <td>
-                                <code class="text-primary fw-bold">@job.Id</code>
+                                <code class="text-info fw-bold">@job.Id</code>
                             </td>
                             <td>
                                 <span class="badge rounded-pill @GetBadgeClass(job.Status)">
                                     @GetStatusIcon(job.Status) @job.Status
                                 </span>
                             </td>
-                            <td class="text-muted small">
+                            <td class="text-secondary small">
                                 @job.LastUpdated.ToString("HH:mm:ss.fff")
                             </td>
                             <td class="text-end">
-                                <button class="btn btn-link btn-sm text-decoration-none p-0" title="View Details (Mock)">
+                                <button class="btn btn-link btn-sm text-secondary text-decoration-none p-0">
                                     Details ➝
                                 </button>
                             </td>
@@ -109,7 +115,7 @@
                         <tr>
                             <td colspan="4" class="text-center py-5 text-muted">
                                 <div class="fs-1 mb-2">💤</div>
-                                <p>No active jobs. Enqueue something to see magic!</p>
+                                <p>No active jobs in queue</p>
                             </td>
                         </tr>
                     }
@@ -148,12 +154,10 @@
         {
             existing.Status = status;
             existing.LastUpdated = DateTime.Now;
-            // Move to top if updated? Optional.
         }
         else
         {
             jobs.Insert(0, new JobViewModel { Id = jobId, Status = status, LastUpdated = DateTime.Now });
-            // Keep memory sane
             if (jobs.Count > 100) jobs.RemoveAt(jobs.Count - 1);
         }
     }
@@ -165,10 +169,10 @@
 
     private string GetBadgeClass(JobStatus status) => status switch
     {
-        JobStatus.Pending => "bg-secondary-subtle text-secondary border border-secondary",
-        JobStatus.Processing => "bg-warning-subtle text-warning-emphasis border border-warning",
-        JobStatus.Succeeded => "bg-success-subtle text-success border border-success",
-        JobStatus.Failed => "bg-danger-subtle text-danger border border-danger",
+        JobStatus.Pending => "bg-secondary text-white",
+        JobStatus.Processing => "bg-warning text-dark",
+        JobStatus.Succeeded => "bg-success text-white",
+        JobStatus.Failed => "bg-danger text-white",
         _ => "bg-light text-dark"
     };
 
@@ -183,8 +187,8 @@
 
     private string getRowClass(JobViewModel job)
     {
-        // Simple highlight logic for active jobs
-        return job.Status == JobStatus.Processing ? "table-warning" : "";
+        // Подсветка строки в темной теме должна быть аккуратной
+        return job.Status == JobStatus.Processing ? "table-active" : "";
     }
 
     public async ValueTask DisposeAsync()

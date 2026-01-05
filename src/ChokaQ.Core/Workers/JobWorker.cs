@@ -15,7 +15,7 @@ namespace ChokaQ.Core.Workers;
 public class JobWorker : BackgroundService
 {
     private readonly ILogger<JobWorker> _logger;
-    private readonly InMemoryQueue _queue;
+    private readonly InMemoryQueue _queue; 
     private readonly IJobStorage _storage;
     private readonly IChokaQNotifier _notifier;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -39,7 +39,7 @@ public class JobWorker : BackgroundService
     /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("[ChokaQ] Worker started. Ready to rumble.");
+        _logger.LogInformation("[ChokaQ] Worker started.");
 
         // WaitToReadAsync efficiently suspends the thread until data is available.
         while (await _queue.Reader.WaitToReadAsync(stoppingToken))
@@ -76,9 +76,9 @@ public class JobWorker : BackgroundService
     {
         // Persistence
         await _storage.UpdateJobStateAsync(jobId, status, ct);
-
+        
         // Notification (Fire-and-forget style safety)
-        try
+        try 
         {
             await _notifier.NotifyJobUpdatedAsync(jobId, status);
         }
@@ -96,7 +96,7 @@ public class JobWorker : BackgroundService
         // Create a new DI scope ensures that scoped services (like DbContext) are fresh for each job.
         using var scope = _scopeFactory.CreateScope();
         var jobType = job.GetType();
-
+        
         // Dynamic generic type resolution: IChokaQJobHandler<TJob>
         var handlerType = typeof(IChokaQJobHandler<>).MakeGenericType(jobType);
         var handler = scope.ServiceProvider.GetService(handlerType);
