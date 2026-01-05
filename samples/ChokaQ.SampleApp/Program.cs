@@ -1,41 +1,35 @@
 ﻿using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.Storage;
-using ChokaQ.Core.Handlers;
+using ChokaQ.Core.Extensions;
+using ChokaQ.Dashboard;
 using ChokaQ.Core.Jobs;
-using ChokaQ.Core.Queues;
-using ChokaQ.Core.Storage;
-using ChokaQ.Core.Workers;
+using ChokaQ.Core.Handlers;
 using ChokaQ.SampleApp.Components;
-using ChokaQ.SampleApp.Hubs;
-using ChokaQ.SampleApp.Services;
 using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Add services to the container.
+// Add services to the container.
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents(); // Enables SignalR for components
+    .AddInteractiveServerComponents();
 
-builder.Services.AddSignalR(); // Required for the Hub
+// Register HttpClient to allow the Blazor components (like JobGenerator) 
+// to call the API endpoints hosted in this same application.
+builder.Services.AddHttpClient();
 
 // ==========================================
-// 2. ChokaQ Services Registration
+// CHOKAQ REGISTRATION
 // ==========================================
 
-builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
-builder.Services.AddSingleton<IJobStorage, InMemoryJobStorage>();
-builder.Services.AddSingleton<InMemoryQueue>();
+// 1. Core Services (Queue, Storage, Background Workers)
+// This registers the essential infrastructure to run background jobs.
+builder.Services.AddChokaQ();
 
-// Alias for the queue interface
-builder.Services.AddSingleton<IChokaQQueue>(sp => sp.GetRequiredService<InMemoryQueue>());
+// 2. Dashboard Services (SignalR Hub + Real-time Notifier)
+// This connects the backend to the UI, enabling live updates.
+builder.Services.AddChokaQDashboard();
 
-// Register the Real-time Notifier (SignalR implementation)
-builder.Services.AddSingleton<IChokaQNotifier, SignalRNotifier>();
-
-// Register the Background Worker
-builder.Services.AddHostedService<JobWorker>();
-
-// Register the Handler for the test job
+// 3. Application Job Handlers
+// Register the specific logic for processing PrintMessageJob.
 builder.Services.AddTransient<IChokaQJobHandler<PrintMessageJob>, PrintMessageJobHandler>();
 
 // ==========================================
@@ -46,30 +40,67 @@ var app = builder.Build();
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
+    // The default HSTS value is 30 days. You may want to change this for production scenarios.
     app.UseHsts();
 }
 
 app.UseHttpsRedirection();
-
-// This middleware serves static files (CSS, JS, images).
-// In the new Blazor template, this handles static web assets automatically.
 app.UseStaticFiles();
-
 app.UseAntiforgery();
 
-// Map the SignalR Hub
-app.MapHub<ChokaQHub>("/chokaq-hub");
+// ==========================================
+// CHOKAQ MIDDLEWARE
+// ==========================================
+
+// Maps the SignalR Hub required for the Dashboard to receive updates.
+app.UseChokaQDashboard();
+
+// ==========================================
 
 // Map Blazor Components
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// Test Endpoint to push jobs via cURL / Postman
+// ==========================================
+// API ENDPOINTS (For Simulation & Testing)
+// ==========================================
+
+// 1. Bulk Job Generation Endpoint
+// Used by the "Job Generator" UI component to fire multiple tasks at once.
+app.MapPost("/api/simulation/bulk", async (IChokaQQueue queue, [FromBody] int count) =>
+{
+    if (count < 1 || count > 100)
+    {
+        return Results.BadRequest("Count must be between 1 and 100.");
+    }
+
+    var jobIds = new List<string>();
+
+    for (int i = 0; i < count; i++)
+    {
+        // Create a new job instance with a timestamped message
+        var job = new PrintMessageJob($"Bulk Task #{i + 1} generated at {DateTime.Now:HH:mm:ss}");
+
+        // Enqueue the job for background processing
+        await queue.EnqueueAsync(job);
+
+        jobIds.Add(job.Id);
+    }
+
+    return Results.Ok(new
+    {
+        Message = $"Successfully enqueued {count} jobs.",
+        JobIds = jobIds
+    });
+});
+
+// 2. Single Job Endpoint (Manual Test)
+// Allows triggering a specific text message job via API tools (like Postman or curl).
 app.MapPost("/enqueue", async (IChokaQQueue queue, [FromBody] string text) =>
 {
     var job = new PrintMessageJob(text);
     await queue.EnqueueAsync(job);
-    return Results.Accepted(value: new { Status = "Enqueued", Payload = text });
+    return Results.Accepted(value: new { Status = "Enqueued", JobId = job.Id, Payload = text });
 });
 
 app.Run();

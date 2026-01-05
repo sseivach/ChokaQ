@@ -1,11 +1,20 @@
 ﻿@page "/"
-@using ChokaQ.Dashboard 
+@using ChokaQ.Dashboard
+@using ChokaQ.SampleApp.Components
 
 <PageTitle>ChokaQ Dashboard</PageTitle>
 
 <div class="container mt-4">
-    <h1>Mission Control</h1>
-    <p>Real-time job monitoring.</p>
+    <div class="mb-4">
+        <h1>Mission Control</h1>
+        <p class="text-secondary">Real-time job monitoring & simulation.</p>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-5">
+            <JobGenerator />
+        </div>
+    </div>
 
     <ChokaQDashboard @rendermode="InteractiveServer" />
 </div>
