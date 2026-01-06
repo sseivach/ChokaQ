@@ -19,6 +19,7 @@ public record JobStorageDto(
     string Type,
     string Payload,
     JobStatus Status,
+    int AttemptCount,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset LastUpdatedUtc
 );

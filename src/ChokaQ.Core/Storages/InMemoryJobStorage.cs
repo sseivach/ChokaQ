@@ -13,7 +13,6 @@ public class InMemoryJobStorage : IJobStorage
 {
     // The "Vault". Holds all job data in memory.
     private readonly ConcurrentDictionary<string, JobStorageDto> _jobs = new();
-
     private readonly ILogger<InMemoryJobStorage> _logger;
     private readonly TimeProvider _timeProvider;
 
@@ -46,6 +45,7 @@ public class InMemoryJobStorage : IJobStorage
             Type: jobType,
             Payload: payload,
             Status: JobStatus.Pending,
+            AttemptCount: 0,
             CreatedAtUtc: now,
             LastUpdatedUtc: now
         );
@@ -106,6 +106,24 @@ public class InMemoryJobStorage : IJobStorage
             // If we are here, another thread modified the job while we were thinking.
             // We simply loop back, re-read the NEW state, and try again.
             // No sleep needed, this spin is extremely fast.
+        }
+    }
+
+    // Implementation of IncrementJobAttemptAsync
+    public ValueTask<bool> IncrementJobAttemptAsync(string id, int newAttemptCount, CancellationToken ct = default)
+    {
+        while (true)
+        {
+            if (!_jobs.TryGetValue(id, out var existing)) return new ValueTask<bool>(false);
+
+            // Update only the counter and timestamp
+            var updated = existing with
+            {
+                AttemptCount = newAttemptCount,
+                LastUpdatedUtc = _timeProvider.GetUtcNow()
+            };
+
+            if (_jobs.TryUpdate(id, updated, existing)) return new ValueTask<bool>(true);
         }
     }
 

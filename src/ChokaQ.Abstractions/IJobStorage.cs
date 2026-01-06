@@ -41,6 +41,9 @@ public interface IJobStorage
     /// <returns>True if updated, False if job not found.</returns>
     ValueTask<bool> UpdateJobStateAsync(string id, JobStatus status, CancellationToken ct = default);
 
+    // Updates the attempt counter
+    ValueTask<bool> IncrementJobAttemptAsync(string id, int newAttemptCount, CancellationToken ct = default);
+
     /// <summary>
     /// Retrieves a paginated list of jobs for monitoring purposes.
     /// </summary>
