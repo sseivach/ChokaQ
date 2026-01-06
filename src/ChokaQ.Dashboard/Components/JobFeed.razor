@@ -1,35 +1,36 @@
 ﻿@using ChokaQ.Dashboard.Models
 
-<div class="card bg-dark border-secondary shadow-sm">
-    <div class="card-header bg-dark border-secondary py-3 d-flex justify-content-between align-items-center">
-        <h5 class="mb-0 fw-bold text-white">🚀 Live Job Feed</h5>
+<div class="card cq-card shadow-sm">
+    <div class="card-header py-3 d-flex justify-content-between align-items-center"
+         style="background-color: var(--cq-panel-bg); border-bottom: 1px solid var(--cq-border);">
+        <h5 class="mb-0 fw-bold">Live Feed</h5>
 
-        <div class="d-flex gap-2 align-items-center">
+        <div class="d-flex gap-3 align-items-center">
             @if (IsConnected)
             {
-                <span class="badge bg-success text-white border border-success px-3">● Online</span>
+                <span class="small fw-bold" style="color: var(--cq-success)">ONLINE</span>
             }
             else
             {
-                <span class="badge bg-danger text-white border border-danger px-3">● Offline</span>
+                <span class="small fw-bold" style="color: var(--cq-danger)">OFFLINE</span>
             }
 
             <button class="btn btn-sm btn-outline-secondary" @onclick="OnClearHistory">
-                🗑️ Clear
+                Clear
             </button>
         </div>
     </div>
 
     <div class="table-responsive">
-        <table class="table table-dark table-hover align-middle mb-0" id="table-feed">
+        <table class="cq-table">
             <thead>
-                <tr class="text-secondary">
-                    <th scope="col" style="width: 30%">Job ID</th>
-                    <th scope="col">Status</th>
-                    <th scope="col" style="width: 20%">Progress</th>
-                    <th scope="col">Attempts</th>
-                    <th scope="col">Duration</th>
-                    <th scope="col" class="text-end">Action</th>
+                <tr>
+                    <th style="width: 25%">ID</th>
+                    <th style="width: 15%">Status</th>
+                    <th style="width: 25%">Progress</th>
+                    <th style="width: 10%">Att.</th>
+                    <th style="width: 15%">Duration</th>
+                    <th class="text-end">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -41,9 +42,8 @@
                 @if (!Jobs.Any())
                 {
                     <tr>
-                        <td colspan="6" class="text-center py-5 text-muted">
-                            <div class="fs-1 mb-2">💤</div>
-                            <p>No active jobs in queue</p>
+                        <td colspan="6" class="text-center py-5" style="color: var(--cq-text-muted)">
+                            No active jobs
                         </td>
                     </tr>
                 }

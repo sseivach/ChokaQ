@@ -15,8 +15,23 @@ public partial class ChokaQDashboard : IAsyncDisposable
 
     private HubConnection? _hubConnection;
     private List<JobViewModel> _jobs = new();
+    private string _currentTheme = "dark"; // dark, light, blue, green
 
     private bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
+
+    private string CurrentThemeClass => _currentTheme switch
+    {
+        "light" => "cq-theme-light",
+        "blue" => "cq-theme-blue",
+        "green" => "cq-theme-green",
+        _ => "" // Default is dark
+    };
+
+    private void HandleThemeChanged(string newTheme)
+    {
+        _currentTheme = newTheme;
+        StateHasChanged();
+    }
 
     protected override async Task OnInitializedAsync()
     {

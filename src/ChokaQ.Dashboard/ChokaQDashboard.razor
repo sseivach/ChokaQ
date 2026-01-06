@@ -1,16 +1,18 @@
 ﻿@using ChokaQ.Dashboard.Components
-@* Logic is in ChokaQDashboard.razor.cs *@
+@using ChokaQ.Dashboard.Models
 
-<div class="p-4 rounded shadow-lg border border-secondary" style="background-color: #1e1e1e;">
+<div class="cq-dashboard @CurrentThemeClass">
 
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h4 class="text-white mb-0">🔌 ChokaQ Dashboard Component</h4>
-        <small class="text-secondary">v1.0.0</small>
+        <h5 class="mb-0 fw-bold">CHOKAQ MONITORING</h5>
+        <small style="color: var(--cq-text-muted)">v1.0.0</small>
     </div>
 
     <DashboardStats Jobs="_jobs" />
 
-    <DashboardSettings OnSettingsApplied="HandleSettingsUpdated" />
+    <DashboardSettings CurrentTheme="@_currentTheme"
+                       OnSettingsApplied="HandleSettingsUpdated"
+                       OnThemeChanged="HandleThemeChanged" />
 
     <JobFeed Jobs="_jobs"
              IsConnected="IsConnected"

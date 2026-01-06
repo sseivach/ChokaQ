@@ -1,87 +1,75 @@
 ﻿@using ChokaQ.Abstractions.Enums
 @using ChokaQ.Dashboard.Models
 
-<tr class="@GetRowClass()">
+<tr>
+    <td class="font-monospace fw-bold" style="color: var(--cq-info)">@Job.Id</td>
+
     <td>
-        <code class="text-info fw-bold">@Job.Id</code>
-    </td>
-    <td>
-        <span class="badge rounded-pill @GetBadgeClass(Job.Status)">
-            @GetStatusIcon(Job.Status) @Job.Status
-        </span>
+        @if (Job.Status == JobStatus.Processing)
+        {
+            <span class="badge" style="background-color: var(--cq-warning); color: #000;">PROCESSING</span>
+        }
+        else if (Job.Status == JobStatus.Succeeded)
+        {
+            <span class="badge" style="background-color: var(--cq-success); color: #fff;">SUCCEEDED</span>
+        }
+        else if (Job.Status == JobStatus.Failed)
+        {
+            <span class="badge" style="background-color: var(--cq-danger); color: #fff;">FAILED</span>
+        }
+        else
+        {
+            <span class="badge" style="background-color: var(--cq-text-muted); color: #fff;">PENDING</span>
+        }
     </td>
 
     <td>
         @if (Job.Status == JobStatus.Processing)
         {
-            <div class="progress" style="height: 6px; background-color: #333;">
-                <div class="progress-bar bg-warning"
+            <div class="progress" style="height: 4px; background-color: var(--cq-border);">
+                <div class="progress-bar"
                      role="progressbar"
-                     style="width: @(Job.Progress)%; transition: width 0.3s ease;">
+                     style="width: @(Job.Progress)%; background-color: var(--cq-info); transition: width 0.3s ease;">
                 </div>
             </div>
-            <div class="text-end text-muted mt-1" style="font-size: 0.7em;">@Job.Progress%</div>
+            <div style="font-size: 0.7em; margin-top: 2px;">@Job.Progress%</div>
         }
         else if (Job.Status == JobStatus.Succeeded)
         {
-            <div class="progress" style="height: 6px;">
-                <div class="progress-bar bg-success" style="width: 100%"></div>
+            <div class="progress" style="height: 4px; background-color: var(--cq-border);">
+                <div class="progress-bar" style="width: 100%; background-color: var(--cq-success);"></div>
             </div>
         }
         else
         {
-            <span class="text-muted small">-</span>
+            <span style="color: var(--cq-text-muted)">-</span>
         }
     </td>
 
     <td>
-        @if (Job.Attempts > 0)
+        @if (Job.Attempts > 1)
         {
-            <span class="badge bg-dark border border-secondary text-secondary">
-                @Job.Attempts
-            </span>
+            <span class="badge" style="border: 1px solid var(--cq-border); color: var(--cq-text);">@Job.Attempts</span>
         }
         else
         {
-            <span class="text-muted small">-</span>
+            <span style="color: var(--cq-text-muted)">1</span>
         }
     </td>
 
-    <td class="text-white font-monospace small">
+    <td class="font-monospace small">
         @FormatDuration(Job.Duration)
     </td>
 
     <td class="text-end">
-        <button class="btn btn-link btn-sm text-secondary text-decoration-none p-0">
-            Details ➝
+        <button class="btn btn-sm btn-link text-decoration-none" style="color: var(--cq-text-muted);">
+            Details
         </button>
     </td>
 </tr>
 
 @code {
     [Parameter] public required JobViewModel Job { get; set; }
-
-    // --- Presentation Logic Helpers (Moved from main file) ---
-
-    private string GetBadgeClass(JobStatus status) => status switch
-    {
-        JobStatus.Pending => "bg-secondary text-white",
-        JobStatus.Processing => "bg-warning text-dark",
-        JobStatus.Succeeded => "bg-success text-white",
-        JobStatus.Failed => "bg-danger text-white",
-        _ => "bg-light text-dark"
-    };
-
-    private string GetStatusIcon(JobStatus status) => status switch
-    {
-        JobStatus.Pending => "⏳",
-        JobStatus.Processing => "⚙️",
-        JobStatus.Succeeded => "✅",
-        JobStatus.Failed => "❌",
-        _ => "❓"
-    };
-
-    private string GetRowClass() => Job.Status == JobStatus.Processing ? "table-active" : "";
 
     private string FormatDuration(TimeSpan? duration)
     {

@@ -3,46 +3,45 @@
 
 <div class="row mb-4 g-3">
     <div class="col-md-3">
-        <div class="card bg-dark text-white border-secondary shadow-sm">
+        <div class="card cq-card shadow-sm h-100">
             <div class="card-body">
-                <h6 class="text-secondary text-uppercase mb-2">Processing</h6>
-                <h2 class="mb-0 text-warning">
+                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.75rem;">Processing</small>
+                <div class="fs-3 fw-bold mt-1" style="color: var(--cq-warning)">
                     @Jobs.Count(x => x.Status == JobStatus.Processing)
-                    <span class="fs-6">⚡</span>
-                </h2>
+                </div>
             </div>
         </div>
     </div>
 
     <div class="col-md-3">
-        <div class="card bg-dark text-white border-secondary shadow-sm">
+        <div class="card cq-card shadow-sm h-100">
             <div class="card-body">
-                <h6 class="text-secondary text-uppercase mb-2">Succeeded</h6>
-                <h2 class="mb-0 text-success">
+                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.75rem;">Succeeded</small>
+                <div class="fs-3 fw-bold mt-1" style="color: var(--cq-success)">
                     @Jobs.Count(x => x.Status == JobStatus.Succeeded)
-                    <span class="fs-6">✅</span>
-                </h2>
+                </div>
             </div>
         </div>
     </div>
 
     <div class="col-md-3">
-        <div class="card bg-dark text-white border-secondary shadow-sm">
+        <div class="card cq-card shadow-sm h-100">
             <div class="card-body">
-                <h6 class="text-secondary text-uppercase mb-2">Failed</h6>
-                <h2 class="mb-0 text-danger">
+                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.75rem;">Failed</small>
+                <div class="fs-3 fw-bold mt-1" style="color: var(--cq-danger)">
                     @Jobs.Count(x => x.Status == JobStatus.Failed)
-                    <span class="fs-6">🔥</span>
-                </h2>
+                </div>
             </div>
         </div>
     </div>
 
     <div class="col-md-3">
-        <div class="card bg-dark text-white border-secondary shadow-sm">
+        <div class="card cq-card shadow-sm h-100">
             <div class="card-body">
-                <h6 class="text-secondary text-uppercase mb-2">Total Jobs</h6>
-                <h2 class="mb-0 text-primary">@Jobs.Count</h2>
+                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.75rem;">Total Jobs</small>
+                <div class="fs-3 fw-bold mt-1">
+                    @Jobs.Count
+                </div>
             </div>
         </div>
     </div>
