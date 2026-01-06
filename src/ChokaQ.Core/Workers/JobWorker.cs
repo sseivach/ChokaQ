@@ -110,11 +110,10 @@ public class JobWorker : BackgroundService, IWorkerManager
 
     private async Task ProcessSingleJobAsync(IChokaQJob job, string workerId)
     {
-        // 1. Get accurate attempt count from storage right away
+        // 1. Get current attempt count (Starts at 1)
         var storageDto = await _storage.GetJobAsync(job.Id);
-        int currentAttempt = storageDto?.AttemptCount ?? 0;
+        int currentAttempt = storageDto?.AttemptCount ?? 1;
 
-        // Notify that we started processing (pass current attempt)
         await UpdateStateAndNotifyAsync(job.Id, JobStatus.Processing, currentAttempt);
 
         try
@@ -132,14 +131,11 @@ public class JobWorker : BackgroundService, IWorkerManager
                 await (Task)method.Invoke(handler, new object[] { job, CancellationToken.None })!;
             }
 
-            // Success! Pass current attempt count
             await UpdateStateAndNotifyAsync(job.Id, JobStatus.Succeeded, currentAttempt);
-            _logger.LogInformation("[Worker {ID}] Job {JobId} done.", workerId, job.Id);
+            _logger.LogInformation("[Worker {ID}] Job {JobId} done (Attempt {Attempt}).", workerId, job.Id, currentAttempt);
         }
         catch (Exception ex)
         {
-            // --- RETRY LOGIC ---
-            // Re-fetch storage in case it changed (defensive)
             storageDto = await _storage.GetJobAsync(job.Id);
             if (storageDto == null)
             {
@@ -147,19 +143,20 @@ public class JobWorker : BackgroundService, IWorkerManager
                 return;
             }
 
-            currentAttempt = storageDto.AttemptCount; // Refresh count
+            currentAttempt = storageDto.AttemptCount;
 
-            if (currentAttempt < MaxRetries)
+            // If we haven't exhausted retries yet (currentAttempt <= 3 means we can try attempt 4)
+            if (currentAttempt <= MaxRetries)
             {
                 int nextAttempt = currentAttempt + 1;
-                var delaySeconds = Math.Pow(2, nextAttempt);
 
-                _logger.LogWarning(ex, "[Worker {ID}] Job {JobId} failed (Attempt {Attempt}/{Max}). Retrying in {Sec}s...",
-                    workerId, job.Id, nextAttempt, MaxRetries, delaySeconds);
+                // Fixed delay of 3 seconds
+                var delaySeconds = 3;
+
+                _logger.LogWarning(ex, "[Worker {ID}] Job {JobId} failed (Attempt {Attempt}). Retrying in {Sec}s...",
+                    workerId, job.Id, currentAttempt, delaySeconds);
 
                 await _storage.IncrementJobAttemptAsync(job.Id, nextAttempt);
-
-                // Notify Pending with NEXT attempt count
                 await UpdateStateAndNotifyAsync(job.Id, JobStatus.Pending, nextAttempt);
 
                 await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
@@ -167,8 +164,7 @@ public class JobWorker : BackgroundService, IWorkerManager
             }
             else
             {
-                _logger.LogError(ex, "[Worker {ID}] Job {JobId} FAILED permanently.", workerId, job.Id);
-                // Notify Failed with FINAL attempt count
+                _logger.LogError(ex, "[Worker {ID}] Job {JobId} FAILED permanently after {Attempt} attempts.", workerId, job.Id, currentAttempt);
                 await UpdateStateAndNotifyAsync(job.Id, JobStatus.Failed, currentAttempt);
             }
         }

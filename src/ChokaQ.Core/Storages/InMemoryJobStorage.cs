@@ -45,7 +45,7 @@ public class InMemoryJobStorage : IJobStorage
             Type: jobType,
             Payload: payload,
             Status: JobStatus.Pending,
-            AttemptCount: 0,
+            AttemptCount: 1,
             CreatedAtUtc: now,
             LastUpdatedUtc: now
         );
