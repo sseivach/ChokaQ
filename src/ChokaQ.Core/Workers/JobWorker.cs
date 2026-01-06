@@ -184,10 +184,10 @@ public class JobWorker : BackgroundService, IWorkerManager
     private async Task UpdateStateAndNotifyAsync(string jobId, JobStatus status)
     {
         await _storage.UpdateJobStateAsync(jobId, status);
-        try 
-        { 
-            await _notifier.NotifyJobUpdatedAsync(jobId, status); 
-        } 
+        try
+        {
+            await _notifier.NotifyJobUpdatedAsync(jobId, status);
+        }
         catch { }
     }
 }
