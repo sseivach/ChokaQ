@@ -5,11 +5,10 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace ChokaQ.Dashboard.Services;
 
-internal class ChokaQSignalRNotifier(
-    IHubContext<ChokaQHub> hubContext) : IChokaQNotifier
+internal class ChokaQSignalRNotifier(IHubContext<ChokaQHub> hubContext) : IChokaQNotifier
 {
-    public async Task NotifyJobUpdatedAsync(string jobId, JobStatus status)
+    public async Task NotifyJobUpdatedAsync(string jobId, JobStatus status, int attemptCount)
     {
-        await hubContext.Clients.All.SendAsync("JobUpdated", jobId, (int)status);
+        await hubContext.Clients.All.SendAsync("JobUpdated", jobId, (int)status, attemptCount);
     }
 }

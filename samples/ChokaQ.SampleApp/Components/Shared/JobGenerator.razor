@@ -45,29 +45,26 @@
 @code {
     private int selectedCount = 10;
     private bool isLoading = false;
-
-    // UI State for feedback
     private string? statusMessage;
     private string statusClass = "alert-info";
 
     private async Task SendBatch()
     {
         isLoading = true;
-        statusMessage = null; // Clear previous messages
+        statusMessage = null;
 
         try
         {
             var client = HttpClientFactory.CreateClient();
             client.BaseAddress = new Uri(Navigation.BaseUri);
 
+            // [UPDATED] Sequential IDs for deterministic testing
             var payloads = Enumerable.Range(1, selectedCount)
-                .Select(i => $"Order #{Random.Shared.Next(1000, 9999)} processed at {DateTime.Now:T}")
+                .Select(i => $"Job #{i} | Created at {DateTime.Now:T}")
                 .ToList();
 
-            // 1. Capture the response
             var response = await client.PostAsJsonAsync("/api/jobs/batch", payloads);
 
-            // 2. Check if it actually worked
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadFromJsonAsync<BatchResult>();
@@ -76,7 +73,6 @@
             }
             else
             {
-                // 3. If API failed, read why
                 var error = await response.Content.ReadAsStringAsync();
                 statusClass = "alert-danger";
                 statusMessage = $"❌ API Error ({response.StatusCode}): {error}";
@@ -84,7 +80,6 @@
         }
         catch (Exception ex)
         {
-            // 4. Catch network/SSL errors
             statusClass = "alert-danger";
             statusMessage = $"💥 Exception: {ex.Message}";
         }
@@ -94,10 +89,5 @@
         }
     }
 
-    // Helper class to deserialise the OK response
-    private class BatchResult
-    {
-        public string? Message { get; set; }
-        public List<string>? JobIds { get; set; }
-    }
+    private class BatchResult { public string? Message { get; set; } }
 }

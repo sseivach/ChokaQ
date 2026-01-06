@@ -1,9 +1,4 @@
-﻿@using Microsoft.AspNetCore.SignalR.Client
-@using ChokaQ.Abstractions.Enums
-@using ChokaQ.Core.Workers
-@implements IAsyncDisposable
-@inject NavigationManager Navigation
-@inject IWorkerManager WorkerManager
+﻿@using ChokaQ.Abstractions.Enums
 
 <div class="p-4 rounded shadow-lg border border-secondary" style="background-color: #1e1e1e;">
 
@@ -18,7 +13,7 @@
                 <div class="card-body">
                     <h6 class="text-secondary text-uppercase mb-2">Processing</h6>
                     <h2 class="mb-0 text-warning">
-                        @jobs.Count(x => x.Status == JobStatus.Processing)
+                        @_jobs.Count(x => x.Status == JobStatus.Processing)
                         <span class="fs-6">⚡</span>
                     </h2>
                 </div>
@@ -29,7 +24,7 @@
                 <div class="card-body">
                     <h6 class="text-secondary text-uppercase mb-2">Succeeded</h6>
                     <h2 class="mb-0 text-success">
-                        @jobs.Count(x => x.Status == JobStatus.Succeeded)
+                        @_jobs.Count(x => x.Status == JobStatus.Succeeded)
                         <span class="fs-6">✅</span>
                     </h2>
                 </div>
@@ -40,7 +35,7 @@
                 <div class="card-body">
                     <h6 class="text-secondary text-uppercase mb-2">Failed</h6>
                     <h2 class="mb-0 text-danger">
-                        @jobs.Count(x => x.Status == JobStatus.Failed)
+                        @_jobs.Count(x => x.Status == JobStatus.Failed)
                         <span class="fs-6">🔥</span>
                     </h2>
                 </div>
@@ -50,7 +45,7 @@
             <div class="card bg-dark text-white border-secondary shadow-sm">
                 <div class="card-body">
                     <h6 class="text-secondary text-uppercase mb-2">Total Jobs</h6>
-                    <h2 class="mb-0 text-primary">@jobs.Count</h2>
+                    <h2 class="mb-0 text-primary">@_jobs.Count</h2>
                 </div>
             </div>
         </div>
@@ -62,7 +57,7 @@
 
             <select class="form-select form-select-sm bg-dark text-white border-secondary"
                     style="width: 100px;"
-                    @bind="desiredWorkers">
+                    @bind="_desiredWorkers">
                 @for (int i = 1; i <= 10; i++)
                 {
                     <option value="@i">@i Thread@(i > 1 ? "s" : "")</option>
@@ -84,7 +79,7 @@
             <h5 class="mb-0 fw-bold text-white">🚀 Live Job Feed</h5>
 
             <div class="d-flex gap-2 align-items-center">
-                @if (isConnected)
+                @if (IsConnected)
                 {
                     <span class="badge bg-success text-white border border-success px-3">
                         ● Online
@@ -104,19 +99,20 @@
         </div>
 
         <div class="table-responsive">
-            <table class="table table-dark table-hover align-middle mb-0">
+            <table class="table table-dark table-hover align-middle mb-0" id="table-feed">
                 <thead>
                     <tr class="text-secondary">
-                        <th scope="col" style="width: 40%">Job ID</th>
+                        <th scope="col" style="width: 35%">Job ID</th>
                         <th scope="col">Status</th>
-                        <th scope="col">Last Update</th>
+                        <th scope="col">Attempts</th>
+                        <th scope="col">Duration</th>
                         <th scope="col" class="text-end">Action</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var job in jobs)
+                    @foreach (var job in _jobs)
                     {
-                        <tr @key="job.Id" class="@getRowClass(job)">
+                        <tr @key="job.Id" class="@GetRowClass(job)">
                             <td>
                                 <code class="text-info fw-bold">@job.Id</code>
                             </td>
@@ -125,8 +121,20 @@
                                     @GetStatusIcon(job.Status) @job.Status
                                 </span>
                             </td>
-                            <td class="text-secondary small">
-                                @job.LastUpdated.ToString("HH:mm:ss.fff")
+                            <td>
+                                @if (job.Attempts > 0)
+                                {
+                                    <span class="badge bg-dark border border-secondary text-secondary">
+                                        @job.Attempts
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">-</span>
+                                }
+                            </td>
+                            <td class="text-white font-monospace small">
+                                @FormatDuration(job.Duration)
                             </td>
                             <td class="text-end">
                                 <button class="btn btn-link btn-sm text-secondary text-decoration-none p-0">
@@ -135,116 +143,8 @@
                             </td>
                         </tr>
                     }
-                    @if (!jobs.Any())
-                    {
-                        <tr>
-                            <td colspan="4" class="text-center py-5 text-muted">
-                                <div class="fs-1 mb-2">💤</div>
-                                <p>No active jobs in queue</p>
-                            </td>
-                        </tr>
-                    }
                 </tbody>
             </table>
         </div>
     </div>
 </div>
-
-@code {
-    private HubConnection? hubConnection;
-    private List<JobViewModel> jobs = new();
-    private int desiredWorkers = 1;
-    private bool isConnected => hubConnection?.State == HubConnectionState.Connected;
-
-    protected override async Task OnInitializedAsync()
-    {
-        desiredWorkers = WorkerManager.ActiveWorkers;
-
-        // Initialize the SignalR connection to the ChokaQ Hub
-        hubConnection = new HubConnectionBuilder()
-            .WithUrl(Navigation.ToAbsoluteUri("/chokaq-hub"))
-            .WithAutomaticReconnect()
-            .Build();
-
-        // Register the handler for the "JobUpdated" event sent by the backend
-        hubConnection.On<string, int>("JobUpdated", (jobId, statusInt) =>
-        {
-            var status = (JobStatus)statusInt;
-            InvokeAsync(() =>
-            {
-                UpdateJob(jobId, status);
-                StateHasChanged();
-            });
-        });
-
-        await hubConnection.StartAsync();
-    }
-
-    private void UpdateJob(string jobId, JobStatus status)
-    {
-        var existing = jobs.FirstOrDefault(j => j.Id == jobId);
-        if (existing != null)
-        {
-            existing.Status = status;
-            existing.LastUpdated = DateTime.Now;
-        }
-        else
-        {
-            // Add new jobs to the top of the list
-            jobs.Insert(0, new JobViewModel { Id = jobId, Status = status, LastUpdated = DateTime.Now });
-
-            // Limit the list size to prevent memory bloat in the browser
-            if (jobs.Count > 100) jobs.RemoveAt(jobs.Count - 1);
-        }
-    }
-
-    private void UpdateWorkerCount()
-    {
-        WorkerManager.UpdateWorkerCount(desiredWorkers);
-        StateHasChanged();
-    }
-
-    private void ClearHistory()
-    {
-        jobs.Clear();
-    }
-
-    private string GetBadgeClass(JobStatus status) => status switch
-    {
-        JobStatus.Pending => "bg-secondary text-white",
-        JobStatus.Processing => "bg-warning text-dark",
-        JobStatus.Succeeded => "bg-success text-white",
-        JobStatus.Failed => "bg-danger text-white",
-        _ => "bg-light text-dark"
-    };
-
-    private string GetStatusIcon(JobStatus status) => status switch
-    {
-        JobStatus.Pending => "⏳",
-        JobStatus.Processing => "⚙️",
-        JobStatus.Succeeded => "✅",
-        JobStatus.Failed => "❌",
-        _ => "❓"
-    };
-
-    private string getRowClass(JobViewModel job)
-    {
-        // Subtle row highlighting for dark mode.
-        return job.Status == JobStatus.Processing ? "table-active" : "";
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (hubConnection is not null)
-        {
-            await hubConnection.DisposeAsync();
-        }
-    }
-
-    public class JobViewModel
-    {
-        public string Id { get; set; } = "";
-        public JobStatus Status { get; set; }
-        public DateTime LastUpdated { get; set; }
-    }
-}

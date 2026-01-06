@@ -61,7 +61,7 @@ public class InMemoryQueue : IChokaQQueue
         // We notify the UI immediately so the user sees the job in the "Pending" state.
         try
         {
-            await _notifier.NotifyJobUpdatedAsync(job.Id, JobStatus.Pending);
+            await _notifier.NotifyJobUpdatedAsync(job.Id, JobStatus.Pending, 0);
         }
         catch (Exception ex)
         {
@@ -71,6 +71,17 @@ public class InMemoryQueue : IChokaQQueue
 
         // 4. Push to Channel
         // This makes the job available for the Background Worker.
+        await _queue.Writer.WriteAsync(job, ct);
+    }
+
+    /// <summary>
+    /// Pushes a job back to the channel WITHOUT creating a new storage record.
+    /// Used for Retries.
+    /// </summary>
+    public async ValueTask RequeueAsync(IChokaQJob job, CancellationToken ct = default)
+    {
+        // Simply write to the channel.
+        // Storage already knows about this job.
         await _queue.Writer.WriteAsync(job, ct);
     }
 }

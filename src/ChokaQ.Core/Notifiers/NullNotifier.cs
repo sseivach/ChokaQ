@@ -9,7 +9,7 @@ namespace ChokaQ.Core.Notifiers;
 /// </summary>
 internal class NullNotifier : IChokaQNotifier
 {
-    public Task NotifyJobUpdatedAsync(string jobId, JobStatus status)
+    public Task NotifyJobUpdatedAsync(string jobId, JobStatus status, int attemptCount)
     {
         // Do nothing.
         return Task.CompletedTask;

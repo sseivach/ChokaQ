@@ -1,5 +1,5 @@
 ﻿using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.DTOs; // Needed for DTO
+using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Core.Queues;
 using Microsoft.Extensions.DependencyInjection;
@@ -46,7 +46,6 @@ public class JobWorker : BackgroundService, IWorkerManager
 
     public void UpdateWorkerCount(int targetCount)
     {
-        // (Оставляем код Scale Up/Down без изменений, он у тебя уже есть)
         if (targetCount < 0) targetCount = 0;
         if (targetCount > 10) targetCount = 10;
 
@@ -80,7 +79,6 @@ public class JobWorker : BackgroundService, IWorkerManager
     private async Task WorkerLoopAsync(CancellationToken workerCt)
     {
         var workerId = Guid.NewGuid().ToString()[..4];
-
         try
         {
             while (!workerCt.IsCancellationRequested)
@@ -112,7 +110,12 @@ public class JobWorker : BackgroundService, IWorkerManager
 
     private async Task ProcessSingleJobAsync(IChokaQJob job, string workerId)
     {
-        await UpdateStateAndNotifyAsync(job.Id, JobStatus.Processing);
+        // 1. Get accurate attempt count from storage right away
+        var storageDto = await _storage.GetJobAsync(job.Id);
+        int currentAttempt = storageDto?.AttemptCount ?? 0;
+
+        // Notify that we started processing (pass current attempt)
+        await UpdateStateAndNotifyAsync(job.Id, JobStatus.Processing, currentAttempt);
 
         try
         {
@@ -129,62 +132,55 @@ public class JobWorker : BackgroundService, IWorkerManager
                 await (Task)method.Invoke(handler, new object[] { job, CancellationToken.None })!;
             }
 
-            await UpdateStateAndNotifyAsync(job.Id, JobStatus.Succeeded);
+            // Success! Pass current attempt count
+            await UpdateStateAndNotifyAsync(job.Id, JobStatus.Succeeded, currentAttempt);
             _logger.LogInformation("[Worker {ID}] Job {JobId} done.", workerId, job.Id);
         }
         catch (Exception ex)
         {
-            // --- RETRY LOGIC START ---
-
-            // 1. Get current state to check attempts
-            var storageDto = await _storage.GetJobAsync(job.Id);
-
-            // If storage is gone or something weird happened, just fail
+            // --- RETRY LOGIC ---
+            // Re-fetch storage in case it changed (defensive)
+            storageDto = await _storage.GetJobAsync(job.Id);
             if (storageDto == null)
             {
-                await UpdateStateAndNotifyAsync(job.Id, JobStatus.Failed);
+                await UpdateStateAndNotifyAsync(job.Id, JobStatus.Failed, currentAttempt);
                 return;
             }
 
-            int currentAttempt = storageDto.AttemptCount;
+            currentAttempt = storageDto.AttemptCount; // Refresh count
 
             if (currentAttempt < MaxRetries)
             {
                 int nextAttempt = currentAttempt + 1;
-
-                // Exponential Backoff: 2s, 4s, 8s...
                 var delaySeconds = Math.Pow(2, nextAttempt);
 
-                _logger.LogWarning(ex,
-                    "[Worker {ID}] Job {JobId} failed (Attempt {Attempt}/{Max}). Retrying in {Sec}s...",
+                _logger.LogWarning(ex, "[Worker {ID}] Job {JobId} failed (Attempt {Attempt}/{Max}). Retrying in {Sec}s...",
                     workerId, job.Id, nextAttempt, MaxRetries, delaySeconds);
 
-                // 2. Update counter in DB
                 await _storage.IncrementJobAttemptAsync(job.Id, nextAttempt);
 
-                // 3. Update Status back to Pending (so UI shows it's not dead)
-                await UpdateStateAndNotifyAsync(job.Id, JobStatus.Pending);
+                // Notify Pending with NEXT attempt count
+                await UpdateStateAndNotifyAsync(job.Id, JobStatus.Pending, nextAttempt);
 
-                // 4. Wait (Blocking this worker thread - simplest implementation for now)
                 await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
-
-                // 5. Re-Enqueue (Push back to the channel)
-                // Note: We push the SAME job object back.
-                await _queue.EnqueueAsync(job);
+                await _queue.RequeueAsync(job);
             }
             else
             {
-                // No more retries
-                _logger.LogError(ex, "[Worker {ID}] Job {JobId} FAILED permanently after {Max} attempts.", workerId, job.Id, MaxRetries);
-                await UpdateStateAndNotifyAsync(job.Id, JobStatus.Failed);
+                _logger.LogError(ex, "[Worker {ID}] Job {JobId} FAILED permanently.", workerId, job.Id);
+                // Notify Failed with FINAL attempt count
+                await UpdateStateAndNotifyAsync(job.Id, JobStatus.Failed, currentAttempt);
             }
-            // --- RETRY LOGIC END ---
         }
     }
 
-    private async Task UpdateStateAndNotifyAsync(string jobId, JobStatus status)
+    private async Task UpdateStateAndNotifyAsync(string jobId, JobStatus status, int attemptCount)
     {
         await _storage.UpdateJobStateAsync(jobId, status);
-        try { await _notifier.NotifyJobUpdatedAsync(jobId, status); } catch { }
+        try
+        {
+            await _notifier.NotifyJobUpdatedAsync(jobId, status, attemptCount);
+        }
+        catch { }
     }
 }
