@@ -1,5 +1,4 @@
 ﻿using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Core.Contexts;
 using ChokaQ.Core.Queues;
