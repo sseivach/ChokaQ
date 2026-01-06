@@ -17,8 +17,11 @@ builder.Services.AddControllers();
 builder.Services.AddHttpClient();
 
 // === ChokaQ Stack ===
-builder.Services.AddChokaQ();
-builder.Services.AddChokaQDashboard();
+builder.Services.AddChokaQ();           // Core services (Queue, Storage, Worker)
+builder.Services.AddChokaQDashboard();  // Dashboard services (SignalR, Notifiers)
+
+// Register the job handler
+// DI will automatically inject IJobContext and ILogger into the constructor
 builder.Services.AddTransient<IChokaQJobHandler<PrintMessageJob>, PrintMessageJobHandler>();
 // ====================
 
@@ -36,9 +39,10 @@ app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseAntiforgery();
 
-// Map Controllers (Enables api/jobs)
+// Map Controllers (Enables api/jobs endpoints)
 app.MapControllers();
 
+// Enable SignalR Hub for the Dashboard
 app.UseChokaQDashboard();
 
 app.MapRazorComponents<App>()

@@ -13,6 +13,7 @@ public class PrintMessageJobHandler : IChokaQJobHandler<PrintMessageJob>
     // Static dictionary to track failures
     private static readonly ConcurrentDictionary<string, int> _simulatedFailures = new();
 
+    // Constructor receives the context automatically via DI.
     public PrintMessageJobHandler(
         ILogger<PrintMessageJobHandler> logger,
         IJobContext context)
@@ -23,14 +24,13 @@ public class PrintMessageJobHandler : IChokaQJobHandler<PrintMessageJob>
 
     public async Task HandleAsync(PrintMessageJob job, CancellationToken ct)
     {
-        // 1. Chaos Monkey Logic
         SimulateDeterministicFailure(job);
 
         _logger.LogInformation($"[APP HANDLER] Processing: {job.Text}");
 
         // Simulate progress with a loop
         // We'll increment progress by 10% every 100ms
-        for (int i = 10; i <= 100; i += 10)
+        for (int i = 0; i <= 100; i += 10)
         {
             await Task.Delay(100, ct); // Simulate work
             await _context.ReportProgressAsync(i);
@@ -61,7 +61,6 @@ public class PrintMessageJobHandler : IChokaQJobHandler<PrintMessageJob>
                 if (currentFailures < failuresRequired)
                 {
                     _simulatedFailures.TryUpdate(job.Id, currentFailures + 1, currentFailures);
-                    _logger.LogWarning($"[SIMULATION] Job #{index} fails ({currentFailures + 1}/{failuresRequired}).");
                     throw new Exception($"Simulated Crash! (Failure {currentFailures + 1}/{failuresRequired})");
                 }
             }
