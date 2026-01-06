@@ -1,4 +1,5 @@
 ﻿using ChokaQ.Abstractions;
+using ChokaQ.Core.Contexts;
 using ChokaQ.Core.Notifiers;
 using ChokaQ.Core.Queues;
 using ChokaQ.Core.Storages;
@@ -27,13 +28,18 @@ public static class ChokaQCoreExtensions
         // The user (SampleApp) will override this with SignalRNotifier later if they have a UI.
         services.TryAddSingleton<IChokaQNotifier, NullNotifier>();
 
-        // 4. Queue System
+        // 4. Register JobContext as Scoped. 
+        // A new instance is created for each scope (each job execution).
+        services.TryAddScoped<IJobContext, JobContext>();
+        services.TryAddScoped<JobContext>();
+
+        // 5. Queue System
         // We register the concrete class first
         services.TryAddSingleton<InMemoryQueue>();
         // Then we alias the interface to use the same instance
         services.TryAddSingleton<IChokaQQueue>(sp => sp.GetRequiredService<InMemoryQueue>());
 
-        // 5. The Engine (Background Worker)
+        // 6. The Engine (Background Worker)
         services.TryAddSingleton<JobWorker>();
         services.TryAddSingleton<IWorkerManager>(sp => sp.GetRequiredService<JobWorker>());
         services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());

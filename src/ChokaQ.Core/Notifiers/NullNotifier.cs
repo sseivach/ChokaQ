@@ -14,4 +14,9 @@ internal class NullNotifier : IChokaQNotifier
         // Do nothing.
         return Task.CompletedTask;
     }
+
+    public Task NotifyJobProgressAsync(string jobId, int percentage)
+    {
+        return Task.CompletedTask;
+    }
 }

@@ -42,6 +42,19 @@ public partial class ChokaQDashboard : IAsyncDisposable
             });
         });
 
+        _hubConnection.On<string, int>("JobProgress", (jobId, percentage) =>
+        {
+            InvokeAsync(() =>
+            {
+                var job = _jobs.FirstOrDefault(j => j.Id == jobId);
+                if (job != null)
+                {
+                    job.Progress = percentage;
+                    StateHasChanged();
+                }
+            });
+        });
+
         await _hubConnection.StartAsync();
     }
 
@@ -145,5 +158,6 @@ public partial class ChokaQDashboard : IAsyncDisposable
         public int Attempts { get; set; }
         public DateTime AddedAt { get; set; }
         public TimeSpan? Duration { get; set; }
+        public int Progress { get; set; } = 0;
     }
 }

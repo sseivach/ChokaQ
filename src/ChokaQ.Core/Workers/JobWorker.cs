@@ -1,6 +1,7 @@
 ﻿using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Core.Contexts;
 using ChokaQ.Core.Queues;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -121,6 +122,10 @@ public class JobWorker : BackgroundService, IWorkerManager
         try
         {
             using var scope = _scopeFactory.CreateScope();
+
+            var jobContext = scope.ServiceProvider.GetRequiredService<JobContext>();
+            jobContext.JobId = job.Id; // Inject the ID so the handler can use it
+
             var jobType = job.GetType();
             var handlerType = typeof(IChokaQJobHandler<>).MakeGenericType(jobType);
             var handler = scope.ServiceProvider.GetService(handlerType);
