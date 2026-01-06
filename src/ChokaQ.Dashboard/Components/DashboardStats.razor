@@ -1,0 +1,53 @@
+﻿@using ChokaQ.Abstractions.Enums
+@using ChokaQ.Dashboard.Models
+
+<div class="row mb-4 g-3">
+    <div class="col-md-3">
+        <div class="card bg-dark text-white border-secondary shadow-sm">
+            <div class="card-body">
+                <h6 class="text-secondary text-uppercase mb-2">Processing</h6>
+                <h2 class="mb-0 text-warning">
+                    @Jobs.Count(x => x.Status == JobStatus.Processing)
+                    <span class="fs-6">⚡</span>
+                </h2>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card bg-dark text-white border-secondary shadow-sm">
+            <div class="card-body">
+                <h6 class="text-secondary text-uppercase mb-2">Succeeded</h6>
+                <h2 class="mb-0 text-success">
+                    @Jobs.Count(x => x.Status == JobStatus.Succeeded)
+                    <span class="fs-6">✅</span>
+                </h2>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card bg-dark text-white border-secondary shadow-sm">
+            <div class="card-body">
+                <h6 class="text-secondary text-uppercase mb-2">Failed</h6>
+                <h2 class="mb-0 text-danger">
+                    @Jobs.Count(x => x.Status == JobStatus.Failed)
+                    <span class="fs-6">🔥</span>
+                </h2>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card bg-dark text-white border-secondary shadow-sm">
+            <div class="card-body">
+                <h6 class="text-secondary text-uppercase mb-2">Total Jobs</h6>
+                <h2 class="mb-0 text-primary">@Jobs.Count</h2>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public ICollection<JobViewModel> Jobs { get; set; } = new List<JobViewModel>();
+}

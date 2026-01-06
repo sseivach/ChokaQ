@@ -67,4 +67,4 @@ app.MapPost("/send", async (IChokaQQueue queue) =>
 
 ## 📝 License
 
-MIT License. Made with ❤️ by ChokaQ Contributors.
+MIT License. Made with ❤️ by Sergei Seivach.

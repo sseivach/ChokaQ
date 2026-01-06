@@ -1,0 +1,93 @@
+﻿@using ChokaQ.Abstractions.Enums
+@using ChokaQ.Dashboard.Models
+
+<tr class="@GetRowClass()">
+    <td>
+        <code class="text-info fw-bold">@Job.Id</code>
+    </td>
+    <td>
+        <span class="badge rounded-pill @GetBadgeClass(Job.Status)">
+            @GetStatusIcon(Job.Status) @Job.Status
+        </span>
+    </td>
+
+    <td>
+        @if (Job.Status == JobStatus.Processing)
+        {
+            <div class="progress" style="height: 6px; background-color: #333;">
+                <div class="progress-bar bg-warning"
+                     role="progressbar"
+                     style="width: @(Job.Progress)%; transition: width 0.3s ease;">
+                </div>
+            </div>
+            <div class="text-end text-muted mt-1" style="font-size: 0.7em;">@Job.Progress%</div>
+        }
+        else if (Job.Status == JobStatus.Succeeded)
+        {
+            <div class="progress" style="height: 6px;">
+                <div class="progress-bar bg-success" style="width: 100%"></div>
+            </div>
+        }
+        else
+        {
+            <span class="text-muted small">-</span>
+        }
+    </td>
+
+    <td>
+        @if (Job.Attempts > 0)
+        {
+            <span class="badge bg-dark border border-secondary text-secondary">
+                @Job.Attempts
+            </span>
+        }
+        else
+        {
+            <span class="text-muted small">-</span>
+        }
+    </td>
+
+    <td class="text-white font-monospace small">
+        @FormatDuration(Job.Duration)
+    </td>
+
+    <td class="text-end">
+        <button class="btn btn-link btn-sm text-secondary text-decoration-none p-0">
+            Details ➝
+        </button>
+    </td>
+</tr>
+
+@code {
+    [Parameter] public required JobViewModel Job { get; set; }
+
+    // --- Presentation Logic Helpers (Moved from main file) ---
+
+    private string GetBadgeClass(JobStatus status) => status switch
+    {
+        JobStatus.Pending => "bg-secondary text-white",
+        JobStatus.Processing => "bg-warning text-dark",
+        JobStatus.Succeeded => "bg-success text-white",
+        JobStatus.Failed => "bg-danger text-white",
+        _ => "bg-light text-dark"
+    };
+
+    private string GetStatusIcon(JobStatus status) => status switch
+    {
+        JobStatus.Pending => "⏳",
+        JobStatus.Processing => "⚙️",
+        JobStatus.Succeeded => "✅",
+        JobStatus.Failed => "❌",
+        _ => "❓"
+    };
+
+    private string GetRowClass() => Job.Status == JobStatus.Processing ? "table-active" : "";
+
+    private string FormatDuration(TimeSpan? duration)
+    {
+        if (!duration.HasValue || duration.Value == TimeSpan.Zero) return "-";
+        if (duration.Value.TotalSeconds < 1) return $"{duration.Value.Milliseconds}ms";
+        if (duration.Value.TotalMinutes < 1) return $"{duration.Value.Seconds}s {duration.Value.Milliseconds}ms";
+        return $"{duration.Value.Minutes}m {duration.Value.Seconds}s";
+    }
+}
