@@ -16,8 +16,11 @@ public class JobWorker : BackgroundService, IWorkerManager
     private readonly ILogger<JobWorker> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
 
-    // Retry Configuration
-    private const int MaxRetries = 3;
+    // Configurable Properties
+    public int MaxRetries { get; set; } = 3;
+
+    // Default delay 3 seconds
+    public int RetryDelaySeconds { get; set; } = 3;
 
     private readonly List<(Task Task, CancellationTokenSource Cts)> _workers = new();
     private readonly object _lock = new();
@@ -110,7 +113,6 @@ public class JobWorker : BackgroundService, IWorkerManager
 
     private async Task ProcessSingleJobAsync(IChokaQJob job, string workerId)
     {
-        // 1. Get current attempt count (Starts at 1)
         var storageDto = await _storage.GetJobAsync(job.Id);
         int currentAttempt = storageDto?.AttemptCount ?? 1;
 
@@ -145,13 +147,11 @@ public class JobWorker : BackgroundService, IWorkerManager
 
             currentAttempt = storageDto.AttemptCount;
 
-            // If we haven't exhausted retries yet (currentAttempt <= 3 means we can try attempt 4)
             if (currentAttempt <= MaxRetries)
             {
                 int nextAttempt = currentAttempt + 1;
 
-                // Fixed delay of 3 seconds
-                var delaySeconds = 3;
+                var delaySeconds = RetryDelaySeconds;
 
                 _logger.LogWarning(ex, "[Worker {ID}] Job {JobId} failed (Attempt {Attempt}). Retrying in {Sec}s...",
                     workerId, job.Id, currentAttempt, delaySeconds);

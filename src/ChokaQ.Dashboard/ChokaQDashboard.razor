@@ -1,4 +1,5 @@
 ﻿@using ChokaQ.Abstractions.Enums
+@* Logic is in ChokaQDashboard.razor.cs *@
 
 <div class="p-4 rounded shadow-lg border border-secondary" style="background-color: #1e1e1e;">
 
@@ -52,25 +53,54 @@
     </div>
 
     <div class="card bg-dark border-secondary shadow-sm mb-4">
-        <div class="card-body d-flex align-items-center gap-3">
-            <div class="text-white fw-bold">⚙️ Scale Workers:</div>
+        <div class="card-body d-flex align-items-center gap-4 flex-wrap">
 
-            <select class="form-select form-select-sm bg-dark text-white border-secondary"
-                    style="width: 100px;"
-                    @bind="_desiredWorkers">
-                @for (int i = 1; i <= 10; i++)
-                {
-                    <option value="@i">@i Thread@(i > 1 ? "s" : "")</option>
-                }
-            </select>
+            <div class="d-flex align-items-center gap-2">
+                <div class="text-white fw-bold">⚙️ Workers:</div>
+                <select class="form-select form-select-sm bg-dark text-white border-secondary"
+                        style="width: 110px;"
+                        @bind="_desiredWorkers">
+                    @for (int i = 1; i <= 10; i++)
+                    {
+                        <option value="@i">@i Thread@(i > 1 ? "s" : "")</option>
+                    }
+                </select>
+                <span class="text-secondary small">
+                    (Active: <strong>@WorkerManager.ActiveWorkers</strong>)
+                </span>
+            </div>
 
-            <button class="btn btn-sm btn-success" @onclick="UpdateWorkerCount">
-                Apply Settings
-            </button>
+            <div class="vr bg-secondary d-none d-md-block" style="height: 25px;"></div>
 
-            <span class="text-secondary small ms-2">
-                (Active: <strong>@WorkerManager.ActiveWorkers</strong>)
-            </span>
+            <div class="d-flex align-items-center gap-2">
+                <div class="text-white fw-bold">🔄 Max Retries:</div>
+                <select class="form-select form-select-sm bg-dark text-white border-secondary"
+                        style="width: 70px;"
+                        @bind="_maxRetries">
+                    @for (int i = 1; i <= 10; i++)
+                    {
+                        <option value="@i">@i</option>
+                    }
+                </select>
+            </div>
+
+            <div class="vr bg-secondary d-none d-md-block" style="height: 25px;"></div>
+
+            <div class="d-flex align-items-center gap-2">
+                <div class="text-white fw-bold">⏱️ Delay (s):</div>
+                <input type="number"
+                       class="form-control form-control-sm bg-dark text-white border-secondary"
+                       style="width: 80px;"
+                       min="1"
+                       max="3600"
+                       @bind="_retryDelaySeconds" />
+            </div>
+
+            <div class="ms-auto">
+                <button class="btn btn-sm btn-success px-4" @onclick="UpdateSettings">
+                    Apply Settings
+                </button>
+            </div>
         </div>
     </div>
 
@@ -140,6 +170,15 @@
                                 <button class="btn btn-link btn-sm text-secondary text-decoration-none p-0">
                                     Details ➝
                                 </button>
+                            </td>
+                        </tr>
+                    }
+                    @if (!_jobs.Any())
+                    {
+                        <tr>
+                            <td colspan="5" class="text-center py-5 text-muted">
+                                <div class="fs-1 mb-2">💤</div>
+                                <p>No active jobs in queue</p>
                             </td>
                         </tr>
                     }
