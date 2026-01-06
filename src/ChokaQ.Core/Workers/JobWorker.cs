@@ -8,16 +8,23 @@ using Microsoft.Extensions.Logging;
 namespace ChokaQ.Core.Workers;
 
 /// <summary>
-/// Background service responsible for processing jobs from the queue.
-/// Follows the Producer-Consumer pattern.
+/// Worker Manager. Manages a pool of tasks that consume jobs from the queue.
 /// </summary>
-public class JobWorker : BackgroundService
+public class JobWorker : BackgroundService, IWorkerManager
 {
-    private readonly ILogger<JobWorker> _logger;
     private readonly InMemoryQueue _queue;
     private readonly IJobStorage _storage;
     private readonly IChokaQNotifier _notifier;
+    private readonly ILogger<JobWorker> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
+
+    // List of active workers: (The running Task, The cancellation source to stop it)
+    private readonly List<(Task Task, CancellationTokenSource Cts)> _workers = new();
+
+    // Lock to ensure thread safety when scaling workers
+    private readonly object _lock = new();
+
+    public int ActiveWorkers { get; private set; } = 0;
 
     public JobWorker(
         InMemoryQueue queue,
@@ -33,82 +40,154 @@ public class JobWorker : BackgroundService
         _scopeFactory = scopeFactory;
     }
 
-    /// <summary>
-    /// Long-running task that listens to the channel and processes jobs sequentially.
-    /// </summary>
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("[ChokaQ] Worker started.");
+        // Start with 1 worker by default
+        UpdateWorkerCount(1);
 
-        // WaitToReadAsync efficiently suspends the thread until data is available.
-        while (await _queue.Reader.WaitToReadAsync(stoppingToken))
+        // The BackgroundService itself just waits for the app to shutdown
+        return Task.CompletedTask;
+    }
+
+    public void UpdateWorkerCount(int targetCount)
+    {
+        if (targetCount < 0) targetCount = 0;
+        if (targetCount > 10) targetCount = 10; // Hard limit
+
+        lock (_lock)
         {
-            while (_queue.Reader.TryRead(out var job))
+            int current = _workers.Count;
+            _logger.LogInformation("Scaling workers: {Current} -> {Target}", current, targetCount);
+
+            if (targetCount > current)
             {
-                try
+                // SCALE UP: Add new workers
+                int toAdd = targetCount - current;
+                for (int i = 0; i < toAdd; i++)
                 {
-                    // 1. Lifecycle Start: Processing
-                    await UpdateStateAndNotifyAsync(job.Id, JobStatus.Processing, stoppingToken);
-
-                    // 2. Execution
-                    await ProcessJobAsync(job, stoppingToken);
-
-                    // 3. Lifecycle End: Succeeded
-                    await UpdateStateAndNotifyAsync(job.Id, JobStatus.Succeeded, stoppingToken);
-
-                    _logger.LogInformation("Job done. ID: {JobId}", job.Id);
-                }
-                catch (Exception ex)
-                {
-                    // 4. Lifecycle Error: Failed
-                    _logger.LogError(ex, "Job failed. ID: {JobId}", job.Id);
-                    await UpdateStateAndNotifyAsync(job.Id, JobStatus.Failed, stoppingToken);
+                    var cts = new CancellationTokenSource();
+                    // Start a separate thread (Task) for the worker loop
+                    var task = Task.Run(() => WorkerLoopAsync(cts.Token), cts.Token);
+                    _workers.Add((task, cts));
                 }
             }
+            else if (targetCount < current)
+            {
+                // SCALE DOWN: Remove excess workers
+                int toRemove = current - targetCount;
+                for (int i = 0; i < toRemove; i++)
+                {
+                    // Pick the last worker
+                    var worker = _workers.Last();
+
+                    // Signal it to stop (Cancel)
+                    worker.Cts.Cancel();
+
+                    // Remove from the management list immediately
+                    // (The task might still be finishing its current job, but it will stop afterwards)
+                    _workers.RemoveAt(_workers.Count - 1);
+                }
+            }
+
+            ActiveWorkers = _workers.Count;
         }
     }
 
     /// <summary>
-    /// Updates persistence and sends Real-time notification in one go.
+    /// The logic for a single worker thread.
     /// </summary>
-    private async Task UpdateStateAndNotifyAsync(string jobId, JobStatus status, CancellationToken ct)
+    private async Task WorkerLoopAsync(CancellationToken workerCt)
     {
-        // Persistence
-        await _storage.UpdateJobStateAsync(jobId, status, ct);
+        var workerId = Guid.NewGuid().ToString()[..4]; // Short ID for logs
+        _logger.LogInformation("[Worker {ID}] Started.", workerId);
 
-        // Notification (Fire-and-forget style safety)
+        try
+        {
+            // workerCt is the personal cancellation token for this specific worker.
+            // If we Scale Down, this token is cancelled.
+
+            while (!workerCt.IsCancellationRequested)
+            {
+                // 1. Wait for work.
+                // If cancellation is requested (Scale Down), WaitToReadAsync throws OperationCanceledException
+                // or returns false, exiting the loop gracefully.
+                if (await _queue.Reader.WaitToReadAsync(workerCt))
+                {
+                    while (_queue.Reader.TryRead(out var job))
+                    {
+                        // 2. If we grabbed a job, process it FULLY.
+                        // We use CancellationToken.None here to ensure the job is not interrupted 
+                        // mid-process if the worker is scaled down.
+
+                        try
+                        {
+                            await ProcessSingleJobAsync(job, workerId);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "[Worker {ID}] Job {JobId} failed critical wrapper", workerId, job.Id);
+                        }
+
+                        // Check if we were fired after finishing the job
+                        if (workerCt.IsCancellationRequested) break;
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal behavior during Scale Down
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Worker {ID}] Loop crashed unexpectedly.", workerId);
+        }
+        finally
+        {
+            _logger.LogInformation("[Worker {ID}] Stopped (Graceful shutdown).", workerId);
+        }
+    }
+
+    private async Task ProcessSingleJobAsync(IChokaQJob job, string workerId)
+    {
+        // Log Start
+        await UpdateStateAndNotifyAsync(job.Id, JobStatus.Processing);
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var jobType = job.GetType();
+
+            // Resolve generic handler IChokaQJobHandler<T>
+            var handlerType = typeof(IChokaQJobHandler<>).MakeGenericType(jobType);
+            var handler = scope.ServiceProvider.GetService(handlerType);
+
+            if (handler == null) throw new InvalidOperationException($"No handler for {jobType.Name}");
+
+            var method = handlerType.GetMethod("HandleAsync");
+            if (method != null)
+            {
+                // Execute handler logic
+                await (Task)method.Invoke(handler, new object[] { job, CancellationToken.None })!;
+            }
+
+            await UpdateStateAndNotifyAsync(job.Id, JobStatus.Succeeded);
+            _logger.LogInformation("[Worker {ID}] Job {JobId} done.", workerId, job.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Worker {ID}] Job {JobId} failed.", workerId, job.Id);
+            await UpdateStateAndNotifyAsync(job.Id, JobStatus.Failed);
+        }
+    }
+
+    private async Task UpdateStateAndNotifyAsync(string jobId, JobStatus status)
+    {
+        await _storage.UpdateJobStateAsync(jobId, status);
         try
         {
             await _notifier.NotifyJobUpdatedAsync(jobId, status);
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR notification for Job {JobId}", jobId);
-        }
-    }
-
-    /// <summary>
-    /// Resolves the appropriate handler from DI and executes it.
-    /// </summary>
-    private async Task ProcessJobAsync(IChokaQJob job, CancellationToken ct)
-    {
-        // Create a new DI scope ensures that scoped services (like DbContext) are fresh for each job.
-        using var scope = _scopeFactory.CreateScope();
-        var jobType = job.GetType();
-
-        // Dynamic generic type resolution: IChokaQJobHandler<TJob>
-        var handlerType = typeof(IChokaQJobHandler<>).MakeGenericType(jobType);
-        var handler = scope.ServiceProvider.GetService(handlerType);
-
-        if (handler == null)
-        {
-            throw new InvalidOperationException($"No handler registered for {jobType.Name}");
-        }
-
-        var method = handlerType.GetMethod("HandleAsync");
-        if (method != null)
-        {
-            await (Task)method.Invoke(handler, new object[] { job, ct })!;
-        }
+        catch { }
     }
 }

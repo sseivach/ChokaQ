@@ -1,7 +1,9 @@
 ﻿@using Microsoft.AspNetCore.SignalR.Client
 @using ChokaQ.Abstractions.Enums
+@using ChokaQ.Core.Workers
 @implements IAsyncDisposable
 @inject NavigationManager Navigation
+@inject IWorkerManager WorkerManager
 
 <div class="p-4 rounded shadow-lg border border-secondary" style="background-color: #1e1e1e;">
 
@@ -51,6 +53,29 @@
                     <h2 class="mb-0 text-primary">@jobs.Count</h2>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div class="card bg-dark border-secondary shadow-sm mb-4">
+        <div class="card-body d-flex align-items-center gap-3">
+            <div class="text-white fw-bold">⚙️ Scale Workers:</div>
+
+            <select class="form-select form-select-sm bg-dark text-white border-secondary"
+                    style="width: 100px;"
+                    @bind="desiredWorkers">
+                @for (int i = 1; i <= 10; i++)
+                {
+                    <option value="@i">@i Thread@(i > 1 ? "s" : "")</option>
+                }
+            </select>
+
+            <button class="btn btn-sm btn-success" @onclick="UpdateWorkerCount">
+                Apply Settings
+            </button>
+
+            <span class="text-secondary small ms-2">
+                (Active: <strong>@WorkerManager.ActiveWorkers</strong>)
+            </span>
         </div>
     </div>
 
@@ -128,10 +153,13 @@
 @code {
     private HubConnection? hubConnection;
     private List<JobViewModel> jobs = new();
+    private int desiredWorkers = 1;
     private bool isConnected => hubConnection?.State == HubConnectionState.Connected;
 
     protected override async Task OnInitializedAsync()
     {
+        desiredWorkers = WorkerManager.ActiveWorkers;
+
         // Initialize the SignalR connection to the ChokaQ Hub
         hubConnection = new HubConnectionBuilder()
             .WithUrl(Navigation.ToAbsoluteUri("/chokaq-hub"))
@@ -142,9 +170,11 @@
         hubConnection.On<string, int>("JobUpdated", (jobId, statusInt) =>
         {
             var status = (JobStatus)statusInt;
-            UpdateJob(jobId, status);
-            // Force UI refresh as this happens on a background thread
-            InvokeAsync(StateHasChanged);
+            InvokeAsync(() =>
+            {
+                UpdateJob(jobId, status);
+                StateHasChanged();
+            });
         });
 
         await hubConnection.StartAsync();
@@ -166,6 +196,12 @@
             // Limit the list size to prevent memory bloat in the browser
             if (jobs.Count > 100) jobs.RemoveAt(jobs.Count - 1);
         }
+    }
+
+    private void UpdateWorkerCount()
+    {
+        WorkerManager.UpdateWorkerCount(desiredWorkers);
+        StateHasChanged();
     }
 
     private void ClearHistory()
