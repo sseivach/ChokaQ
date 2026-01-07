@@ -15,11 +15,12 @@ public class JobWorker : BackgroundService, IWorkerManager
     private readonly IChokaQNotifier _notifier;
     private readonly ILogger<JobWorker> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ICircuitBreaker _breaker;
 
     // Configurable Properties
     public int MaxRetries { get; set; } = 3;
 
-    // Default delay 3 seconds
+    // Default base delay in seconds
     public int RetryDelaySeconds { get; set; } = 3;
 
     private readonly List<(Task Task, CancellationTokenSource Cts)> _workers = new();
@@ -32,13 +33,15 @@ public class JobWorker : BackgroundService, IWorkerManager
         IJobStorage storage,
         IChokaQNotifier notifier,
         ILogger<JobWorker> logger,
-        IServiceScopeFactory scopeFactory)
+        IServiceScopeFactory scopeFactory,
+        ICircuitBreaker breaker)
     {
         _queue = queue;
         _storage = storage;
         _notifier = notifier;
         _logger = logger;
         _scopeFactory = scopeFactory;
+        _breaker = breaker;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -50,11 +53,12 @@ public class JobWorker : BackgroundService, IWorkerManager
     public void UpdateWorkerCount(int targetCount)
     {
         if (targetCount < 0) targetCount = 0;
-        if (targetCount > 10) targetCount = 10;
+        if (targetCount > 100) targetCount = 100;
 
         lock (_lock)
         {
             int current = _workers.Count;
+
             if (targetCount > current)
             {
                 int toAdd = targetCount - current;
@@ -82,6 +86,7 @@ public class JobWorker : BackgroundService, IWorkerManager
     private async Task WorkerLoopAsync(CancellationToken workerCt)
     {
         var workerId = Guid.NewGuid().ToString()[..4];
+
         try
         {
             while (!workerCt.IsCancellationRequested)
@@ -115,15 +120,26 @@ public class JobWorker : BackgroundService, IWorkerManager
     {
         var storageDto = await _storage.GetJobAsync(job.Id);
         int currentAttempt = storageDto?.AttemptCount ?? 1;
+        var jobTypeName = job.GetType().Name; // Key for Circuit Breaker
+
+        // [STEP 1] Check Circuit Breaker status
+        if (!_breaker.IsExecutionPermitted(jobTypeName))
+        {
+            _logger.LogWarning("[CircuitBreaker] Job {JobId} skipped. Circuit for {Type} is OPEN.", job.Id, jobTypeName);
+
+            // Requeue the job with a delay to prevent busy-waiting loop
+            await Task.Delay(5000);
+            await _queue.RequeueAsync(job);
+            return;
+        }
 
         await UpdateStateAndNotifyAsync(job.Id, JobStatus.Processing, currentAttempt);
 
         try
         {
             using var scope = _scopeFactory.CreateScope();
-
             var jobContext = scope.ServiceProvider.GetRequiredService<JobContext>();
-            jobContext.JobId = job.Id; // Inject the ID so the handler can use it
+            jobContext.JobId = job.Id;
 
             var jobType = job.GetType();
             var handlerType = typeof(IChokaQJobHandler<>).MakeGenericType(jobType);
@@ -137,14 +153,21 @@ public class JobWorker : BackgroundService, IWorkerManager
                 await (Task)method.Invoke(handler, new object[] { job, CancellationToken.None })!;
             }
 
+            // [STEP 2] Report Success to Circuit Breaker
+            _breaker.ReportSuccess(jobTypeName);
+
             await UpdateStateAndNotifyAsync(job.Id, JobStatus.Succeeded, currentAttempt);
             _logger.LogInformation("[Worker {ID}] Job {JobId} done (Attempt {Attempt}).", workerId, job.Id, currentAttempt);
         }
         catch (Exception ex)
         {
+            // [STEP 3] Report Failure to Circuit Breaker
+            _breaker.ReportFailure(jobTypeName);
+
             storageDto = await _storage.GetJobAsync(job.Id);
             if (storageDto == null)
             {
+                // Job might have been deleted concurrently
                 await UpdateStateAndNotifyAsync(job.Id, JobStatus.Failed, currentAttempt);
                 return;
             }
@@ -155,15 +178,19 @@ public class JobWorker : BackgroundService, IWorkerManager
             {
                 int nextAttempt = currentAttempt + 1;
 
-                var delaySeconds = RetryDelaySeconds;
+                // [STEP 4] Smart Delay: Exponential Backoff + Jitter
+                // Formula: Delay * 2^(retry-1) + Random(0-1000ms)
+                var baseDelay = RetryDelaySeconds * Math.Pow(2, currentAttempt - 1);
+                var jitter = Random.Shared.Next(0, 1000); // Add randomness to prevent Thundering Herd
+                var totalDelayMs = (int)(baseDelay * 1000) + jitter;
 
-                _logger.LogWarning(ex, "[Worker {ID}] Job {JobId} failed (Attempt {Attempt}). Retrying in {Sec}s...",
-                    workerId, job.Id, currentAttempt, delaySeconds);
+                _logger.LogWarning(ex, "[Worker {ID}] Job {JobId} failed (Attempt {Attempt}). Retrying in {Delay}ms...",
+                    workerId, job.Id, currentAttempt, totalDelayMs);
 
                 await _storage.IncrementJobAttemptAsync(job.Id, nextAttempt);
                 await UpdateStateAndNotifyAsync(job.Id, JobStatus.Pending, nextAttempt);
 
-                await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
+                await Task.Delay(totalDelayMs); // Wait smartly
                 await _queue.RequeueAsync(job);
             }
             else
@@ -181,6 +208,6 @@ public class JobWorker : BackgroundService, IWorkerManager
         {
             await _notifier.NotifyJobUpdatedAsync(jobId, status, attemptCount);
         }
-        catch { }
+        catch { /* Ignore notification failures */ }
     }
 }
