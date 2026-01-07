@@ -1,0 +1,61 @@
+/* Base Layout & Structure */
+.cq-dashboard {
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid var(--cq-border);
+    background-color: var(--cq-bg);
+    color: var(--cq-text);
+    font-family: var(--cq-font, 'Segoe UI', sans-serif);
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.cq-card {
+    background-color: var(--cq-panel-bg);
+    border: 1px solid var(--cq-border);
+    color: var(--cq-text);
+}
+
+.cq-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+    .cq-table th {
+        text-align: left;
+        padding: 12px;
+        border-bottom: 2px solid var(--cq-border);
+        color: var(--cq-text-muted);
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .cq-table td {
+        padding: 12px;
+        border-bottom: 1px solid var(--cq-border);
+        color: var(--cq-text);
+    }
+
+    .cq-table tr:hover td {
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+
+/* Form Controls */
+.cq-select, .cq-input {
+    background-color: var(--cq-panel-bg);
+    color: var(--cq-text);
+    border: 1px solid var(--cq-border);
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+/* Button overrides */
+.btn-outline-secondary {
+    color: var(--cq-text-muted);
+    border-color: var(--cq-text-muted);
+}
+
+.btn-outline-secondary:hover {
+    background-color: var(--cq-text-muted);
+    color: var(--cq-bg);
+}

@@ -1,0 +1,13 @@
+/* Night Shift */
+.cq-theme-nightshift {
+    --cq-bg: #000000;
+    --cq-panel-bg: #1b1b1b;
+    --cq-text: #ffffff;
+    --cq-text-muted: #888888;
+    --cq-border: #333333;
+    --cq-success: #66cc66;
+    --cq-warning: #ff9900; /* THE ORANGE */
+    --cq-danger: #dd3333;
+    --cq-info: #ff9900;
+    --cq-font: Arial, Helvetica, sans-serif;
+}

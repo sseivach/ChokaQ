@@ -1,0 +1,12 @@
+/* Bravo Six (Military) */
+.cq-theme-bravosix {
+    --cq-bg: #1c2118;
+    --cq-panel-bg: #2b3026;
+    --cq-text: #d4dcb9;
+    --cq-text-muted: #6b7556;
+    --cq-border: #4f5742;
+    --cq-success: #9ec45e;
+    --cq-warning: #e3c466;
+    --cq-danger: #cf5d5d;
+    --cq-info: #8caeb0;
+}

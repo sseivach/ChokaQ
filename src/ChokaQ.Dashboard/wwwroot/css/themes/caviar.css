@@ -1,0 +1,13 @@
+/* Black Caviar (Luxury) */
+.cq-theme-caviar {
+    --cq-bg: #000000;
+    --cq-panel-bg: #080808;
+    --cq-text: #ffffff;
+    --cq-text-muted: #666666;
+    --cq-border: #222222;
+    --cq-success: #ffffff;
+    --cq-warning: #cccccc;
+    --cq-danger: #ffffff;
+    --cq-info: #ffffff;
+    --cq-font: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}

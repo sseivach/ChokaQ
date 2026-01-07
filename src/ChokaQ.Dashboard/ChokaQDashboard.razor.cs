@@ -9,22 +9,24 @@ public partial class ChokaQDashboard : IAsyncDisposable
 {
     [Inject] public NavigationManager Navigation { get; set; } = default!;
 
-    // We don't need to inject WorkerManager here for the settings anymore, 
-    // unless we want to initialize other things, but SettingsComponent handles its own injections.
-    // However, we still might keep it if needed for other logic.
-
     private HubConnection? _hubConnection;
     private List<JobViewModel> _jobs = new();
-    private string _currentTheme = "dark"; // dark, light, blue, green
+
+    // Default is "office"
+    private string _currentTheme = "office";
 
     private bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
 
     private string CurrentThemeClass => _currentTheme switch
     {
-        "light" => "cq-theme-light",
-        "blue" => "cq-theme-blue",
-        "green" => "cq-theme-green",
-        _ => "" // Default is dark
+        "nightshift" => "cq-theme-nightshift",
+        "caviar" => "cq-theme-caviar",
+        "flashbang" => "cq-theme-flashbang",
+        "kiddie" => "cq-theme-kiddie",
+        "bravosix" => "cq-theme-bravosix",
+        "bsod" => "cq-theme-bsod",
+
+        _ => "cq-theme-office" // Default falls to Office
     };
 
     private void HandleThemeChanged(string newTheme)
@@ -98,7 +100,6 @@ public partial class ChokaQDashboard : IAsyncDisposable
 
     private void HandleSettingsUpdated()
     {
-        // Settings component handled the logic, we just refresh UI if needed
         StateHasChanged();
     }
 
