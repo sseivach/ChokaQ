@@ -2,9 +2,11 @@
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Core.Contexts;
 using ChokaQ.Core.Queues;
+using ChokaQ.Core.Resilience;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
 
 namespace ChokaQ.Core.Workers;
 
@@ -26,6 +28,9 @@ public class JobWorker : BackgroundService, IWorkerManager
     private readonly List<(Task Task, CancellationTokenSource Cts)> _workers = new();
     private readonly object _lock = new();
 
+    // Registry of tokens for currently running jobs to allow cancellation
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeJobTokens = new();
+
     public int ActiveWorkers { get; private set; } = 0;
 
     public JobWorker(
@@ -42,6 +47,24 @@ public class JobWorker : BackgroundService, IWorkerManager
         _logger = logger;
         _scopeFactory = scopeFactory;
         _breaker = breaker;
+    }
+
+    // Implementation of CancelJobAsync
+    public async Task CancelJobAsync(string jobId)
+    {
+        // 1. If the job is currently running, cancel the token
+        if (_activeJobTokens.TryGetValue(jobId, out var cts))
+        {
+            _logger.LogInformation("Requesting cancellation for running job {JobId}...", jobId);
+            cts.Cancel(); // This triggers the CancellationToken passed to the handler
+        }
+        else
+        {
+            // 2. If not running (e.g., Pending in queue), just update the storage
+            // When the worker eventually picks it up, it will check the status and skip.
+            _logger.LogInformation("Marking pending job {JobId} as Cancelled.", jobId);
+            await UpdateStateAndNotifyAsync(jobId, JobStatus.Cancelled, 0);
+        }
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -97,7 +120,7 @@ public class JobWorker : BackgroundService, IWorkerManager
                     {
                         try
                         {
-                            await ProcessSingleJobAsync(job, workerId);
+                            await ProcessSingleJobAsync(job, workerId, workerCt);
                         }
                         catch (Exception ex)
                         {
@@ -116,24 +139,39 @@ public class JobWorker : BackgroundService, IWorkerManager
         }
     }
 
-    private async Task ProcessSingleJobAsync(IChokaQJob job, string workerId)
+    private async Task ProcessSingleJobAsync(IChokaQJob job, string workerId, CancellationToken workerCt)
     {
         var storageDto = await _storage.GetJobAsync(job.Id);
+
+        // Check if already cancelled while in queue
+        if (storageDto?.Status == JobStatus.Cancelled)
+        {
+            _logger.LogInformation("[Worker {ID}] Skipping job {JobId} because it was cancelled.", workerId, job.Id);
+            return;
+        }
+
         int currentAttempt = storageDto?.AttemptCount ?? 1;
-        var jobTypeName = job.GetType().Name; // Key for Circuit Breaker
+        var jobTypeName = job.GetType().Name;
 
         // [STEP 1] Check Circuit Breaker status
         if (!_breaker.IsExecutionPermitted(jobTypeName))
         {
             _logger.LogWarning("[CircuitBreaker] Job {JobId} skipped. Circuit for {Type} is OPEN.", job.Id, jobTypeName);
-
-            // Requeue the job with a delay to prevent busy-waiting loop
-            await Task.Delay(5000);
-            await _queue.RequeueAsync(job);
+            await Task.Delay(5000, workerCt);
+            await _queue.RequeueAsync(job, workerCt);
             return;
         }
 
         await UpdateStateAndNotifyAsync(job.Id, JobStatus.Processing, currentAttempt);
+
+        // Create a specific cancellation token for this job execution
+        // It triggers if:
+        // 1. The Worker shuts down (workerCt)
+        // 2. Someone clicks "Stop" (jobCts)
+        using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(workerCt);
+
+        // Register the token so we can cancel it externally
+        _activeJobTokens.TryAdd(job.Id, jobCts);
 
         try
         {
@@ -150,27 +188,36 @@ public class JobWorker : BackgroundService, IWorkerManager
             var method = handlerType.GetMethod("HandleAsync");
             if (method != null)
             {
-                await (Task)method.Invoke(handler, new object[] { job, CancellationToken.None })!;
+                // Pass our specific job cancellation token
+                await (Task)method.Invoke(handler, new object[] { job, jobCts.Token })!;
             }
 
-            // [STEP 2] Report Success to Circuit Breaker
+            // [STEP 2] Report Success
             _breaker.ReportSuccess(jobTypeName);
-
             await UpdateStateAndNotifyAsync(job.Id, JobStatus.Succeeded, currentAttempt);
-            _logger.LogInformation("[Worker {ID}] Job {JobId} done (Attempt {Attempt}).", workerId, job.Id, currentAttempt);
+            _logger.LogInformation("[Worker {ID}] Job {JobId} done.", workerId, job.Id);
+        }
+        catch (OperationCanceledException)
+        {
+            // Handle specific cancellation
+            _logger.LogWarning("[Worker {ID}] Job {JobId} was CANCELLED.", workerId, job.Id);
+            await UpdateStateAndNotifyAsync(job.Id, JobStatus.Cancelled, currentAttempt);
         }
         catch (Exception ex)
         {
-            // [STEP 3] Report Failure to Circuit Breaker
+            // [STEP 3] Report Failure
             _breaker.ReportFailure(jobTypeName);
 
-            storageDto = await _storage.GetJobAsync(job.Id);
-            if (storageDto == null)
+            // Check if it was an inner cancellation exception wrapped in TargetInvocationException
+            if (ex.InnerException is OperationCanceledException)
             {
-                // Job might have been deleted concurrently
-                await UpdateStateAndNotifyAsync(job.Id, JobStatus.Failed, currentAttempt);
+                _logger.LogWarning("[Worker {ID}] Job {JobId} was CANCELLED (Wrapped).", workerId, job.Id);
+                await UpdateStateAndNotifyAsync(job.Id, JobStatus.Cancelled, currentAttempt);
                 return;
             }
+
+            storageDto = await _storage.GetJobAsync(job.Id);
+            if (storageDto == null || storageDto.Status == JobStatus.Cancelled) return;
 
             currentAttempt = storageDto.AttemptCount;
 
@@ -178,26 +225,30 @@ public class JobWorker : BackgroundService, IWorkerManager
             {
                 int nextAttempt = currentAttempt + 1;
 
-                // [STEP 4] Smart Delay: Exponential Backoff + Jitter
-                // Formula: Delay * 2^(retry-1) + Random(0-1000ms)
+                // Smart Delay: Exponential Backoff + Jitter
                 var baseDelay = RetryDelaySeconds * Math.Pow(2, currentAttempt - 1);
-                var jitter = Random.Shared.Next(0, 1000); // Add randomness to prevent Thundering Herd
+                var jitter = Random.Shared.Next(0, 1000);
                 var totalDelayMs = (int)(baseDelay * 1000) + jitter;
 
-                _logger.LogWarning(ex, "[Worker {ID}] Job {JobId} failed (Attempt {Attempt}). Retrying in {Delay}ms...",
-                    workerId, job.Id, currentAttempt, totalDelayMs);
+                _logger.LogWarning(ex, "[Worker {ID}] Failed. Retrying in {Delay}ms (Attempt {Next}).",
+                    workerId, totalDelayMs, nextAttempt);
 
                 await _storage.IncrementJobAttemptAsync(job.Id, nextAttempt);
                 await UpdateStateAndNotifyAsync(job.Id, JobStatus.Pending, nextAttempt);
 
-                await Task.Delay(totalDelayMs); // Wait smartly
-                await _queue.RequeueAsync(job);
+                await Task.Delay(totalDelayMs, workerCt);
+                await _queue.RequeueAsync(job, workerCt);
             }
             else
             {
-                _logger.LogError(ex, "[Worker {ID}] Job {JobId} FAILED permanently after {Attempt} attempts.", workerId, job.Id, currentAttempt);
+                _logger.LogError(ex, "[Worker {ID}] FAILED permanently.", workerId);
                 await UpdateStateAndNotifyAsync(job.Id, JobStatus.Failed, currentAttempt);
             }
+        }
+        finally
+        {
+            // Cleanup token from registry
+            _activeJobTokens.TryRemove(job.Id, out _);
         }
     }
 

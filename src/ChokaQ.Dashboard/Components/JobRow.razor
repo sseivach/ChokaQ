@@ -1,5 +1,6 @@
 ﻿@using ChokaQ.Abstractions.Enums
 @using ChokaQ.Dashboard.Models
+@using Microsoft.AspNetCore.SignalR.Client
 
 <tr>
     <td class="font-monospace fw-bold" style="color: var(--cq-info)">@Job.Id</td>
@@ -16,6 +17,10 @@
         else if (Job.Status == JobStatus.Failed)
         {
             <span class="badge" style="background-color: var(--cq-danger); color: #fff;">FAILED</span>
+        }
+        else if (Job.Status == JobStatus.Cancelled)
+        {
+            <span class="badge bg-secondary text-white">CANCELLED</span>
         }
         else
         {
@@ -62,6 +67,15 @@
     </td>
 
     <td class="text-end">
+        @if (Job.Status == JobStatus.Processing || Job.Status == JobStatus.Pending)
+        {
+            <button class="btn btn-sm btn-outline-danger me-2"
+                    title="Stop Job"
+                    @onclick="CancelJob">
+                🛑 Stop
+            </button>
+        }
+
         <button class="btn btn-sm btn-link text-decoration-none" style="color: var(--cq-text-muted);">
             Details
         </button>
@@ -70,6 +84,17 @@
 
 @code {
     [Parameter] public required JobViewModel Job { get; set; }
+
+    // Need the Hub connection passed down from parent (JobFeed -> JobRow)
+    // Or we can cascade it. For simplicity here, let's use CascadingParameter if available,
+    // OR create an EventCallback to the parent.
+    // Let's use EventCallback to keep JobRow dumb.
+    [Parameter] public EventCallback<string> OnCancelRequested { get; set; }
+
+    private async Task CancelJob()
+    {
+        await OnCancelRequested.InvokeAsync(Job.Id);
+    }
 
     private string FormatDuration(TimeSpan? duration)
     {

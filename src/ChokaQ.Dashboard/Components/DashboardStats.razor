@@ -1,8 +1,9 @@
 ﻿@using ChokaQ.Abstractions.Enums
 @using ChokaQ.Dashboard.Models
 
-<div class="row mb-4 g-3">
-    <div class="col-md-3">
+<div class="row mb-4 g-3 row-cols-2 row-cols-md-5">
+
+    <div class="col">
         <div class="card cq-card shadow-sm h-100">
             <div class="card-body">
                 <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.75rem;">Processing</small>
@@ -13,7 +14,7 @@
         </div>
     </div>
 
-    <div class="col-md-3">
+    <div class="col">
         <div class="card cq-card shadow-sm h-100">
             <div class="card-body">
                 <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.75rem;">Succeeded</small>
@@ -24,7 +25,7 @@
         </div>
     </div>
 
-    <div class="col-md-3">
+    <div class="col">
         <div class="card cq-card shadow-sm h-100">
             <div class="card-body">
                 <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.75rem;">Failed</small>
@@ -35,7 +36,18 @@
         </div>
     </div>
 
-    <div class="col-md-3">
+    <div class="col">
+        <div class="card cq-card shadow-sm h-100">
+            <div class="card-body">
+                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.75rem;">Canceled</small>
+                <div class="fs-3 fw-bold mt-1" style="color: var(--cq-text-muted)">
+                    @Jobs.Count(x => x.Status == JobStatus.Cancelled)
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col">
         <div class="card cq-card shadow-sm h-100">
             <div class="card-body">
                 <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.75rem;">Total Jobs</small>

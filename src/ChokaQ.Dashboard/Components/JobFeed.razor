@@ -1,10 +1,10 @@
 ﻿@using ChokaQ.Dashboard.Models
+@using Microsoft.AspNetCore.SignalR.Client
 
 <div class="card cq-card shadow-sm">
     <div class="card-header py-3 d-flex justify-content-between align-items-center"
          style="background-color: var(--cq-panel-bg); border-bottom: 1px solid var(--cq-border);">
         <h5 class="mb-0 fw-bold">Live Feed</h5>
-
         <div class="d-flex gap-3 align-items-center">
             @if (IsConnected)
             {
@@ -36,7 +36,7 @@
             <tbody>
                 @foreach (var job in Jobs)
                 {
-                    <JobRow @key="job.Id" Job="job" />
+                    <JobRow @key="job.Id" Job="job" OnCancelRequested="HandleCancelRequest" />
                 }
 
                 @if (!Jobs.Any())
@@ -56,4 +56,16 @@
     [Parameter] public IEnumerable<JobViewModel> Jobs { get; set; } = Enumerable.Empty<JobViewModel>();
     [Parameter] public bool IsConnected { get; set; }
     [Parameter] public EventCallback OnClearHistory { get; set; }
+
+    // Receive Hub Connection to send commands
+    [Parameter] public HubConnection? HubConnection { get; set; }
+
+    private async Task HandleCancelRequest(string jobId)
+    {
+        if (HubConnection is not null && IsConnected)
+        {
+            // Call the server-side Hub method "CancelJob"
+            await HubConnection.InvokeAsync("CancelJob", jobId);
+        }
+    }
 }
