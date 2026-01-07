@@ -79,6 +79,18 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
 
     public CircuitStatus GetStatus(string jobType) => GetEntry(jobType).Status;
 
+    /// <summary>
+    /// Returns a snapshot of current states.
+    /// </summary>
+    public IReadOnlyDictionary<string, CircuitStatus> GetCircuitStates()
+    {
+        // Project the internal Entry objects to a simple Dictionary<string, Status>
+        return _states.ToDictionary(
+            kvp => kvp.Key,
+            kvp => kvp.Value.Status
+        );
+    }
+
     private CircuitStateEntry GetEntry(string jobType)
     {
         return _states.GetOrAdd(jobType, _ => new CircuitStateEntry());

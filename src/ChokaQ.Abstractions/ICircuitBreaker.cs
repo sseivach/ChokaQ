@@ -24,4 +24,10 @@ public interface ICircuitBreaker
     /// Gets the current status of the circuit for monitoring purposes.
     /// </summary>
     CircuitStatus GetStatus(string jobType);
+
+    /// <summary>
+    /// Retrieves the status of all tracked circuits (Job Types).
+    /// Used for monitoring/dashboard.
+    /// </summary>
+    IReadOnlyDictionary<string, CircuitStatus> GetCircuitStates();
 }

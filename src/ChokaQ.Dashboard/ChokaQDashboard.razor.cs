@@ -1,4 +1,5 @@
 ﻿using ChokaQ.Abstractions.Enums;
+using ChokaQ.Dashboard.Components;
 using ChokaQ.Dashboard.Models;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -14,6 +15,9 @@ public partial class ChokaQDashboard : IAsyncDisposable
 
     // Default is "office"
     private string _currentTheme = "office";
+
+    // Reference to the child component
+    private CircuitMonitor? _circuitMonitor;
 
     private bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
 
@@ -48,6 +52,11 @@ public partial class ChokaQDashboard : IAsyncDisposable
             InvokeAsync(() =>
             {
                 UpdateJob(jobId, status, attempts);
+
+                // [NEW] Check circuit health whenever a job updates
+                // This keeps the UI in sync without a separate timer
+                _circuitMonitor?.Refresh();
+
                 StateHasChanged();
             });
         });

@@ -1,0 +1,72 @@
+﻿@using ChokaQ.Abstractions
+@using ChokaQ.Abstractions.Enums
+@inject ICircuitBreaker CircuitBreaker
+
+@if (_circuitStates.Any())
+{
+    <div class="card cq-card shadow-sm mb-4">
+        <div class="card-header py-2 d-flex align-items-center gap-2"
+             style="background-color: var(--cq-panel-bg); border-bottom: 1px solid var(--cq-border);">
+            <h6 class="mb-0 fw-bold small text-uppercase" style="color: var(--cq-text-muted)">
+                🛡️ System Health (Circuit Breakers)
+            </h6>
+        </div>
+        <div class="card-body p-2">
+            <div class="d-flex flex-wrap gap-2">
+                @foreach (var circuit in _circuitStates)
+                {
+                    <div class="d-flex align-items-center gap-2 px-3 py-1 border rounded"
+                         style="border-color: var(--cq-border) !important; background-color: @GetBgColor(circuit.Value);">
+
+                        <span style="font-size: 0.8rem;">@GetIcon(circuit.Value)</span>
+
+                        <span class="small fw-bold">@FormatName(circuit.Key)</span>
+
+                        <span class="badge bg-dark text-white" style="font-size: 0.65rem;">
+                            @circuit.Value.ToString().ToUpper()
+                        </span>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private Dictionary<string, CircuitStatus> _circuitStates = new();
+
+    // Allows parent to trigger refresh manually
+    public void Refresh()
+    {
+        _circuitStates = CircuitBreaker.GetCircuitStates().ToDictionary(k => k.Key, v => v.Value);
+        StateHasChanged();
+    }
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+    }
+
+    private string FormatName(string fullName)
+    {
+        // Extracts "PrintMessageJob" from "ChokaQ.SampleApp.Jobs.PrintMessageJob"
+        // If it's too long, just take the last part for cleaner UI
+        if (string.IsNullOrEmpty(fullName)) return "Unknown";
+        var parts = fullName.Split('.');
+        return parts.Last();
+    }
+
+    private string GetBgColor(CircuitStatus status) => status switch
+    {
+        CircuitStatus.Open => "rgba(220, 53, 69, 0.1)", // Redish tint
+        CircuitStatus.HalfOpen => "rgba(255, 193, 7, 0.1)", // Yellowish tint
+        _ => "transparent"
+    };
+
+    private string GetIcon(CircuitStatus status) => status switch
+    {
+        CircuitStatus.Open => "🔴",    // Red Circle
+        CircuitStatus.HalfOpen => "🟡",// Yellow Circle
+        _ => "🟢"                      // Green Circle
+    };
+}
