@@ -1,5 +1,5 @@
 /* Return to Office (Corporate / Redmond Style) - DEFAULT */
-.cq-dashboard, .cq-theme-office {
+.cq-theme-office {
     --cq-bg: #f3f2f1; /* Windows Default Gray */
     --cq-panel-bg: #ffffff; /* Pure White Panels */
     --cq-text: #201f1e; /* Microsoft Neutral Primary */

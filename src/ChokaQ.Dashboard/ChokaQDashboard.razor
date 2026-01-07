@@ -9,15 +9,33 @@
 <div class="cq-dashboard @CurrentThemeClass">
 
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h5 class="mb-0 fw-bold">CHOKAQ MONITORING</h5>
-        <small style="color: var(--cq-text-muted)">v1.0.0</small>
+
+        <div class="d-flex align-items-baseline gap-3">
+            <h5 class="mb-0 fw-bold">CHOKAQ MONITORING</h5>
+            <small style="color: var(--cq-text-muted)">v1.0.0</small>
+        </div>
+
+        <div class="d-flex align-items-center gap-2">
+            <span class="small fw-bold" style="color: var(--cq-text-muted)">THEME</span>
+            <select class="form-select form-select-sm cq-select" style="width: 160px;"
+                    value="@_currentTheme"
+                    @onchange="@(e => HandleThemeChanged(e.Value?.ToString() ?? "office"))">
+
+                <option value="office">Return to Office</option>
+                <option value="nightshift">Night Shift</option>
+                <option value="caviar">Black Caviar</option>
+                <option value="flashbang">Flashbang</option>
+                <option value="kiddie">Script Kiddie</option>
+                <option value="bsod">Blue Screen</option>
+                <option value="bravosix">Bravo Six</option>
+
+            </select>
+        </div>
     </div>
 
     <DashboardStats Jobs="_jobs" />
 
-    <DashboardSettings CurrentTheme="@_currentTheme"
-                       OnSettingsApplied="HandleSettingsUpdated"
-                       OnThemeChanged="HandleThemeChanged" />
+    <DashboardSettings OnSettingsApplied="HandleSettingsUpdated" />
 
     <JobFeed Jobs="_jobs"
              IsConnected="IsConnected"
