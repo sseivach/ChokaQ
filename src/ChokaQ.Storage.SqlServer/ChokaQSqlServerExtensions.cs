@@ -1,5 +1,8 @@
 ﻿using ChokaQ.Abstractions;
+using ChokaQ.Core.Workers; // Access to JobWorker for removal
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions; // For RemoveAll/Replace
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace ChokaQ.Storage.SqlServer;
@@ -8,6 +11,7 @@ public static class ChokaQSqlServerExtensions
 {
     /// <summary>
     /// Configures ChokaQ to use SQL Server as the storage provider.
+    /// This method replaces the default In-Memory storage and In-Memory Worker with SQL-backed implementations.
     /// </summary>
     public static void UseSqlServer(this IServiceCollection services, Action<SqlJobStorageOptions> configure)
     {
@@ -20,14 +24,62 @@ public static class ChokaQSqlServerExtensions
             throw new ArgumentNullException(nameof(options.ConnectionString), "Connection string cannot be empty.");
         }
 
-        // 1. Register the Storage Implementation (Singleton)
+        // =========================================================
+        // 1. STORAGE REPLACEMENT
+        // =========================================================
+
+        // Remove the default InMemoryJobStorage
+        services.RemoveAll<IJobStorage>();
+
+        // Register the SQL Implementation
         services.AddSingleton<IJobStorage>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<SqlJobStorage>>();
             return new SqlJobStorage(options.ConnectionString, options.SchemaName, logger);
         });
 
-        // 2. Register Auto-Provisioning logic (if enabled)
+        // =========================================================
+        // 2. WORKER REPLACEMENT (THE SWAP)
+        // =========================================================
+
+        // We need to remove the default JobWorker because it listens to In-Memory channels.
+        // We want SqlJobWorker which polls the database.
+
+        // A. Remove the Hosted Service registration for JobWorker
+        // We iterate backwards to safely remove items from the collection
+        var hostedServiceDescriptor = services.FirstOrDefault(d =>
+            d.ServiceType == typeof(IHostedService) &&
+            (d.ImplementationType == typeof(JobWorker) || d.ImplementationFactory?.Method.ReturnType == typeof(JobWorker)));
+
+        if (hostedServiceDescriptor != null)
+        {
+            services.Remove(hostedServiceDescriptor);
+        }
+
+        // B. Remove the IWorkerManager registration
+        services.RemoveAll<IWorkerManager>();
+
+        // C. Register SqlJobWorker
+        // We register it as a Singleton first, so we can reference it in multiple interfaces
+        services.AddSingleton<SqlJobWorker>(sp =>
+        {
+            return new SqlJobWorker(
+                sp.GetRequiredService<IJobStorage>(),
+                sp.GetRequiredService<ChokaQ.Core.Processing.IJobProcessor>(),
+                sp.GetRequiredService<ChokaQ.Core.State.IJobStateManager>(),
+                sp.GetRequiredService<ILogger<SqlJobWorker>>(),
+                options
+            );
+        });
+
+        // D. Bind interfaces to the SqlJobWorker
+        services.AddSingleton<IWorkerManager>(sp => sp.GetRequiredService<SqlJobWorker>());
+        services.AddHostedService(sp => sp.GetRequiredService<SqlJobWorker>());
+
+        // =========================================================
+        // 3. AUTO-PROVISIONING (MIGRATIONS)
+        // =========================================================
+
         if (options.AutoCreateSqlTable)
         {
             // Register the Initializer (Transient is fine, used once)
