@@ -33,6 +33,7 @@ public class InMemoryQueue : IChokaQQueue
             SingleReader = false, // Multiple workers can read (Scalability ready)
             SingleWriter = false  // Multiple threads can write (API ready)
         };
+
         _queue = Channel.CreateUnbounded<IChokaQJob>(options);
     }
 
@@ -46,6 +47,7 @@ public class InMemoryQueue : IChokaQQueue
     {
         // 1. Serialize payload for persistence
         var payload = JsonSerializer.Serialize(job);
+        var jobTypeName = job.GetType().Name; // Get simple class name for UI
 
         // 2. Persist to Storage (Status: Pending)
         // We save BEFORE enqueueing to ensure data safety.
@@ -61,7 +63,8 @@ public class InMemoryQueue : IChokaQQueue
         // We notify the UI immediately so the user sees the job in the "Pending" state.
         try
         {
-            await _notifier.NotifyJobUpdatedAsync(job.Id, JobStatus.Pending, 0);
+            // Pass jobTypeName to the notifier
+            await _notifier.NotifyJobUpdatedAsync(job.Id, jobTypeName, JobStatus.Pending, 0);
         }
         catch (Exception ex)
         {

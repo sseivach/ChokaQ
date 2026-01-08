@@ -46,15 +46,16 @@ public partial class ChokaQDashboard : IAsyncDisposable
             .WithAutomaticReconnect()
             .Build();
 
-        _hubConnection.On<string, int, int>("JobUpdated", (jobId, statusInt, attempts) =>
+        // Receive 'type' parameter
+        _hubConnection.On<string, string, int, int>("JobUpdated", (jobId, type, statusInt, attempts) =>
         {
             var status = (JobStatus)statusInt;
             InvokeAsync(() =>
             {
-                UpdateJob(jobId, status, attempts);
+                // Pass 'type' to update logic
+                UpdateJob(jobId, type, status, attempts);
 
-                // [NEW] Check circuit health whenever a job updates
-                // This keeps the UI in sync without a separate timer
+                // Check circuit health whenever a job updates
                 _circuitMonitor?.Refresh();
 
                 StateHasChanged();
@@ -77,7 +78,8 @@ public partial class ChokaQDashboard : IAsyncDisposable
         await _hubConnection.StartAsync();
     }
 
-    private void UpdateJob(string jobId, JobStatus status, int attempts)
+    // Added 'type' parameter
+    private void UpdateJob(string jobId, string type, JobStatus status, int attempts)
     {
         var existing = _jobs.FirstOrDefault(j => j.Id == jobId);
         var now = DateTime.Now;
@@ -86,8 +88,9 @@ public partial class ChokaQDashboard : IAsyncDisposable
         {
             existing.Status = status;
             existing.Attempts = attempts;
+            existing.Type = type; // Update type (though typically constant)
 
-            if (status == JobStatus.Succeeded || status == JobStatus.Failed)
+            if (status == JobStatus.Succeeded || status == JobStatus.Failed || status == JobStatus.Cancelled)
             {
                 existing.Duration = now - existing.AddedAt;
             }
@@ -97,6 +100,7 @@ public partial class ChokaQDashboard : IAsyncDisposable
             _jobs.Add(new JobViewModel
             {
                 Id = jobId,
+                Type = type, // Set type
                 Status = status,
                 Attempts = attempts,
                 AddedAt = now,

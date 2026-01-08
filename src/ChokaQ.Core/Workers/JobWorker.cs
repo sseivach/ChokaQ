@@ -63,7 +63,9 @@ public class JobWorker : BackgroundService, IWorkerManager
             // 2. If not running (e.g., Pending in queue), just update the storage
             // When the worker eventually picks it up, it will check the status and skip.
             _logger.LogInformation("Marking pending job {JobId} as Cancelled.", jobId);
-            await UpdateStateAndNotifyAsync(jobId, JobStatus.Cancelled, 0);
+            // We don't know the exact type here easily without storage lookup, 
+            // passing "Unknown" or generic name is acceptable for this edge case notification.
+            await UpdateStateAndNotifyAsync(jobId, "Job", JobStatus.Cancelled, 0);
         }
     }
 
@@ -151,7 +153,7 @@ public class JobWorker : BackgroundService, IWorkerManager
         }
 
         int currentAttempt = storageDto?.AttemptCount ?? 1;
-        var jobTypeName = job.GetType().Name;
+        var jobTypeName = job.GetType().Name; // Used for UI and Circuit Breaker
 
         // [STEP 1] Check Circuit Breaker status
         if (!_breaker.IsExecutionPermitted(jobTypeName))
@@ -162,7 +164,8 @@ public class JobWorker : BackgroundService, IWorkerManager
             return;
         }
 
-        await UpdateStateAndNotifyAsync(job.Id, JobStatus.Processing, currentAttempt);
+        // Pass jobTypeName to notifier
+        await UpdateStateAndNotifyAsync(job.Id, jobTypeName, JobStatus.Processing, currentAttempt);
 
         // Create a specific cancellation token for this job execution
         // It triggers if:
@@ -194,14 +197,16 @@ public class JobWorker : BackgroundService, IWorkerManager
 
             // [STEP 2] Report Success
             _breaker.ReportSuccess(jobTypeName);
-            await UpdateStateAndNotifyAsync(job.Id, JobStatus.Succeeded, currentAttempt);
+
+            // Pass jobTypeName
+            await UpdateStateAndNotifyAsync(job.Id, jobTypeName, JobStatus.Succeeded, currentAttempt);
             _logger.LogInformation("[Worker {ID}] Job {JobId} done.", workerId, job.Id);
         }
         catch (OperationCanceledException)
         {
             // Handle specific cancellation
             _logger.LogWarning("[Worker {ID}] Job {JobId} was CANCELLED.", workerId, job.Id);
-            await UpdateStateAndNotifyAsync(job.Id, JobStatus.Cancelled, currentAttempt);
+            await UpdateStateAndNotifyAsync(job.Id, jobTypeName, JobStatus.Cancelled, currentAttempt);
         }
         catch (Exception ex)
         {
@@ -212,7 +217,7 @@ public class JobWorker : BackgroundService, IWorkerManager
             if (ex.InnerException is OperationCanceledException)
             {
                 _logger.LogWarning("[Worker {ID}] Job {JobId} was CANCELLED (Wrapped).", workerId, job.Id);
-                await UpdateStateAndNotifyAsync(job.Id, JobStatus.Cancelled, currentAttempt);
+                await UpdateStateAndNotifyAsync(job.Id, jobTypeName, JobStatus.Cancelled, currentAttempt);
                 return;
             }
 
@@ -234,7 +239,7 @@ public class JobWorker : BackgroundService, IWorkerManager
                     workerId, totalDelayMs, nextAttempt);
 
                 await _storage.IncrementJobAttemptAsync(job.Id, nextAttempt);
-                await UpdateStateAndNotifyAsync(job.Id, JobStatus.Pending, nextAttempt);
+                await UpdateStateAndNotifyAsync(job.Id, jobTypeName, JobStatus.Pending, nextAttempt);
 
                 await Task.Delay(totalDelayMs, workerCt);
                 await _queue.RequeueAsync(job, workerCt);
@@ -242,7 +247,7 @@ public class JobWorker : BackgroundService, IWorkerManager
             else
             {
                 _logger.LogError(ex, "[Worker {ID}] FAILED permanently.", workerId);
-                await UpdateStateAndNotifyAsync(job.Id, JobStatus.Failed, currentAttempt);
+                await UpdateStateAndNotifyAsync(job.Id, jobTypeName, JobStatus.Failed, currentAttempt);
             }
         }
         finally
@@ -252,12 +257,13 @@ public class JobWorker : BackgroundService, IWorkerManager
         }
     }
 
-    private async Task UpdateStateAndNotifyAsync(string jobId, JobStatus status, int attemptCount)
+    // Added 'type' parameter
+    private async Task UpdateStateAndNotifyAsync(string jobId, string type, JobStatus status, int attemptCount)
     {
         await _storage.UpdateJobStateAsync(jobId, status);
         try
         {
-            await _notifier.NotifyJobUpdatedAsync(jobId, status, attemptCount);
+            await _notifier.NotifyJobUpdatedAsync(jobId, type, status, attemptCount);
         }
         catch { /* Ignore notification failures */ }
     }

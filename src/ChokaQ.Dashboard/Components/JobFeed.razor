@@ -5,6 +5,7 @@
     <div class="card-header py-3 d-flex justify-content-between align-items-center"
          style="background-color: var(--cq-panel-bg); border-bottom: 1px solid var(--cq-border);">
         <h5 class="mb-0 fw-bold">Live Feed</h5>
+
         <div class="d-flex gap-3 align-items-center">
             @if (IsConnected)
             {
@@ -25,11 +26,12 @@
         <table class="cq-table">
             <thead>
                 <tr>
-                    <th style="width: 25%">ID</th>
-                    <th style="width: 15%">Status</th>
+                    <th style="width: 20%">ID</th>
+                    <th style="width: 15%">Type</th>
+                    <th style="width: 10%">Status</th>
                     <th style="width: 25%">Progress</th>
-                    <th style="width: 10%">Att.</th>
-                    <th style="width: 15%">Duration</th>
+                    <th style="width: 5%">Att.</th>
+                    <th style="width: 10%">Duration</th>
                     <th class="text-end">Actions</th>
                 </tr>
             </thead>
@@ -42,7 +44,7 @@
                 @if (!Jobs.Any())
                 {
                     <tr>
-                        <td colspan="6" class="text-center py-5" style="color: var(--cq-text-muted)">
+                        <td colspan="7" class="text-center py-5" style="color: var(--cq-text-muted)">
                             No active jobs
                         </td>
                     </tr>

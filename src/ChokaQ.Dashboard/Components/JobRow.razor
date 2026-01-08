@@ -6,6 +6,12 @@
     <td class="font-monospace fw-bold" style="color: var(--cq-info)">@Job.Id</td>
 
     <td>
+        <span class="badge bg-dark border border-secondary text-light font-monospace">
+            @Job.Type
+        </span>
+    </td>
+
+    <td>
         @if (Job.Status == JobStatus.Processing)
         {
             <span class="badge" style="background-color: var(--cq-warning); color: #000;">PROCESSING</span>
@@ -85,10 +91,7 @@
 @code {
     [Parameter] public required JobViewModel Job { get; set; }
 
-    // Need the Hub connection passed down from parent (JobFeed -> JobRow)
-    // Or we can cascade it. For simplicity here, let's use CascadingParameter if available,
-    // OR create an EventCallback to the parent.
-    // Let's use EventCallback to keep JobRow dumb.
+    // Event callback for cancellation
     [Parameter] public EventCallback<string> OnCancelRequested { get; set; }
 
     private async Task CancelJob()
