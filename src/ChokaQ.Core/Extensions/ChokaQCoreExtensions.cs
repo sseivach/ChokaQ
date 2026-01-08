@@ -2,8 +2,10 @@
 using ChokaQ.Core.Contexts;
 using ChokaQ.Core.Execution;
 using ChokaQ.Core.Notifiers;
+using ChokaQ.Core.Processing;
 using ChokaQ.Core.Queues;
 using ChokaQ.Core.Resilience;
+using ChokaQ.Core.State;
 using ChokaQ.Core.Storages;
 using ChokaQ.Core.Workers;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,12 +26,11 @@ public static class ChokaQCoreExtensions
         services.TryAddSingleton<InMemoryQueue>();
         services.TryAddSingleton<IChokaQQueue>(sp => sp.GetRequiredService<InMemoryQueue>());
 
-        // Execution Logic
         services.TryAddSingleton<IJobExecutor, JobExecutor>();
+        services.TryAddSingleton<IJobStateManager, JobStateManager>();
+        services.TryAddSingleton<IJobProcessor, JobProcessor>();
 
-        // Orchestration (Worker)
         services.TryAddSingleton<JobWorker>();
-        // IWorkerManager now lives in Abstractions, but implementation is still JobWorker
         services.TryAddSingleton<IWorkerManager>(sp => sp.GetRequiredService<JobWorker>());
         services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
 
