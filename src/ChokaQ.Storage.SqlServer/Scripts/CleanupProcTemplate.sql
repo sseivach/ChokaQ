@@ -1,25 +1,22 @@
+﻿-- ==========================================================
+-- ChokaQ Cleanup Procedure Template
 -- ==========================================================
--- ChokaQ Cleanup Procedure
--- 
--- Efficiently removes old job history using Batch Deletion.
--- Prevents transaction log explosion and table locking.
+-- Efficiently removes old job history using Batch Deletion logic.
+-- This prevents transaction log explosion and table locking issues.
+-- Note: Uses "CREATE OR ALTER" (requires SQL Server 2016+).
 -- ==========================================================
 
-IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[chokaq].[sp_CleanupJobs]') AND type in (N'P', N'PC'))
-BEGIN
-    EXEC('CREATE PROCEDURE [chokaq].[sp_CleanupJobs] AS BEGIN SET NOCOUNT ON; END')
-END
-GO
-
-ALTER PROCEDURE [chokaq].[sp_CleanupJobs]
-    @SucceededRetentionDays int = 7,  -- Keep success history for 1 week
-    @FailedRetentionDays int = 30,    -- Keep failure history for 1 month (for debugging)
+CREATE OR ALTER PROCEDURE [{SCHEMA}].[sp_CleanupJobs]
+    @SucceededRetentionDays int = 7,  -- Keep successful jobs for 1 week
+    @FailedRetentionDays int = 30,    -- Keep failed jobs for 1 month (for debugging)
     @BatchSize int = 1000             -- Rows to delete per transaction
 AS
 BEGIN
     SET NOCOUNT ON;
 
     DECLARE @RowsAffected int;
+    
+    -- Calculate cutoff dates
     DECLARE @SucceededCutoff datetime2(7) = DATEADD(day, -@SucceededRetentionDays, SYSUTCDATETIME());
     DECLARE @FailedCutoff datetime2(7) = DATEADD(day, -@FailedRetentionDays, SYSUTCDATETIME());
 
@@ -34,7 +31,7 @@ BEGIN
         
         -- Delete in small batches to avoid locking the table for too long
         DELETE TOP (@BatchSize) 
-        FROM [chokaq].[Jobs]
+        FROM [{SCHEMA}].[Jobs]
         WHERE (Status = 2 OR Status = 4) -- Succeeded or Cancelled
           AND FinishedAtUtc < @SucceededCutoff;
         
@@ -42,8 +39,9 @@ BEGIN
         
         COMMIT TRANSACTION;
         
-        -- Optional: Small sleep to let other queries breathe
-        -- WAITFOR DELAY '00:00:00.050'; 
+        -- Throttling (Optional): 
+        -- Uncomment below if this procedure causes performance issues for active users.
+        -- WAITFOR DELAY '00:00:00.010'; 
     END
 
     -- ======================================================
@@ -56,7 +54,7 @@ BEGIN
         BEGIN TRANSACTION;
         
         DELETE TOP (@BatchSize) 
-        FROM [chokaq].[Jobs]
+        FROM [{SCHEMA}].[Jobs]
         WHERE Status = 3 -- Failed
           AND FinishedAtUtc < @FailedCutoff;
         
@@ -65,7 +63,6 @@ BEGIN
         COMMIT TRANSACTION;
     END
 
-    -- Return 0 to indicate success
     RETURN 0;
 END
 GO
