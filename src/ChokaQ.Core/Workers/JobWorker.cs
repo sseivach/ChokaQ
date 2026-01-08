@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.Text.Json;
 
 namespace ChokaQ.Core.Workers;
 
@@ -63,9 +64,62 @@ public class JobWorker : BackgroundService, IWorkerManager
             // 2. If not running (e.g., Pending in queue), just update the storage
             // When the worker eventually picks it up, it will check the status and skip.
             _logger.LogInformation("Marking pending job {JobId} as Cancelled.", jobId);
-            // We don't know the exact type here easily without storage lookup, 
-            // passing "Unknown" or generic name is acceptable for this edge case notification.
+            // We pass "Unknown" as type here because lookup is expensive and this is just an edge case update
             await UpdateStateAndNotifyAsync(jobId, "Job", JobStatus.Cancelled, 0);
+        }
+    }
+
+    // Implementation of RestartJobAsync
+    public async Task RestartJobAsync(string jobId)
+    {
+        // 1. Fetch the job data from storage
+        var storageDto = await _storage.GetJobAsync(jobId);
+        if (storageDto == null)
+        {
+            _logger.LogWarning("Cannot restart job {JobId}: not found.", jobId);
+            return;
+        }
+
+        // 2. Prevent restarting if it's currently running (Processing) or already Pending
+        // We only want to restart terminal states to avoid duplicates.
+        if (storageDto.Status == JobStatus.Processing || storageDto.Status == JobStatus.Pending)
+        {
+            _logger.LogWarning("Cannot restart job {JobId}: it is currently active ({Status}).", jobId, storageDto.Status);
+            return;
+        }
+
+        try
+        {
+            // 3. Reconstruct the C# object from JSON payload
+            // We use the Type name stored in the DTO to find the correct class.
+            var jobType = Type.GetType(storageDto.Type);
+            if (jobType == null)
+            {
+                throw new InvalidOperationException($"Cannot load type '{storageDto.Type}'. Assembly might be missing.");
+            }
+
+            var jobObject = JsonSerializer.Deserialize(storageDto.Payload, jobType) as IChokaQJob;
+            if (jobObject == null)
+            {
+                throw new InvalidOperationException("Failed to deserialize job payload.");
+            }
+
+            _logger.LogInformation("Restarting job {JobId}...", jobId);
+
+            // 4. Reset State in Storage
+            // Reset attempts to 0 because this is a manual restart (clean slate).
+            await _storage.UpdateJobStateAsync(jobId, JobStatus.Pending);
+            await _storage.IncrementJobAttemptAsync(jobId, 0);
+
+            // Notify UI immediately so the user sees "Pending"
+            await UpdateStateAndNotifyAsync(jobId, jobObject.GetType().Name, JobStatus.Pending, 0);
+
+            // 5. Push back to Queue
+            await _queue.RequeueAsync(jobObject);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to restart job {JobId}.", jobId);
         }
     }
 
@@ -153,7 +207,7 @@ public class JobWorker : BackgroundService, IWorkerManager
         }
 
         int currentAttempt = storageDto?.AttemptCount ?? 1;
-        var jobTypeName = job.GetType().Name; // Used for UI and Circuit Breaker
+        var jobTypeName = job.GetType().Name;
 
         // [STEP 1] Check Circuit Breaker status
         if (!_breaker.IsExecutionPermitted(jobTypeName))
@@ -164,16 +218,10 @@ public class JobWorker : BackgroundService, IWorkerManager
             return;
         }
 
-        // Pass jobTypeName to notifier
         await UpdateStateAndNotifyAsync(job.Id, jobTypeName, JobStatus.Processing, currentAttempt);
 
         // Create a specific cancellation token for this job execution
-        // It triggers if:
-        // 1. The Worker shuts down (workerCt)
-        // 2. Someone clicks "Stop" (jobCts)
         using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(workerCt);
-
-        // Register the token so we can cancel it externally
         _activeJobTokens.TryAdd(job.Id, jobCts);
 
         try
@@ -197,8 +245,6 @@ public class JobWorker : BackgroundService, IWorkerManager
 
             // [STEP 2] Report Success
             _breaker.ReportSuccess(jobTypeName);
-
-            // Pass jobTypeName
             await UpdateStateAndNotifyAsync(job.Id, jobTypeName, JobStatus.Succeeded, currentAttempt);
             _logger.LogInformation("[Worker {ID}] Job {JobId} done.", workerId, job.Id);
         }
@@ -257,7 +303,6 @@ public class JobWorker : BackgroundService, IWorkerManager
         }
     }
 
-    // Added 'type' parameter
     private async Task UpdateStateAndNotifyAsync(string jobId, string type, JobStatus status, int attemptCount)
     {
         await _storage.UpdateJobStateAsync(jobId, status);

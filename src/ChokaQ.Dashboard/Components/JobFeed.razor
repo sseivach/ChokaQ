@@ -38,7 +38,10 @@
             <tbody>
                 @foreach (var job in Jobs)
                 {
-                    <JobRow @key="job.Id" Job="job" OnCancelRequested="HandleCancelRequest" />
+                    <JobRow @key="job.Id"
+                            Job="job"
+                            OnCancelRequested="HandleCancelRequest"
+                            OnRestartRequested="HandleRestartRequest" />
                 }
 
                 @if (!Jobs.Any())
@@ -68,6 +71,16 @@
         {
             // Call the server-side Hub method "CancelJob"
             await HubConnection.InvokeAsync("CancelJob", jobId);
+        }
+    }
+
+    // Restart Handler
+    private async Task HandleRestartRequest(string jobId)
+    {
+        if (HubConnection is not null && IsConnected)
+        {
+            // Call the server-side method "RestartJob"
+            await HubConnection.InvokeAsync("RestartJob", jobId);
         }
     }
 }

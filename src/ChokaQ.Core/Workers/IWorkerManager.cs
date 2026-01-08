@@ -29,4 +29,10 @@ public interface IWorkerManager
     /// If pending, updates the state in storage so it gets skipped.
     /// </summary>
     Task CancelJobAsync(string jobId);
+
+    /// <summary>
+    /// Restarts a job by resetting its state and pushing it back to the queue.
+    /// Works for Failed, Cancelled, and Succeeded jobs.
+    /// </summary>
+    Task RestartJobAsync(string jobId);
 }

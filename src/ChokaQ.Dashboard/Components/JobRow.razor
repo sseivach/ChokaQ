@@ -82,6 +82,17 @@
             </button>
         }
 
+        @if (Job.Status == JobStatus.Succeeded ||
+                Job.Status == JobStatus.Failed ||
+                Job.Status == JobStatus.Cancelled)
+        {
+            <button class="btn btn-sm btn-outline-primary me-2"
+                    title="Restart Job"
+                    @onclick="RestartJob">
+                🔄 Restart
+            </button>
+        }
+
         <button class="btn btn-sm btn-link text-decoration-none" style="color: var(--cq-text-muted);">
             Details
         </button>
@@ -91,12 +102,19 @@
 @code {
     [Parameter] public required JobViewModel Job { get; set; }
 
-    // Event callback for cancellation
     [Parameter] public EventCallback<string> OnCancelRequested { get; set; }
+    
+    [Parameter] public EventCallback<string> OnRestartRequested { get; set; }
 
     private async Task CancelJob()
     {
         await OnCancelRequested.InvokeAsync(Job.Id);
+    }
+
+    // Handler
+    private async Task RestartJob()
+    {
+        await OnRestartRequested.InvokeAsync(Job.Id);
     }
 
     private string FormatDuration(TimeSpan? duration)
