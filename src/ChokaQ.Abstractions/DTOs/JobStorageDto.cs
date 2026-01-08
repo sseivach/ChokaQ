@@ -20,6 +20,16 @@ public record JobStorageDto(
     string Payload,
     JobStatus Status,
     int AttemptCount,
+    int Priority,
+    DateTimeOffset? ScheduledAtUtc,
+    string? Tags,
+    string? IdempotencyKey,
+    string? WorkerId,
+    string? ErrorDetails,
+
+    // Timestamps
     DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? StartedAtUtc,
+    DateTimeOffset? FinishedAtUtc,
     DateTimeOffset LastUpdatedUtc
 );

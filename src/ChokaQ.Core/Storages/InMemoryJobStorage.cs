@@ -7,37 +7,39 @@ using System.Collections.Concurrent;
 namespace ChokaQ.Core.Storages;
 
 /// <summary>
-/// Uses ConcurrentDictionary for thread-safe operations without locking overhead.
+/// In-memory implementation of IJobStorage.
+/// Useful for testing and development, but not recommended for production
+/// as data is lost when the application restarts.
 /// </summary>
 public class InMemoryJobStorage : IJobStorage
 {
-    // The "Vault". Holds all job data in memory.
     private readonly ConcurrentDictionary<string, JobStorageDto> _jobs = new();
     private readonly ILogger<InMemoryJobStorage> _logger;
     private readonly TimeProvider _timeProvider;
 
-    /// <summary>
-    /// Initializes a new instance of the InMemoryJobStorage.
-    /// </summary>
-    /// <param name="logger">Logger instance for telemetry.</param>
-    /// <param name="timeProvider">Abstraction for time access (testability).</param>
-    public InMemoryJobStorage(
-        ILogger<InMemoryJobStorage> logger,
-        TimeProvider timeProvider)
+    public InMemoryJobStorage(ILogger<InMemoryJobStorage> logger, TimeProvider timeProvider)
     {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        _logger = logger;
+        _timeProvider = timeProvider;
     }
 
     /// <inheritdoc />
     public ValueTask<string> CreateJobAsync(
-        string id, // <--- Take ID from outside
+        string id,
         string queue,
         string jobType,
         string payload,
+        int priority = 10,
+        string? createdBy = null,
+        string? tags = null,
+        TimeSpan? delay = null,
+        string? idempotencyKey = null,
         CancellationToken ct = default)
     {
         var now = _timeProvider.GetUtcNow();
+
+        // Calculate schedule time if delay is provided
+        DateTimeOffset? scheduledAt = delay.HasValue ? now.Add(delay.Value) : null;
 
         var job = new JobStorageDto(
             Id: id,
@@ -45,98 +47,114 @@ public class InMemoryJobStorage : IJobStorage
             Type: jobType,
             Payload: payload,
             Status: JobStatus.Pending,
-            AttemptCount: 1,
+            AttemptCount: 0,
+            Priority: priority,
+            ScheduledAtUtc: scheduledAt,
+            Tags: tags,
+            IdempotencyKey: idempotencyKey,
+            WorkerId: null,
+            ErrorDetails: null,
             CreatedAtUtc: now,
+            StartedAtUtc: null,
+            FinishedAtUtc: null,
             LastUpdatedUtc: now
         );
 
         if (_jobs.TryAdd(id, job))
         {
-            _logger.LogInformation("Job created in memory. ID: {JobId}, Queue: {Queue}", id, queue);
             return new ValueTask<string>(id);
         }
 
-        // Technically impossible with Guid.NewGuid(), but defensive coding is key.
-        var ex = new InvalidOperationException($"Failed to generate unique ID for job. ID collision: {id}");
-        _logger.LogError(ex, "Critical failure during job creation.");
+        // Handle unlikely ID collision
+        var ex = new InvalidOperationException($"Job ID collision detected: {id}");
+        _logger.LogError(ex, "Failed to create job in memory.");
         throw ex;
     }
 
     /// <inheritdoc />
     public ValueTask<JobStorageDto?> GetJobAsync(string id, CancellationToken ct = default)
     {
-        if (_jobs.TryGetValue(id, out var job))
-        {
-            return new ValueTask<JobStorageDto?>(job);
-        }
-
-        _logger.LogDebug("Job not found in memory storage. ID: {JobId}", id);
-        return new ValueTask<JobStorageDto?>(result: null);
+        _jobs.TryGetValue(id, out var job);
+        return new ValueTask<JobStorageDto?>(job);
     }
 
-    /// <inheritdoc />
     /// <inheritdoc />
     public ValueTask<bool> UpdateJobStateAsync(string id, JobStatus status, CancellationToken ct = default)
     {
-        // CAS (Compare-And-Swap) Loop.
-        // We read, modify, and try to update ONLY if the value hasn't changed in the meantime.
-        while (true)
+        if (!_jobs.TryGetValue(id, out var existing)) return new ValueTask<bool>(false);
+
+        var now = _timeProvider.GetUtcNow();
+        var updated = existing with
         {
-            if (!_jobs.TryGetValue(id, out var existingJob))
-            {
-                _logger.LogWarning("Attempted to update non-existent job. ID: {JobId}", id);
-                return new ValueTask<bool>(false);
-            }
+            Status = status,
+            LastUpdatedUtc = now,
+            FinishedAtUtc = (status == JobStatus.Succeeded || status == JobStatus.Failed || status == JobStatus.Cancelled)
+                ? now
+                : existing.FinishedAtUtc
+        };
 
-            var updatedJob = existingJob with
-            {
-                Status = status,
-                LastUpdatedUtc = _timeProvider.GetUtcNow()
-            };
-
-            // Critical: TryUpdate ensures atomic replacement.
-            // comparisonValue: existingJob (what we read just a moment ago).
-            // If the dictionary value changed since we read it, TryUpdate returns false.
-            if (_jobs.TryUpdate(id, updatedJob, existingJob))
-            {
-                _logger.LogInformation("Job state updated. ID: {JobId}, NewStatus: {Status}", id, status);
-                return new ValueTask<bool>(true);
-            }
-
-            // If we are here, another thread modified the job while we were thinking.
-            // We simply loop back, re-read the NEW state, and try again.
-            // No sleep needed, this spin is extremely fast.
-        }
+        return new ValueTask<bool>(_jobs.TryUpdate(id, updated, existing));
     }
 
-    // Implementation of IncrementJobAttemptAsync
+    /// <inheritdoc />
     public ValueTask<bool> IncrementJobAttemptAsync(string id, int newAttemptCount, CancellationToken ct = default)
     {
-        while (true)
+        if (!_jobs.TryGetValue(id, out var existing)) return new ValueTask<bool>(false);
+
+        var updated = existing with
         {
-            if (!_jobs.TryGetValue(id, out var existing)) return new ValueTask<bool>(false);
+            AttemptCount = newAttemptCount,
+            LastUpdatedUtc = _timeProvider.GetUtcNow()
+        };
 
-            // Update only the counter and timestamp
-            var updated = existing with
-            {
-                AttemptCount = newAttemptCount,
-                LastUpdatedUtc = _timeProvider.GetUtcNow()
-            };
-
-            if (_jobs.TryUpdate(id, updated, existing)) return new ValueTask<bool>(true);
-        }
+        return new ValueTask<bool>(_jobs.TryUpdate(id, updated, existing));
     }
 
     /// <inheritdoc />
     public ValueTask<IEnumerable<JobStorageDto>> GetJobsAsync(int limit = 50, CancellationToken ct = default)
     {
-        // Snapshot the values. 
-        // In a real DB (SQL), this would be a SELECT * ORDER BY CreatedAt DESC LIMIT @limit
-        // For InMemory, LINQ is fine for now.
-        var items = _jobs.Values
-            .OrderByDescending(x => x.CreatedAtUtc)
-            .Take(limit);
-
+        var items = _jobs.Values.OrderByDescending(x => x.CreatedAtUtc).Take(limit);
         return new ValueTask<IEnumerable<JobStorageDto>>(items);
+    }
+
+    /// <inheritdoc />
+    public ValueTask<IEnumerable<JobStorageDto>> FetchAndLockNextBatchAsync(string workerId, int limit, CancellationToken ct = default)
+    {
+        var now = _timeProvider.GetUtcNow();
+        var lockedJobs = new List<JobStorageDto>();
+
+        // Simulation of transactional locking for In-Memory storage.
+        // NOTE: This is not strictly thread-safe in a high-concurrency scenario without global locks,
+        // but sufficient for local development and testing.
+
+        // 1. Find candidates: Pending, Schedule reached, Ordered by Priority
+        var candidates = _jobs.Values
+            .Where(j => j.Status == JobStatus.Pending && (!j.ScheduledAtUtc.HasValue || j.ScheduledAtUtc <= now))
+            .OrderByDescending(j => j.Priority)
+            .ThenBy(j => j.ScheduledAtUtc)
+            .ThenBy(j => j.CreatedAtUtc)
+            .Take(limit)
+            .ToList();
+
+        // 2. Try to lock (update status to Processing)
+        foreach (var job in candidates)
+        {
+            var updated = job with
+            {
+                Status = JobStatus.Processing,
+                WorkerId = workerId,
+                StartedAtUtc = now,
+                LastUpdatedUtc = now,
+                AttemptCount = job.AttemptCount + 1
+            };
+
+            // Use TryUpdate to ensure we don't pick up a job that another thread just modified
+            if (_jobs.TryUpdate(job.Id, updated, job))
+            {
+                lockedJobs.Add(updated);
+            }
+        }
+
+        return new ValueTask<IEnumerable<JobStorageDto>>(lockedJobs);
     }
 }
