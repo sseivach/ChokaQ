@@ -1,4 +1,4 @@
-﻿using ChokaQ.Core.Workers;
+﻿using ChokaQ.Abstractions;
 using Microsoft.AspNetCore.SignalR;
 
 namespace ChokaQ.Dashboard.Hubs;
@@ -28,7 +28,7 @@ public class ChokaQHub : Hub
     }
 
     /// <summary>
-    /// [NEW] Called by the Dashboard UI to request job restart.
+    /// Called by the Dashboard UI to request job restart.
     /// </summary>
     public async Task RestartJob(string jobId)
     {

@@ -21,8 +21,10 @@ public static class ChokaQCoreExtensions
         services.TryAddSingleton<ICircuitBreaker, InMemoryCircuitBreaker>();
         services.TryAddSingleton<IJobStorage, InMemoryJobStorage>();
         services.TryAddSingleton<IChokaQNotifier, NullNotifier>();
-        services.TryAddScoped<IJobContext, JobContext>();
+
         services.TryAddScoped<JobContext>();
+        services.TryAddScoped<IJobContext>(sp => sp.GetRequiredService<JobContext>());
+
         services.TryAddSingleton<InMemoryQueue>();
         services.TryAddSingleton<IChokaQQueue>(sp => sp.GetRequiredService<InMemoryQueue>());
 

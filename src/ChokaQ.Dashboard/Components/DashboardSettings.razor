@@ -1,4 +1,4 @@
-﻿@using ChokaQ.Core.Workers
+﻿@using ChokaQ.Abstractions
 @inject IWorkerManager WorkerManager
 
 <div class="card cq-card shadow-sm mb-4">
@@ -17,6 +17,7 @@
 
         <div class="d-flex align-items-center gap-2">
             <div class="fw-bold small">RETRIES</div>
+
             <select class="form-select form-select-sm cq-select" style="width: 60px;"
                     @bind="MaxRetries">
                 @for (int i = 1; i <= 10; i++)
