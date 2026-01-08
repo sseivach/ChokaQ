@@ -1,6 +1,6 @@
 ﻿using ChokaQ.Abstractions;
 
-namespace ChokaQ.Core.Workers;
+namespace ChokaQ.Core.Execution;
 
 /// <summary>
 /// Responsible for the actual execution of a job within a dedicated dependency injection scope.

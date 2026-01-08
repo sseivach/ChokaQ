@@ -1,4 +1,4 @@
-﻿namespace ChokaQ.Core.Workers;
+﻿namespace ChokaQ.Abstractions;
 
 public interface IWorkerManager
 {
@@ -25,14 +25,11 @@ public interface IWorkerManager
 
     /// <summary>
     /// Requests cancellation for a specific job.
-    /// If the job is running, it triggers the CancellationToken.
-    /// If pending, updates the state in storage so it gets skipped.
     /// </summary>
     Task CancelJobAsync(string jobId);
 
     /// <summary>
     /// Restarts a job by resetting its state and pushing it back to the queue.
-    /// Works for Failed, Cancelled, and Succeeded jobs.
     /// </summary>
     Task RestartJobAsync(string jobId);
 }

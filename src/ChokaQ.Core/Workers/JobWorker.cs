@@ -1,5 +1,6 @@
 ﻿using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Core.Execution;
 using ChokaQ.Core.Queues;
 using ChokaQ.Core.Resilience;
 using Microsoft.Extensions.Hosting;
@@ -180,7 +181,6 @@ public class JobWorker : BackgroundService, IWorkerManager
         int currentAttempt = storageDto?.AttemptCount ?? 1;
         var jobTypeName = job.GetType().Name;
 
-        // [STEP 1] Check Circuit Breaker
         if (!_breaker.IsExecutionPermitted(jobTypeName))
         {
             _logger.LogWarning("[CircuitBreaker] Job {JobId} skipped. Circuit for {Type} is OPEN.", job.Id, jobTypeName);
@@ -198,7 +198,6 @@ public class JobWorker : BackgroundService, IWorkerManager
         {
             await _executor.ExecuteJobAsync(job, jobCts.Token);
 
-            // [STEP 2] Report Success
             _breaker.ReportSuccess(jobTypeName);
             await UpdateStateAndNotifyAsync(job.Id, jobTypeName, JobStatus.Succeeded, currentAttempt);
             _logger.LogInformation("[Worker {ID}] Job {JobId} done.", workerId, job.Id);
@@ -210,10 +209,8 @@ public class JobWorker : BackgroundService, IWorkerManager
         }
         catch (Exception ex)
         {
-            // [STEP 3] Report Failure
             _breaker.ReportFailure(jobTypeName);
 
-            // Check if it was an inner cancellation exception (though Executor unwraps TargetInvocationException, better safe)
             if (ex is OperationCanceledException)
             {
                 _logger.LogWarning("[Worker {ID}] Job {JobId} was CANCELLED.", workerId, job.Id);
@@ -230,7 +227,6 @@ public class JobWorker : BackgroundService, IWorkerManager
             {
                 int nextAttempt = currentAttempt + 1;
 
-                // Smart Delay: Exponential Backoff + Jitter
                 var baseDelay = RetryDelaySeconds * Math.Pow(2, currentAttempt - 1);
                 var jitter = Random.Shared.Next(0, 1000);
                 var totalDelayMs = (int)(baseDelay * 1000) + jitter;
