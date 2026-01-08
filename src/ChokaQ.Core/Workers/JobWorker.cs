@@ -1,9 +1,7 @@
 ﻿using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.Enums;
-using ChokaQ.Core.Contexts;
 using ChokaQ.Core.Queues;
 using ChokaQ.Core.Resilience;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
@@ -17,13 +15,11 @@ public class JobWorker : BackgroundService, IWorkerManager
     private readonly IJobStorage _storage;
     private readonly IChokaQNotifier _notifier;
     private readonly ILogger<JobWorker> _logger;
-    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ICircuitBreaker _breaker;
+    private readonly IJobExecutor _executor;
 
     // Configurable Properties
     public int MaxRetries { get; set; } = 3;
-
-    // Default base delay in seconds
     public int RetryDelaySeconds { get; set; } = 3;
 
     private readonly List<(Task Task, CancellationTokenSource Cts)> _workers = new();
@@ -39,32 +35,28 @@ public class JobWorker : BackgroundService, IWorkerManager
         IJobStorage storage,
         IChokaQNotifier notifier,
         ILogger<JobWorker> logger,
-        IServiceScopeFactory scopeFactory,
-        ICircuitBreaker breaker)
+        ICircuitBreaker breaker,
+        IJobExecutor executor)
     {
         _queue = queue;
         _storage = storage;
         _notifier = notifier;
         _logger = logger;
-        _scopeFactory = scopeFactory;
         _breaker = breaker;
+        _executor = executor;
     }
 
     // Implementation of CancelJobAsync
     public async Task CancelJobAsync(string jobId)
     {
-        // 1. If the job is currently running, cancel the token
         if (_activeJobTokens.TryGetValue(jobId, out var cts))
         {
             _logger.LogInformation("Requesting cancellation for running job {JobId}...", jobId);
-            cts.Cancel(); // This triggers the CancellationToken passed to the handler
+            cts.Cancel();
         }
         else
         {
-            // 2. If not running (e.g., Pending in queue), just update the storage
-            // When the worker eventually picks it up, it will check the status and skip.
             _logger.LogInformation("Marking pending job {JobId} as Cancelled.", jobId);
-            // We pass "Unknown" as type here because lookup is expensive and this is just an edge case update
             await UpdateStateAndNotifyAsync(jobId, "Job", JobStatus.Cancelled, 0);
         }
     }
@@ -72,16 +64,9 @@ public class JobWorker : BackgroundService, IWorkerManager
     // Implementation of RestartJobAsync
     public async Task RestartJobAsync(string jobId)
     {
-        // 1. Fetch the job data from storage
         var storageDto = await _storage.GetJobAsync(jobId);
-        if (storageDto == null)
-        {
-            _logger.LogWarning("Cannot restart job {JobId}: not found.", jobId);
-            return;
-        }
+        if (storageDto == null) return;
 
-        // 2. Prevent restarting if it's currently running (Processing) or already Pending
-        // We only want to restart terminal states to avoid duplicates.
         if (storageDto.Status == JobStatus.Processing || storageDto.Status == JobStatus.Pending)
         {
             _logger.LogWarning("Cannot restart job {JobId}: it is currently active ({Status}).", jobId, storageDto.Status);
@@ -90,31 +75,18 @@ public class JobWorker : BackgroundService, IWorkerManager
 
         try
         {
-            // 3. Reconstruct the C# object from JSON payload
-            // We use the Type name stored in the DTO to find the correct class.
             var jobType = Type.GetType(storageDto.Type);
-            if (jobType == null)
-            {
-                throw new InvalidOperationException($"Cannot load type '{storageDto.Type}'. Assembly might be missing.");
-            }
+            if (jobType == null) throw new InvalidOperationException($"Cannot load type '{storageDto.Type}'.");
 
             var jobObject = JsonSerializer.Deserialize(storageDto.Payload, jobType) as IChokaQJob;
-            if (jobObject == null)
-            {
-                throw new InvalidOperationException("Failed to deserialize job payload.");
-            }
+            if (jobObject == null) throw new InvalidOperationException("Failed to deserialize job payload.");
 
             _logger.LogInformation("Restarting job {JobId}...", jobId);
 
-            // 4. Reset State in Storage
-            // Reset attempts to 0 because this is a manual restart (clean slate).
             await _storage.UpdateJobStateAsync(jobId, JobStatus.Pending);
             await _storage.IncrementJobAttemptAsync(jobId, 0);
 
-            // Notify UI immediately so the user sees "Pending"
             await UpdateStateAndNotifyAsync(jobId, jobObject.GetType().Name, JobStatus.Pending, 0);
-
-            // 5. Push back to Queue
             await _queue.RequeueAsync(jobObject);
         }
         catch (Exception ex)
@@ -199,7 +171,6 @@ public class JobWorker : BackgroundService, IWorkerManager
     {
         var storageDto = await _storage.GetJobAsync(job.Id);
 
-        // Check if already cancelled while in queue
         if (storageDto?.Status == JobStatus.Cancelled)
         {
             _logger.LogInformation("[Worker {ID}] Skipping job {JobId} because it was cancelled.", workerId, job.Id);
@@ -209,7 +180,7 @@ public class JobWorker : BackgroundService, IWorkerManager
         int currentAttempt = storageDto?.AttemptCount ?? 1;
         var jobTypeName = job.GetType().Name;
 
-        // [STEP 1] Check Circuit Breaker status
+        // [STEP 1] Check Circuit Breaker
         if (!_breaker.IsExecutionPermitted(jobTypeName))
         {
             _logger.LogWarning("[CircuitBreaker] Job {JobId} skipped. Circuit for {Type} is OPEN.", job.Id, jobTypeName);
@@ -220,28 +191,12 @@ public class JobWorker : BackgroundService, IWorkerManager
 
         await UpdateStateAndNotifyAsync(job.Id, jobTypeName, JobStatus.Processing, currentAttempt);
 
-        // Create a specific cancellation token for this job execution
         using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(workerCt);
         _activeJobTokens.TryAdd(job.Id, jobCts);
 
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var jobContext = scope.ServiceProvider.GetRequiredService<JobContext>();
-            jobContext.JobId = job.Id;
-
-            var jobType = job.GetType();
-            var handlerType = typeof(IChokaQJobHandler<>).MakeGenericType(jobType);
-            var handler = scope.ServiceProvider.GetService(handlerType);
-
-            if (handler == null) throw new InvalidOperationException($"No handler for {jobType.Name}");
-
-            var method = handlerType.GetMethod("HandleAsync");
-            if (method != null)
-            {
-                // Pass our specific job cancellation token
-                await (Task)method.Invoke(handler, new object[] { job, jobCts.Token })!;
-            }
+            await _executor.ExecuteJobAsync(job, jobCts.Token);
 
             // [STEP 2] Report Success
             _breaker.ReportSuccess(jobTypeName);
@@ -250,7 +205,6 @@ public class JobWorker : BackgroundService, IWorkerManager
         }
         catch (OperationCanceledException)
         {
-            // Handle specific cancellation
             _logger.LogWarning("[Worker {ID}] Job {JobId} was CANCELLED.", workerId, job.Id);
             await UpdateStateAndNotifyAsync(job.Id, jobTypeName, JobStatus.Cancelled, currentAttempt);
         }
@@ -259,10 +213,10 @@ public class JobWorker : BackgroundService, IWorkerManager
             // [STEP 3] Report Failure
             _breaker.ReportFailure(jobTypeName);
 
-            // Check if it was an inner cancellation exception wrapped in TargetInvocationException
-            if (ex.InnerException is OperationCanceledException)
+            // Check if it was an inner cancellation exception (though Executor unwraps TargetInvocationException, better safe)
+            if (ex is OperationCanceledException)
             {
-                _logger.LogWarning("[Worker {ID}] Job {JobId} was CANCELLED (Wrapped).", workerId, job.Id);
+                _logger.LogWarning("[Worker {ID}] Job {JobId} was CANCELLED.", workerId, job.Id);
                 await UpdateStateAndNotifyAsync(job.Id, jobTypeName, JobStatus.Cancelled, currentAttempt);
                 return;
             }
@@ -298,7 +252,6 @@ public class JobWorker : BackgroundService, IWorkerManager
         }
         finally
         {
-            // Cleanup token from registry
             _activeJobTokens.TryRemove(job.Id, out _);
         }
     }

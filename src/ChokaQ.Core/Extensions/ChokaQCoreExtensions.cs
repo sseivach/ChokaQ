@@ -6,7 +6,7 @@ using ChokaQ.Core.Resilience;
 using ChokaQ.Core.Storages;
 using ChokaQ.Core.Workers;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions; // Need this for TryAdd
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace ChokaQ.Core.Extensions;
 
@@ -24,26 +24,24 @@ public static class ChokaQCoreExtensions
         services.TryAddSingleton<ICircuitBreaker, InMemoryCircuitBreaker>();
 
         // 3. Storage (Default to InMemory)
-        // TryAddSingleton allows the user to register their own IJobStorage BEFORE calling AddChokaQ
-        // and we won't overwrite it (e.g., if they want SQL Server).
         services.TryAddSingleton<IJobStorage, InMemoryJobStorage>();
 
         // 4. Notification (Default to Null/Silent)
-        // The user (SampleApp) will override this with SignalRNotifier later if they have a UI.
         services.TryAddSingleton<IChokaQNotifier, NullNotifier>();
 
         // 5. Register JobContext as Scoped. 
-        // A new instance is created for each scope (each job execution).
         services.TryAddScoped<IJobContext, JobContext>();
-        services.TryAddScoped<JobContext>();
+        services.TryAddScoped<JobContext>(); // Allow resolution of concrete type in Executor
 
         // 6. Queue System
-        // We register the concrete class first
         services.TryAddSingleton<InMemoryQueue>();
-        // Then we alias the interface to use the same instance
         services.TryAddSingleton<IChokaQQueue>(sp => sp.GetRequiredService<InMemoryQueue>());
 
-        // 7. The Engine (Background Worker)
+        // 7. Execution Engine
+        // We decouple execution logic from the worker orchestration
+        services.TryAddSingleton<IJobExecutor, JobExecutor>();
+
+        // 8. The Engine (Background Worker)
         services.TryAddSingleton<JobWorker>();
         services.TryAddSingleton<IWorkerManager>(sp => sp.GetRequiredService<JobWorker>());
         services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
