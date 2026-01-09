@@ -1,19 +1,33 @@
-/* Base Layout & Structure */
+﻿/* Base Layout & Structure */
 .cq-dashboard {
-    padding: 1.5rem;
+    padding: 1rem; /* Чуть меньше отступ снаружи */
     border-radius: 8px;
     border: 1px solid var(--cq-border);
     background-color: var(--cq-bg);
     color: var(--cq-text);
     font-family: var(--cq-font, 'Segoe UI', sans-serif);
     transition: background-color 0.3s ease, color 0.3s ease;
+    /* GLOBAL FONT RESIZE */
+    font-size: 13px; /* High Density Mode */
+    line-height: 1.4;
 }
 
 .cq-card {
     background-color: var(--cq-panel-bg);
     border: 1px solid var(--cq-border);
     color: var(--cq-text);
+    /* Compact card padding */
+    padding: 0 !important;
 }
+
+    /* Fix card body padding override */
+    .cq-card .card-body {
+        padding: 10px 15px;
+    }
+
+    .cq-card .card-header {
+        padding: 8px 15px;
+    }
 
 .cq-table {
     width: 100%;
@@ -22,23 +36,28 @@
 
     .cq-table th {
         text-align: left;
-        padding: 12px;
+        /* Compact Header */
+        padding: 8px 10px;
         border-bottom: 2px solid var(--cq-border);
         color: var(--cq-text-muted);
-        font-size: 0.85rem;
+        font-size: 0.75rem; /* 12px approx */
         text-transform: uppercase;
         letter-spacing: 0.5px;
+        font-weight: 700;
     }
 
     .cq-table td {
-        padding: 12px;
+        /* Compact Rows */
+        padding: 6px 10px;
         border-bottom: 1px solid var(--cq-border);
         color: var(--cq-text);
         /* Ensure consistent height for Virtualize calculation */
-        height: 55px;
+        /* Reduced from 55px to 40px for density */
+        height: 40px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        font-size: 13px;
     }
 
     .cq-table tr:hover td {
@@ -50,8 +69,9 @@
     background-color: var(--cq-panel-bg);
     color: var(--cq-text);
     border: 1px solid var(--cq-border);
-    padding: 4px 8px;
+    padding: 2px 6px; /* Smaller padding */
     border-radius: 4px;
+    font-size: 12px; /* Smaller font */
 }
 
 /* Button overrides */
@@ -69,6 +89,8 @@
 .nav-pills .nav-link {
     color: var(--cq-text-muted);
     font-weight: 600;
+    font-size: 12px;
+    padding: 4px 10px;
 }
 
     .nav-pills .nav-link.active {

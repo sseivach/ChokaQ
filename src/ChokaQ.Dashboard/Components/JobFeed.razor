@@ -74,7 +74,7 @@
                    OverscanCount=10 renders 10 extra items outside view to prevent white flickering on fast scroll.
                    ItemSize=50 is an estimate row height in pixels to help calculator.
                 *@
-                <Virtualize Items="@FilteredJobs" Context="job" OverscanCount="10" ItemSize="55">
+                <Virtualize Items="@FilteredJobs" Context="job" OverscanCount="10" ItemSize="42">
                     <ItemContent>
                         <JobRow @key="job.Id"
                                 Job="job"
