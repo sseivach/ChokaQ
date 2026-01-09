@@ -3,12 +3,31 @@
 @using Microsoft.AspNetCore.SignalR.Client
 
 <tr class="cq-job-row" @onclick="SelectJob">
-    <td class="font-monospace fw-bold" style="color: var(--cq-info)">@Job.Id</td>
+    <td class="font-monospace fw-bold" style="color: var(--cq-info); font-size: 0.85rem;" title="@Job.Id">
+        @Job.Id.Substring(0, 8)...
+    </td>
+
+    <td>
+        <span class="fw-bold small" style="color: var(--cq-text-muted)">
+            @(Job.CreatedBy ?? "System")
+        </span>
+    </td>
 
     <td>
         <span class="badge bg-dark border border-secondary text-light font-monospace">
             @Job.Type
         </span>
+    </td>
+
+    <td class="small font-monospace text-muted">
+        @if (Job.StartedAtUtc.HasValue)
+        {
+            @Job.StartedAtUtc.Value.ToLocalTime().ToString("MM/dd/yyyy-HH:mm:ss")
+        }
+        else
+        {
+            <span>-</span>
+        }
     </td>
 
     <td>
@@ -133,8 +152,16 @@
     private string FormatDuration(TimeSpan? duration)
     {
         if (!duration.HasValue || duration.Value == TimeSpan.Zero) return "-";
-        if (duration.Value.TotalSeconds < 1) return $"{duration.Value.Milliseconds}ms";
-        if (duration.Value.TotalMinutes < 1) return $"{duration.Value.Seconds}s {duration.Value.Milliseconds}ms";
+
+        // Less than 1 second, show ms
+        if (duration.Value.TotalSeconds < 1)
+            return $"{duration.Value.TotalMilliseconds:F0}ms";
+
+        // Less than 1 minute, show seconds and ms
+        if (duration.Value.TotalMinutes < 1)
+            return $"{duration.Value.Seconds}s {duration.Value.Milliseconds}ms";
+
+        // Default format for longer durations
         return $"{duration.Value.Minutes}m {duration.Value.Seconds}s";
     }
 }

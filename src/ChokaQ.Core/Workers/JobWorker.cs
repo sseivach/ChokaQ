@@ -16,7 +16,6 @@ public class JobWorker : BackgroundService, IWorkerManager
     private readonly ILogger<JobWorker> _logger;
     private readonly IJobStateManager _stateManager;
     private readonly IJobProcessor _processor;
-
     private readonly List<(Task Task, CancellationTokenSource Cts)> _workers = new();
     private readonly object _lock = new();
 
@@ -59,7 +58,16 @@ public class JobWorker : BackgroundService, IWorkerManager
 
         // Also ensure state is updated if it was pending
         _logger.LogInformation("Marking job {JobId} as Cancelled (if not already).", jobId);
-        await _stateManager.UpdateStateAsync(jobId, "Job", JobStatus.Cancelled, 0);
+
+        // UPDATE STATE: Cancelled
+        await _stateManager.UpdateStateAsync(
+            jobId,
+            "Job",
+            JobStatus.Cancelled,
+            0,
+            executionDurationMs: null,
+            createdBy: null,
+            startedAtUtc: null);
     }
 
     public async Task RestartJobAsync(string jobId)
@@ -86,7 +94,16 @@ public class JobWorker : BackgroundService, IWorkerManager
             await _storage.UpdateJobStateAsync(jobId, JobStatus.Pending);
             await _storage.IncrementJobAttemptAsync(jobId, 0);
 
-            await _stateManager.UpdateStateAsync(jobId, jobObject.GetType().Name, JobStatus.Pending, 0);
+            // UPDATE STATE: Pending
+            await _stateManager.UpdateStateAsync(
+                jobId,
+                jobObject.GetType().Name,
+                JobStatus.Pending,
+                0,
+                executionDurationMs: null,
+                createdBy: storageDto.CreatedBy,
+                startedAtUtc: null);
+
             await _queue.RequeueAsync(jobObject);
         }
         catch (Exception ex)
@@ -130,6 +147,7 @@ public class JobWorker : BackgroundService, IWorkerManager
                     _workers.RemoveAt(_workers.Count - 1);
                 }
             }
+
             ActiveWorkers = _workers.Count;
         }
     }
@@ -137,7 +155,6 @@ public class JobWorker : BackgroundService, IWorkerManager
     private async Task WorkerLoopAsync(CancellationToken workerCt)
     {
         var workerId = Guid.NewGuid().ToString()[..4];
-
         try
         {
             while (!workerCt.IsCancellationRequested)
@@ -148,7 +165,6 @@ public class JobWorker : BackgroundService, IWorkerManager
                     {
                         // All complex logic is now delegated to the processor
                         await _processor.ProcessJobAsync(job, workerId, workerCt);
-
                         if (workerCt.IsCancellationRequested) break;
                     }
                 }

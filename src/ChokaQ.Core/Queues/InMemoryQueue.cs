@@ -70,7 +70,15 @@ public class InMemoryQueue : IChokaQQueue
         // We notify the UI immediately so the user sees the job in the "Pending" state.
         try
         {
-            await _notifier.NotifyJobUpdatedAsync(job.Id, jobTypeName, JobStatus.Pending, 0);
+            await _notifier.NotifyJobUpdatedAsync(
+                job.Id,
+                jobTypeName,
+                JobStatus.Pending,
+                0,
+                null,
+                createdBy,
+                null
+            );
         }
         catch (Exception ex)
         {

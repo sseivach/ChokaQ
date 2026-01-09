@@ -136,7 +136,6 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                         if (jobType != null)
                         {
                             var jobObject = JsonSerializer.Deserialize(jobDto.Payload, jobType) as IChokaQJob;
-
                             if (jobObject != null)
                             {
                                 // 3. Process
@@ -145,13 +144,33 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                             else
                             {
                                 _logger.LogError("Failed to deserialize job {JobId} payload.", jobDto.Id);
-                                await _stateManager.UpdateStateAsync(jobDto.Id, jobDto.Type, JobStatus.Failed, jobDto.AttemptCount, workerCt);
+
+                                // UPDATE STATE: Failed (Deserialization)
+                                await _stateManager.UpdateStateAsync(
+                                    jobDto.Id,
+                                    jobDto.Type,
+                                    JobStatus.Failed,
+                                    jobDto.AttemptCount,
+                                    executionDurationMs: null,
+                                    createdBy: jobDto.CreatedBy,
+                                    startedAtUtc: null,
+                                    ct: workerCt);
                             }
                         }
                         else
                         {
                             _logger.LogError("Unknown job type: {Type} for job {JobId}.", jobDto.Type, jobDto.Id);
-                            await _stateManager.UpdateStateAsync(jobDto.Id, jobDto.Type, JobStatus.Failed, jobDto.AttemptCount, workerCt);
+
+                            // UPDATE STATE: Failed (Unknown Type)
+                            await _stateManager.UpdateStateAsync(
+                                jobDto.Id,
+                                jobDto.Type,
+                                JobStatus.Failed,
+                                jobDto.AttemptCount,
+                                executionDurationMs: null,
+                                createdBy: jobDto.CreatedBy,
+                                startedAtUtc: null,
+                                ct: workerCt);
                         }
                     }
                 }
@@ -191,7 +210,16 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
 
         // Ensure state is updated in DB
         _logger.LogInformation("Marking job {JobId} as Cancelled.", jobId);
-        await _stateManager.UpdateStateAsync(jobId, "Unknown", JobStatus.Cancelled, 0);
+
+        // UPDATE STATE: Cancelled (Manual)
+        await _stateManager.UpdateStateAsync(
+            jobId,
+            "Unknown",
+            JobStatus.Cancelled,
+            0,
+            executionDurationMs: null,
+            createdBy: null, // We don't have the DTO here, pass null
+            startedAtUtc: null);
     }
 
     public async Task RestartJobAsync(string jobId)
@@ -221,7 +249,17 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
 
             // Reset state in DB to Pending, Attempt = 0
             // The Poller will pick it up automatically next time.
-            await _stateManager.UpdateStateAsync(jobId, jobType.Name, JobStatus.Pending, 0);
+
+            // UPDATE STATE: Pending (Restart)
+            await _stateManager.UpdateStateAsync(
+                jobId,
+                jobType.Name,
+                JobStatus.Pending,
+                0,
+                executionDurationMs: null,
+                createdBy: storageDto.CreatedBy, // Pass original creator
+                startedAtUtc: null);
+
             await _storage.IncrementJobAttemptAsync(jobId, 0);
         }
         catch (Exception ex)

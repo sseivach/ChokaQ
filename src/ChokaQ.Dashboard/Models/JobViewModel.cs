@@ -11,6 +11,8 @@ public class JobViewModel
     public DateTime AddedAt { get; set; }
     public TimeSpan? Duration { get; set; }
     public int Progress { get; set; } = 0;
+    public string? CreatedBy { get; set; }
+    public DateTime? StartedAtUtc { get; set; }
 
     // Extended properties for UI detail view
     public string Payload { get; set; } = "{}";

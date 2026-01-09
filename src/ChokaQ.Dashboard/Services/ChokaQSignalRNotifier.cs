@@ -7,9 +7,25 @@ namespace ChokaQ.Dashboard.Services;
 
 internal class ChokaQSignalRNotifier(IHubContext<ChokaQHub> hubContext) : IChokaQNotifier
 {
-    public async Task NotifyJobUpdatedAsync(string jobId, string type, JobStatus status, int attemptCount)
+    public async Task NotifyJobUpdatedAsync(
+        string jobId,
+        string type,
+        JobStatus status,
+        int attemptCount,
+        double? executionDurationMs = null,
+        string? createdBy = null,
+        DateTime? startedAtUtc = null)
     {
-        await hubContext.Clients.All.SendAsync("JobUpdated", jobId, type, (int)status, attemptCount);
+        await hubContext.Clients.All.SendAsync(
+            "JobUpdated",
+            jobId,
+            type,
+            (int)status,
+            attemptCount,
+            executionDurationMs,
+            createdBy,
+            startedAtUtc
+        );
     }
 
     public async Task NotifyJobProgressAsync(string jobId, int percentage)

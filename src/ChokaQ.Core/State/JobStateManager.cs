@@ -20,21 +20,35 @@ public class JobStateManager : IJobStateManager
         _logger = logger;
     }
 
-    public async Task UpdateStateAsync(string jobId, string type, JobStatus status, int attemptCount, CancellationToken ct = default)
+    public async Task UpdateStateAsync(
+        string jobId,
+        string type,
+        JobStatus status,
+        int attemptCount,
+        double? executionDurationMs = null,
+        string? createdBy = null,
+        DateTime? startedAtUtc = null,
+        CancellationToken ct = default)
     {
-        // 1. Persist state to storage (Critical)
+        // 1. Persist
         await _storage.UpdateJobStateAsync(jobId, status, ct);
 
-        // 2. Notify UI (Non-critical)
-        // We wrap this in a try-catch because a failure to update the UI 
-        // should not crash the job processing logic.
+        // 2. Notify
         try
         {
-            await _notifier.NotifyJobUpdatedAsync(jobId, type, status, attemptCount);
+            await _notifier.NotifyJobUpdatedAsync(
+                jobId,
+                type,
+                status,
+                attemptCount,
+                executionDurationMs,
+                createdBy,    // Pass it
+                startedAtUtc  // Pass it
+            );
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Failed to send real-time notification for Job {JobId}: {Message}", jobId, ex.Message);
+            _logger.LogWarning("Failed to notify: {Message}", ex.Message);
         }
     }
 }

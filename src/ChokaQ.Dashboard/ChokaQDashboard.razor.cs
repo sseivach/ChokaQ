@@ -67,18 +67,18 @@ public partial class ChokaQDashboard : IAsyncDisposable
             .Build();
 
         // Receive 'type' parameter
-        _hubConnection.On<string, string, int, int>("JobUpdated", (jobId, type, statusInt, attempts) =>
-        {
-            var status = (JobStatus)statusInt;
-
-            // We do NOT call StateHasChanged here. We just update data.
-            InvokeAsync(() =>
+        _hubConnection.On<string, string, int, int, double?, string?, DateTime?>(
+            "JobUpdated",
+            (jobId, type, statusInt, attempts, durationMs, createdBy, startedAt) =>
             {
-                UpdateJob(jobId, type, status, attempts);
-                _circuitMonitor?.Refresh(); // Circuit monitor is light, can update often
-                _dirty = true; // Mark for next refresh tick
+                var status = (JobStatus)statusInt;
+                InvokeAsync(() =>
+                {
+                    UpdateJob(jobId, type, status, attempts, durationMs, createdBy, startedAt);
+                    _circuitMonitor?.Refresh();
+                    _dirty = true;
+                });
             });
-        });
 
         _hubConnection.On<string, int>("JobProgress", (jobId, percentage) =>
         {
@@ -96,26 +96,32 @@ public partial class ChokaQDashboard : IAsyncDisposable
         await _hubConnection.StartAsync();
     }
 
-    private void UpdateJob(string jobId, string type, JobStatus status, int attempts)
+    private void UpdateJob(
+        string jobId,
+        string type,
+        JobStatus status,
+        int attempts,
+        double? durationMs,
+        string? createdBy,
+        DateTime? startedAt)
     {
         var existing = _jobs.FirstOrDefault(j => j.Id == jobId);
         var now = DateTime.Now;
 
         if (existing != null)
         {
-            // Update existing
             existing.Status = status;
             existing.Attempts = attempts;
             existing.Type = type;
 
-            if (status == JobStatus.Succeeded || status == JobStatus.Failed || status == JobStatus.Cancelled)
-            {
-                existing.Duration = now - existing.AddedAt;
-            }
+            // Update metadata if provided (sometimes it might be null on partial updates, but usually we send full context)
+            if (createdBy != null) existing.CreatedBy = createdBy;
+            if (startedAt != null) existing.StartedAtUtc = startedAt;
+
+            if (durationMs.HasValue) existing.Duration = TimeSpan.FromMilliseconds(durationMs.Value);
         }
         else
         {
-            // Insert new (Top of the list)
             _jobs.Insert(0, new JobViewModel
             {
                 Id = jobId,
@@ -123,10 +129,11 @@ public partial class ChokaQDashboard : IAsyncDisposable
                 Status = status,
                 Attempts = attempts,
                 AddedAt = now,
-                Duration = TimeSpan.Zero
+                Duration = durationMs.HasValue ? TimeSpan.FromMilliseconds(durationMs.Value) : TimeSpan.Zero,
+                CreatedBy = createdBy,
+                StartedAtUtc = startedAt
             });
 
-            // Keep memory check - strictly cap at 1000 for UI safety
             if (_jobs.Count > 1000)
             {
                 _jobs.RemoveRange(1000, _jobs.Count - 1000);

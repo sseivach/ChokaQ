@@ -4,6 +4,16 @@ namespace ChokaQ.Abstractions;
 
 public interface IChokaQNotifier
 {
-    Task NotifyJobUpdatedAsync(string jobId, string type, JobStatus status, int attemptCount);
+    // Updated signature with 'createdBy' and 'startedAtUtc'
+    Task NotifyJobUpdatedAsync(
+        string jobId,
+        string type,
+        JobStatus status,
+        int attemptCount,
+        double? executionDurationMs = null,
+        string? createdBy = null,
+        DateTime? startedAtUtc = null
+    );
+
     Task NotifyJobProgressAsync(string jobId, int percentage);
 }

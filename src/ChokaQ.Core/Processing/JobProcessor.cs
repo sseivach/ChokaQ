@@ -6,6 +6,7 @@ using ChokaQ.Core.Resilience;
 using ChokaQ.Core.State;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace ChokaQ.Core.Processing;
 
@@ -19,7 +20,6 @@ public class JobProcessor : IJobProcessor
     private readonly InMemoryQueue _queue;
 
     // Registry of tokens for currently running jobs to allow cancellation
-    // We moved this here because the Processor owns the execution scope
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeJobTokens = new();
 
     public int MaxRetries { get; set; } = 3;
@@ -62,6 +62,8 @@ public class JobProcessor : IJobProcessor
             return;
         }
 
+        // Capture metadata to pass along with status updates
+        var createdBy = storageDto?.CreatedBy;
         int currentAttempt = storageDto?.AttemptCount ?? 1;
         var jobTypeName = job.GetType().Name;
 
@@ -75,31 +77,68 @@ public class JobProcessor : IJobProcessor
         }
 
         // Set status to Processing
-        await _stateManager.UpdateStateAsync(job.Id, jobTypeName, JobStatus.Processing, currentAttempt);
+        // Capture Start Time
+        var startedAt = DateTime.UtcNow;
+
+        await _stateManager.UpdateStateAsync(
+            job.Id,
+            jobTypeName,
+            JobStatus.Processing,
+            currentAttempt,
+            executionDurationMs: null,
+            createdBy: createdBy,
+            startedAtUtc: startedAt);
 
         // Create a specific cancellation token for this job execution
         using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(workerCt);
         _activeJobTokens.TryAdd(job.Id, jobCts);
+
+        // Start Timer
+        var sw = Stopwatch.StartNew();
 
         try
         {
             // Delegate execution
             await _executor.ExecuteJobAsync(job, jobCts.Token);
 
+            // Stop Timer
+            sw.Stop();
+            var durationMs = sw.Elapsed.TotalMilliseconds;
+
             // Report Success
             _breaker.ReportSuccess(jobTypeName);
-            await _stateManager.UpdateStateAsync(job.Id, jobTypeName, JobStatus.Succeeded, currentAttempt);
 
-            _logger.LogInformation("[Worker {ID}] Job {JobId} done.", workerId, job.Id);
+            await _stateManager.UpdateStateAsync(
+                job.Id,
+                jobTypeName,
+                JobStatus.Succeeded,
+                currentAttempt,
+                executionDurationMs: durationMs,
+                createdBy: createdBy,
+                startedAtUtc: startedAt);
+
+            _logger.LogInformation("[Worker {ID}] Job {JobId} done in {Duration}ms.", workerId, job.Id, durationMs);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning("[Worker {ID}] Job {JobId} was CANCELLED.", workerId, job.Id);
-            await _stateManager.UpdateStateAsync(job.Id, jobTypeName, JobStatus.Cancelled, currentAttempt);
+            sw.Stop();
+            var durationMs = sw.Elapsed.TotalMilliseconds;
+
+            _logger.LogWarning("[Worker {ID}] Job {JobId} was CANCELLED after {Duration}ms.", workerId, job.Id, durationMs);
+
+            await _stateManager.UpdateStateAsync(
+                job.Id,
+                jobTypeName,
+                JobStatus.Cancelled,
+                currentAttempt,
+                executionDurationMs: durationMs,
+                createdBy: createdBy,
+                startedAtUtc: startedAt);
         }
         catch (Exception ex)
         {
-            await HandleExceptionAsync(job, jobTypeName, workerId, currentAttempt, ex, workerCt);
+            sw.Stop();
+            await HandleExceptionAsync(job, jobTypeName, workerId, currentAttempt, ex, workerCt, sw.Elapsed.TotalMilliseconds, createdBy, startedAt);
         }
         finally
         {
@@ -113,14 +152,24 @@ public class JobProcessor : IJobProcessor
         string workerId,
         int currentAttempt,
         Exception ex,
-        CancellationToken workerCt)
+        CancellationToken workerCt,
+        double failedAfterMs,
+        string? createdBy,
+        DateTime? startedAt)
     {
         _breaker.ReportFailure(jobTypeName);
 
         if (ex is OperationCanceledException)
         {
             _logger.LogWarning("[Worker {ID}] Job {JobId} was CANCELLED.", workerId, job.Id);
-            await _stateManager.UpdateStateAsync(job.Id, jobTypeName, JobStatus.Cancelled, currentAttempt);
+            await _stateManager.UpdateStateAsync(
+                job.Id,
+                jobTypeName,
+                JobStatus.Cancelled,
+                currentAttempt,
+                executionDurationMs: failedAfterMs,
+                createdBy: createdBy,
+                startedAtUtc: startedAt);
             return;
         }
 
@@ -133,26 +182,40 @@ public class JobProcessor : IJobProcessor
         if (currentAttempt <= MaxRetries)
         {
             int nextAttempt = currentAttempt + 1;
-
             var baseDelay = RetryDelaySeconds * Math.Pow(2, currentAttempt - 1);
             var jitter = Random.Shared.Next(0, 1000);
             var totalDelayMs = (int)(baseDelay * 1000) + jitter;
 
-            _logger.LogWarning(ex, "[Worker {ID}] Failed. Retrying in {Delay}ms (Attempt {Next}).",
-                workerId, totalDelayMs, nextAttempt);
+            _logger.LogWarning(ex, "[Worker {ID}] Failed after {Duration}ms. Retrying in {Delay}ms (Attempt {Next}).",
+                workerId, failedAfterMs, totalDelayMs, nextAttempt);
 
             await _storage.IncrementJobAttemptAsync(job.Id, nextAttempt);
 
-            // Set back to Pending for retry
-            await _stateManager.UpdateStateAsync(job.Id, jobTypeName, JobStatus.Pending, nextAttempt);
+            // Set back to Pending for retry (Duration is irrelevant here, reset)
+            await _stateManager.UpdateStateAsync(
+                job.Id,
+                jobTypeName,
+                JobStatus.Pending,
+                nextAttempt,
+                executionDurationMs: null,
+                createdBy: createdBy,
+                startedAtUtc: null); // Reset start time for next run
 
             await Task.Delay(totalDelayMs, workerCt);
             await _queue.RequeueAsync(job, workerCt);
         }
         else
         {
-            _logger.LogError(ex, "[Worker {ID}] FAILED permanently.", workerId);
-            await _stateManager.UpdateStateAsync(job.Id, jobTypeName, JobStatus.Failed, currentAttempt);
+            _logger.LogError(ex, "[Worker {ID}] FAILED permanently after {Duration}ms.", workerId, failedAfterMs);
+
+            await _stateManager.UpdateStateAsync(
+                job.Id,
+                jobTypeName,
+                JobStatus.Failed,
+                currentAttempt,
+                executionDurationMs: failedAfterMs,
+                createdBy: createdBy,
+                startedAtUtc: startedAt);
         }
     }
 }
