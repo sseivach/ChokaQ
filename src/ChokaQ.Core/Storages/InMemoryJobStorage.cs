@@ -36,10 +36,11 @@ public class InMemoryJobStorage : IJobStorage
         string? idempotencyKey = null,
         CancellationToken ct = default)
     {
-        var now = _timeProvider.GetUtcNow();
+        // Use UtcDateTime to align with the DTO change (DateTime instead of DateTimeOffset)
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
 
         // Calculate schedule time if delay is provided
-        DateTimeOffset? scheduledAt = delay.HasValue ? now.Add(delay.Value) : null;
+        DateTime? scheduledAt = delay.HasValue ? now.Add(delay.Value) : null;
 
         var job = new JobStorageDto(
             Id: id,
@@ -83,7 +84,8 @@ public class InMemoryJobStorage : IJobStorage
     {
         if (!_jobs.TryGetValue(id, out var existing)) return new ValueTask<bool>(false);
 
-        var now = _timeProvider.GetUtcNow();
+        var now = _timeProvider.GetUtcNow().UtcDateTime; // Fix type mismatch
+
         var updated = existing with
         {
             Status = status,
@@ -104,7 +106,7 @@ public class InMemoryJobStorage : IJobStorage
         var updated = existing with
         {
             AttemptCount = newAttemptCount,
-            LastUpdatedUtc = _timeProvider.GetUtcNow()
+            LastUpdatedUtc = _timeProvider.GetUtcNow().UtcDateTime
         };
 
         return new ValueTask<bool>(_jobs.TryUpdate(id, updated, existing));
@@ -120,7 +122,7 @@ public class InMemoryJobStorage : IJobStorage
     /// <inheritdoc />
     public ValueTask<IEnumerable<JobStorageDto>> FetchAndLockNextBatchAsync(string workerId, int limit, CancellationToken ct = default)
     {
-        var now = _timeProvider.GetUtcNow();
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
         var lockedJobs = new List<JobStorageDto>();
 
         // Simulation of transactional locking for In-Memory storage.

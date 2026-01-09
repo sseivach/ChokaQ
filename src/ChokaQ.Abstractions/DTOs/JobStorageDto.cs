@@ -21,15 +21,15 @@ public record JobStorageDto(
     JobStatus Status,
     int AttemptCount,
     int Priority,
-    DateTimeOffset? ScheduledAtUtc,
+    DateTime? ScheduledAtUtc,
     string? Tags,
     string? IdempotencyKey,
     string? WorkerId,
     string? ErrorDetails,
 
     // Timestamps
-    DateTimeOffset CreatedAtUtc,
-    DateTimeOffset? StartedAtUtc,
-    DateTimeOffset? FinishedAtUtc,
-    DateTimeOffset LastUpdatedUtc
+    DateTime CreatedAtUtc,
+    DateTime? StartedAtUtc,
+    DateTime? FinishedAtUtc,
+    DateTime LastUpdatedUtc
 );
