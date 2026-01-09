@@ -4,7 +4,7 @@ using ChokaQ.Abstractions.Enums;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 
-namespace ChokaQ.Core.Storages;
+namespace ChokaQ.Core.Defaults;
 
 /// <summary>
 /// In-memory implementation of IJobStorage.

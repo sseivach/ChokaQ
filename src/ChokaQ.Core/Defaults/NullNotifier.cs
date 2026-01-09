@@ -1,7 +1,7 @@
 ﻿using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.Enums;
 
-namespace ChokaQ.Core.Notifiers;
+namespace ChokaQ.Core.Defaults;
 
 /// <summary>
 /// A silent notifier used when no UI/Dashboard is configured.

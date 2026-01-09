@@ -2,7 +2,7 @@
 using ChokaQ.Abstractions.Enums;
 using System.Collections.Concurrent;
 
-namespace ChokaQ.Core.Resilience;
+namespace ChokaQ.Core.Defaults;
 
 public class InMemoryCircuitBreaker : ICircuitBreaker
 {

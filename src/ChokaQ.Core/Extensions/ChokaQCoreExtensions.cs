@@ -1,12 +1,9 @@
 ﻿using ChokaQ.Abstractions;
 using ChokaQ.Core.Contexts;
+using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
-using ChokaQ.Core.Notifiers;
 using ChokaQ.Core.Processing;
-using ChokaQ.Core.Queues;
-using ChokaQ.Core.Resilience;
 using ChokaQ.Core.State;
-using ChokaQ.Core.Storages;
 using ChokaQ.Core.Workers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;

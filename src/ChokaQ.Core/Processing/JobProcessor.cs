@@ -1,8 +1,7 @@
 ﻿using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
-using ChokaQ.Core.Queues;
-using ChokaQ.Core.Resilience;
 using ChokaQ.Core.State;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;

@@ -19,10 +19,12 @@
         </span>
     </td>
 
-    <td class="small font-monospace text-muted">
+    <td class="font-monospace text-muted">
         @if (Job.StartedAtUtc.HasValue)
         {
-            @Job.StartedAtUtc.Value.ToLocalTime().ToString("MM/dd/yyyy-HH:mm:ss")
+            var local = Job.StartedAtUtc.Value.ToLocalTime();
+            <div style="line-height: 1; font-size: 0.7rem; font-weight: 600;">@local.ToString("MM/dd/yyyy")</div>
+            <div style="line-height: 1; font-size: 0.65rem; opacity: 0.75; margin-top: 2px;">@local.ToString("HH:mm:ss.fff")</div>
         }
         else
         {
@@ -98,7 +100,7 @@
                     title="Stop Job"
                     @onclick="CancelJob"
                     @onclick:stopPropagation="true">
-                🛑 Stop
+                🛑
             </button>
         }
 
@@ -110,7 +112,7 @@
                     title="Restart Job"
                     @onclick="RestartJob"
                     @onclick:stopPropagation="true">
-                🔄 Restart
+                🔄
             </button>
         }
     </td>

@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Threading.Channels;
 
-namespace ChokaQ.Core.Queues;
+namespace ChokaQ.Core.Defaults;
 
 /// <summary>
 /// High-performance, in-memory implementation of the job queue using System.Threading.Channels.

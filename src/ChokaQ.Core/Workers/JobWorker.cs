@@ -1,7 +1,7 @@
 ﻿using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Processing;
-using ChokaQ.Core.Queues;
 using ChokaQ.Core.State;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;

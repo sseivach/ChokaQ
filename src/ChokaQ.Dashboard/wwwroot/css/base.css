@@ -1,14 +1,14 @@
 ﻿/* Base Layout & Structure */
 .cq-dashboard {
-    padding: 1rem; /* Чуть меньше отступ снаружи */
+    padding: 1rem;
     border-radius: 8px;
     border: 1px solid var(--cq-border);
     background-color: var(--cq-bg);
     color: var(--cq-text);
     font-family: var(--cq-font, 'Segoe UI', sans-serif);
     transition: background-color 0.3s ease, color 0.3s ease;
-    /* GLOBAL FONT RESIZE */
-    font-size: 13px; /* High Density Mode */
+    /* GLOBAL FONT RESIZE (High Density) */
+    font-size: 13px;
     line-height: 1.4;
 }
 
@@ -16,11 +16,9 @@
     background-color: var(--cq-panel-bg);
     border: 1px solid var(--cq-border);
     color: var(--cq-text);
-    /* Compact card padding */
     padding: 0 !important;
 }
 
-    /* Fix card body padding override */
     .cq-card .card-body {
         padding: 10px 15px;
     }
@@ -36,42 +34,50 @@
 
     .cq-table th {
         text-align: left;
-        /* Compact Header */
         padding: 8px 10px;
         border-bottom: 2px solid var(--cq-border);
         color: var(--cq-text-muted);
-        font-size: 0.75rem; /* 12px approx */
+        font-size: 0.75rem;
         text-transform: uppercase;
         letter-spacing: 0.5px;
         font-weight: 700;
+        background-color: var(--cq-panel-bg); /* Sticky headers support */
     }
 
     .cq-table td {
-        /* Compact Rows */
         padding: 6px 10px;
         border-bottom: 1px solid var(--cq-border);
         color: var(--cq-text);
-        /* Ensure consistent height for Virtualize calculation */
-        /* Reduced from 55px to 40px for density */
         height: 40px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
         font-size: 13px;
+        /* Smooth transition for hover effect */
+        transition: background-color 0.1s ease-in-out, box-shadow 0.1s ease-in-out;
     }
 
+    /* === IMPROVED HOVER EFFECT === */
     .cq-table tr:hover td {
-        background-color: rgba(255, 255, 255, 0.05);
+        /* Neutral Grey 15%: Darkens light themes, Lightens dark themes */
+        background-color: rgba(127, 127, 127, 0.15) !important;
+        cursor: pointer;
     }
+
+        /* Add a visual "Active Stripe" on the left */
+        .cq-table tr:hover td:first-child {
+            /* Inset box shadow acts as a border but doesn't shift layout */
+            box-shadow: inset 4px 0 0 var(--cq-info);
+        }
 
 /* Form Controls */
 .cq-select, .cq-input {
     background-color: var(--cq-panel-bg);
     color: var(--cq-text);
     border: 1px solid var(--cq-border);
-    padding: 2px 6px; /* Smaller padding */
+    padding: 2px 6px;
     border-radius: 4px;
-    font-size: 12px; /* Smaller font */
+    font-size: 12px;
 }
 
 /* Button overrides */
@@ -85,7 +91,7 @@
         color: var(--cq-bg);
     }
 
-/* Tabs styling to match themes */
+/* Tabs styling */
 .nav-pills .nav-link {
     color: var(--cq-text-muted);
     font-weight: 600;
@@ -98,7 +104,7 @@
         color: white;
     }
 
-/* Scrollbar styling for Webkit */
+/* Scrollbar styling */
 ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -113,6 +119,6 @@
     border-radius: 4px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-    background: var(--cq-text-muted);
-}
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--cq-text-muted);
+    }
