@@ -1,11 +1,41 @@
 ﻿@using ChokaQ.Dashboard.Models
+@using ChokaQ.Abstractions.Enums
 @using Microsoft.AspNetCore.SignalR.Client
 @using ChokaQ.Dashboard.Components
+@using Microsoft.AspNetCore.Components.Web.Virtualization
 
-<div class="card cq-card shadow-sm">
-    <div class="card-header py-3 d-flex justify-content-between align-items-center"
+<div class="card cq-card shadow-sm h-100 d-flex flex-column">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center"
          style="background-color: var(--cq-panel-bg); border-bottom: 1px solid var(--cq-border);">
-        <h5 class="mb-0 fw-bold">Live Feed</h5>
+
+        <ul class="nav nav-pills card-header-pills">
+            <li class="nav-item">
+                <button class="nav-link btn-sm @(_activeTab == "all" ? "active" : "")"
+                        @onclick="@(() => SetTab("all"))">
+                    All
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link btn-sm @(_activeTab == "processing" ? "active" : "")"
+                        @onclick="@(() => SetTab("processing"))">
+                    Processing
+                    @if (GetCount(JobStatus.Processing) > 0)
+                    {
+                        <span class="badge bg-warning text-dark ms-1">@GetCount(JobStatus.Processing)</span>
+                    }
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link btn-sm @(_activeTab == "failed" ? "active" : "")"
+                        @onclick="@(() => SetTab("failed"))">
+                    Failed
+                    @if (GetCount(JobStatus.Failed) > 0)
+                    {
+                        <span class="badge bg-danger ms-1">@GetCount(JobStatus.Failed)</span>
+                    }
+                </button>
+            </li>
+        </ul>
 
         <div class="d-flex gap-3 align-items-center">
             @if (IsConnected)
@@ -23,9 +53,9 @@
         </div>
     </div>
 
-    <div class="table-responsive">
+    <div class="table-responsive flex-grow-1" style="min-height: 400px; height: 600px; overflow-y: auto;">
         <table class="cq-table">
-            <thead>
+            <thead style="position: sticky; top: 0; background-color: var(--cq-panel-bg); z-index: 10;">
                 <tr>
                     <th style="width: 20%">ID</th>
                     <th style="width: 15%">Type</th>
@@ -37,23 +67,33 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach (var job in Jobs)
-                {
-                    <JobRow @key="job.Id"
-                            Job="job"
-                            OnCancelRequested="HandleCancelRequest"
-                            OnRestartRequested="HandleRestartRequest"
-                            OnSelected="OpenInspector" />
-                }
 
-                @if (!Jobs.Any())
-                {
-                    <tr>
-                        <td colspan="7" class="text-center py-5" style="color: var(--cq-text-muted)">
-                            No active jobs
-                        </td>
-                    </tr>
-                }
+                @* VIRTUALIZATION MAGIC 
+                   OverscanCount=10 renders 10 extra items outside view to prevent white flickering on fast scroll.
+                   ItemSize=50 is an estimate row height in pixels to help calculator.
+                *@
+                <Virtualize Items="@FilteredJobs" Context="job" OverscanCount="10" ItemSize="55">
+                    <ItemContent>
+                        <JobRow @key="job.Id"
+                                Job="job"
+                                OnCancelRequested="HandleCancelRequest"
+                                OnRestartRequested="HandleRestartRequest"
+                                OnSelected="OpenInspector" />
+                    </ItemContent>
+                    <Placeholder>
+                        <tr>
+                            <td colspan="7" class="text-center py-2 text-muted">Loading item...</td>
+                        </tr>
+                    </Placeholder>
+                    <EmptyContent>
+                        <tr>
+                            <td colspan="7" class="text-center py-5" style="color: var(--cq-text-muted)">
+                                No jobs found in this filter.
+                            </td>
+                        </tr>
+                    </EmptyContent>
+                </Virtualize>
+
             </tbody>
         </table>
     </div>
@@ -65,16 +105,42 @@
               OnDelete="HandleDeleteRequest" />
 
 @code {
-    [Parameter] public IEnumerable<JobViewModel> Jobs { get; set; } = Enumerable.Empty<JobViewModel>();
+    [Parameter] public List<JobViewModel> Jobs { get; set; } = new();
     [Parameter] public bool IsConnected { get; set; }
     [Parameter] public EventCallback OnClearHistory { get; set; }
-
-    // Receive Hub Connection to send commands
     [Parameter] public HubConnection? HubConnection { get; set; }
 
-    // Inspector State
     private bool _isInspectorVisible;
     private string? _selectedJobId;
+    private string _activeTab = "all";
+
+    // Computed property for the Virtualizer
+    // We strictly filter here.
+    private ICollection<JobViewModel> FilteredJobs
+    {
+        get
+        {
+            // Stable Sort: Always by AddedAt Descending to prevent jumping rows
+            // We use the reference to the main list.
+            var baseQuery = Jobs;
+
+            if (_activeTab == "processing")
+                return baseQuery.Where(x => x.Status == JobStatus.Processing || x.Status == JobStatus.Pending).ToList();
+
+            if (_activeTab == "failed")
+                return baseQuery.Where(x => x.Status == JobStatus.Failed || x.Status == JobStatus.Cancelled).ToList();
+
+            return baseQuery;
+        }
+    }
+
+    private int GetCount(JobStatus status) => Jobs.Count(x => x.Status == status);
+
+    private void SetTab(string tab)
+    {
+        _activeTab = tab;
+        // No need for StateHasChanged, generic binding handles it or parent updates
+    }
 
     private async Task HandleCancelRequest(string jobId)
     {
@@ -89,8 +155,6 @@
         if (HubConnection is not null && IsConnected)
         {
             await HubConnection.InvokeAsync("RestartJob", jobId);
-            // Optionally close inspector after action
-            // _isInspectorVisible = false;
         }
     }
 
@@ -102,7 +166,6 @@
 
     private Task HandleDeleteRequest(string jobId)
     {
-        // TODO: Implement delete logic in Hub and Worker
         _isInspectorVisible = false;
         return Task.CompletedTask;
     }

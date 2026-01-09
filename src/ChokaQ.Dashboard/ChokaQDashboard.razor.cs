@@ -3,6 +3,7 @@ using ChokaQ.Dashboard.Components;
 using ChokaQ.Dashboard.Models;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
+using System.Timers;
 
 namespace ChokaQ.Dashboard;
 
@@ -11,7 +12,13 @@ public partial class ChokaQDashboard : IAsyncDisposable
     [Inject] public NavigationManager Navigation { get; set; } = default!;
 
     private HubConnection? _hubConnection;
+
+    // We keep a separate list for the UI execution to avoid "Collection Modified" errors during rendering
     private List<JobViewModel> _jobs = new();
+
+    // Throttling timer
+    private System.Timers.Timer? _uiRefreshTimer;
+    private bool _dirty = false; // Flag to indicate if data changed
 
     // Default is "office"
     private string _currentTheme = "office";
@@ -29,8 +36,7 @@ public partial class ChokaQDashboard : IAsyncDisposable
         "kiddie" => "cq-theme-kiddie",
         "bravosix" => "cq-theme-bravosix",
         "bsod" => "cq-theme-bsod",
-
-        _ => "cq-theme-office" // Default falls to Office
+        _ => "cq-theme-office"
     };
 
     private void HandleThemeChanged(string newTheme)
@@ -41,6 +47,20 @@ public partial class ChokaQDashboard : IAsyncDisposable
 
     protected override async Task OnInitializedAsync()
     {
+        // 1. Setup Throttling Timer (Updates UI every 500ms max)
+        _uiRefreshTimer = new System.Timers.Timer(500);
+        _uiRefreshTimer.AutoReset = true;
+        _uiRefreshTimer.Elapsed += async (sender, e) =>
+        {
+            if (_dirty)
+            {
+                _dirty = false;
+                await InvokeAsync(StateHasChanged);
+            }
+        };
+        _uiRefreshTimer.Start();
+
+        // 2. Setup SignalR
         _hubConnection = new HubConnectionBuilder()
             .WithUrl(Navigation.ToAbsoluteUri("/chokaq-hub"))
             .WithAutomaticReconnect()
@@ -50,15 +70,13 @@ public partial class ChokaQDashboard : IAsyncDisposable
         _hubConnection.On<string, string, int, int>("JobUpdated", (jobId, type, statusInt, attempts) =>
         {
             var status = (JobStatus)statusInt;
+
+            // We do NOT call StateHasChanged here. We just update data.
             InvokeAsync(() =>
             {
-                // Pass 'type' to update logic
                 UpdateJob(jobId, type, status, attempts);
-
-                // Check circuit health whenever a job updates
-                _circuitMonitor?.Refresh();
-
-                StateHasChanged();
+                _circuitMonitor?.Refresh(); // Circuit monitor is light, can update often
+                _dirty = true; // Mark for next refresh tick
             });
         });
 
@@ -70,7 +88,7 @@ public partial class ChokaQDashboard : IAsyncDisposable
                 if (job != null)
                 {
                     job.Progress = percentage;
-                    StateHasChanged();
+                    _dirty = true;
                 }
             });
         });
@@ -78,7 +96,6 @@ public partial class ChokaQDashboard : IAsyncDisposable
         await _hubConnection.StartAsync();
     }
 
-    // Added 'type' parameter
     private void UpdateJob(string jobId, string type, JobStatus status, int attempts)
     {
         var existing = _jobs.FirstOrDefault(j => j.Id == jobId);
@@ -86,9 +103,10 @@ public partial class ChokaQDashboard : IAsyncDisposable
 
         if (existing != null)
         {
+            // Update existing
             existing.Status = status;
             existing.Attempts = attempts;
-            existing.Type = type; // Update type (though typically constant)
+            existing.Type = type;
 
             if (status == JobStatus.Succeeded || status == JobStatus.Failed || status == JobStatus.Cancelled)
             {
@@ -97,17 +115,22 @@ public partial class ChokaQDashboard : IAsyncDisposable
         }
         else
         {
-            _jobs.Add(new JobViewModel
+            // Insert new (Top of the list)
+            _jobs.Insert(0, new JobViewModel
             {
                 Id = jobId,
-                Type = type, // Set type
+                Type = type,
                 Status = status,
                 Attempts = attempts,
                 AddedAt = now,
                 Duration = TimeSpan.Zero
             });
 
-            if (_jobs.Count > 100) _jobs.RemoveAt(0);
+            // Keep memory check - strictly cap at 1000 for UI safety
+            if (_jobs.Count > 1000)
+            {
+                _jobs.RemoveRange(1000, _jobs.Count - 1000);
+            }
         }
     }
 
@@ -119,10 +142,18 @@ public partial class ChokaQDashboard : IAsyncDisposable
     private void ClearHistory()
     {
         _jobs.Clear();
+        _dirty = true;
+        StateHasChanged(); // Force immediate clear
     }
 
     public async ValueTask DisposeAsync()
     {
+        if (_uiRefreshTimer is not null)
+        {
+            _uiRefreshTimer.Stop();
+            _uiRefreshTimer.Dispose();
+        }
+
         if (_hubConnection is not null) await _hubConnection.DisposeAsync();
         GC.SuppressFinalize(this);
     }

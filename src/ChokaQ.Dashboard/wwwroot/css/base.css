@@ -34,6 +34,11 @@
         padding: 12px;
         border-bottom: 1px solid var(--cq-border);
         color: var(--cq-text);
+        /* Ensure consistent height for Virtualize calculation */
+        height: 55px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .cq-table tr:hover td {
@@ -55,7 +60,37 @@
     border-color: var(--cq-text-muted);
 }
 
-.btn-outline-secondary:hover {
-    background-color: var(--cq-text-muted);
-    color: var(--cq-bg);
+    .btn-outline-secondary:hover {
+        background-color: var(--cq-text-muted);
+        color: var(--cq-bg);
+    }
+
+/* Tabs styling to match themes */
+.nav-pills .nav-link {
+    color: var(--cq-text-muted);
+    font-weight: 600;
+}
+
+    .nav-pills .nav-link.active {
+        background-color: var(--cq-info);
+        color: white;
+    }
+
+/* Scrollbar styling for Webkit */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--cq-bg);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--cq-border);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--cq-text-muted);
 }
