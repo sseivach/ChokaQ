@@ -2,7 +2,7 @@
 @using ChokaQ.Dashboard.Models
 @using Microsoft.AspNetCore.SignalR.Client
 
-<tr>
+<tr class="cq-job-row" @onclick="SelectJob">
     <td class="font-monospace fw-bold" style="color: var(--cq-info)">@Job.Id</td>
 
     <td>
@@ -77,7 +77,8 @@
         {
             <button class="btn btn-sm btn-outline-danger me-2"
                     title="Stop Job"
-                    @onclick="CancelJob">
+                    @onclick="CancelJob"
+                    @onclick:stopPropagation="true">
                 🛑 Stop
             </button>
         }
@@ -88,33 +89,45 @@
         {
             <button class="btn btn-sm btn-outline-primary me-2"
                     title="Restart Job"
-                    @onclick="RestartJob">
+                    @onclick="RestartJob"
+                    @onclick:stopPropagation="true">
                 🔄 Restart
             </button>
         }
-
-        <button class="btn btn-sm btn-link text-decoration-none" style="color: var(--cq-text-muted);">
-            Details
-        </button>
     </td>
 </tr>
+
+<style>
+    /* Inline style for the row pointer, could be moved to css file */
+    .cq-job-row {
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+</style>
 
 @code {
     [Parameter] public required JobViewModel Job { get; set; }
 
     [Parameter] public EventCallback<string> OnCancelRequested { get; set; }
-    
+
     [Parameter] public EventCallback<string> OnRestartRequested { get; set; }
+
+    // New callback for selection
+    [Parameter] public EventCallback<string> OnSelected { get; set; }
 
     private async Task CancelJob()
     {
         await OnCancelRequested.InvokeAsync(Job.Id);
     }
 
-    // Handler
     private async Task RestartJob()
     {
         await OnRestartRequested.InvokeAsync(Job.Id);
+    }
+
+    private async Task SelectJob()
+    {
+        await OnSelected.InvokeAsync(Job.Id);
     }
 
     private string FormatDuration(TimeSpan? duration)

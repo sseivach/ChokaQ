@@ -16,9 +16,6 @@ public class SqlJobStorage : IJobStorage
 {
     private readonly string _connectionString;
     private readonly ILogger<SqlJobStorage> _logger;
-
-    // Caches the full table name including schema to avoid string concatenation in every query.
-    // Example: "[chokaq].[Jobs]" or "[my_schema].[Jobs]"
     private readonly string _tableName;
 
     public SqlJobStorage(
@@ -34,13 +31,11 @@ public class SqlJobStorage : IJobStorage
             throw new ArgumentException("Schema name cannot be empty.", nameof(schemaName));
         }
 
-        // Security Check: Prevent SQL Injection via schema name.
         if (!Regex.IsMatch(schemaName, "^[a-zA-Z0-9_]+$"))
         {
             throw new ArgumentException($"Invalid schema name: '{schemaName}'. Only alphanumeric characters and underscores are allowed.");
         }
 
-        // Pre-calculate the safe table name for interpolation
         _tableName = $"[{schemaName}].[Jobs]";
     }
 
@@ -57,7 +52,6 @@ public class SqlJobStorage : IJobStorage
         string? idempotencyKey = null,
         CancellationToken ct = default)
     {
-        // Dynamic SQL interpolation is safe here because _tableName is validated in the constructor.
         var sql = $@"
             INSERT INTO {_tableName} 
             (Id, Queue, Type, Payload, Status, AttemptCount, Priority, CreatedBy, Tags, IdempotencyKey, CreatedAtUtc, ScheduledAtUtc, LastUpdatedUtc)
@@ -65,7 +59,6 @@ public class SqlJobStorage : IJobStorage
             (@Id, @Queue, @Type, @Payload, @Status, @AttemptCount, @Priority, @CreatedBy, @Tags, @IdempotencyKey, @CreatedAtUtc, @ScheduledAtUtc, @LastUpdatedUtc)";
 
         var now = DateTime.UtcNow;
-
         DateTime? scheduledAt = delay.HasValue ? now.Add(delay.Value) : null;
 
         var parameters = new
@@ -91,11 +84,8 @@ public class SqlJobStorage : IJobStorage
             await connection.ExecuteAsync(new CommandDefinition(sql, parameters, cancellationToken: ct));
             return id;
         }
-        catch (SqlException ex) when (ex.Number == 2601 || ex.Number == 2627) // Unique Constraint Violation (Duplicate Key)
+        catch (SqlException ex) when (ex.Number == 2601 || ex.Number == 2627)
         {
-            // Idempotency Handling:
-            // If a job with the same IdempotencyKey already exists, we consider it a success.
-            // We log the event and return the ID.
             _logger.LogInformation("Job ID collision or Idempotency hit for ID: {JobId}. Returning existing ID.", id);
             return id;
         }
@@ -104,10 +94,10 @@ public class SqlJobStorage : IJobStorage
     /// <inheritdoc />
     public async ValueTask<JobStorageDto?> GetJobAsync(string id, CancellationToken ct = default)
     {
-        // Select all fields matching the updated DTO
+        // Added CreatedBy to SELECT
         var sql = $@"
             SELECT Id, Queue, Type, Payload, Status, AttemptCount, 
-                   Priority, ScheduledAtUtc, Tags, IdempotencyKey, WorkerId, ErrorDetails,
+                   Priority, ScheduledAtUtc, Tags, IdempotencyKey, WorkerId, ErrorDetails, CreatedBy,
                    CreatedAtUtc, StartedAtUtc, FinishedAtUtc, LastUpdatedUtc
             FROM {_tableName}
             WHERE Id = @Id";
@@ -157,11 +147,11 @@ public class SqlJobStorage : IJobStorage
     /// <inheritdoc />
     public async ValueTask<IEnumerable<JobStorageDto>> GetJobsAsync(int limit = 50, CancellationToken ct = default)
     {
-        // Simple pagination for dashboards (LIFO - Last In First Out)
+        // Added CreatedBy to SELECT
         var sql = $@"
             SELECT TOP (@Limit) 
                    Id, Queue, Type, Payload, Status, AttemptCount, 
-                   Priority, ScheduledAtUtc, Tags, IdempotencyKey, WorkerId, ErrorDetails,
+                   Priority, ScheduledAtUtc, Tags, IdempotencyKey, WorkerId, ErrorDetails, CreatedBy,
                    CreatedAtUtc, StartedAtUtc, FinishedAtUtc, LastUpdatedUtc
             FROM {_tableName}
             ORDER BY CreatedAtUtc DESC";
@@ -176,12 +166,7 @@ public class SqlJobStorage : IJobStorage
         int limit,
         CancellationToken ct = default)
     {
-        // The "Secret Sauce" of the Poller.
-        // 1. CTE (SortedJobs): Finds the best candidates (Pending, Priority > Schedule).
-        //    Uses ROWLOCK, READPAST, UPDLOCK to ensure atomic locking and skip locked rows.
-        // 2. UPDATE: Changes status to Processing and assigns the WorkerId.
-        // 3. OUTPUT: Returns the locked data to the application.
-
+        // Added CreatedBy to OUTPUT INSERTED
         var sql = $@"
             WITH SortedJobs AS (
                 SELECT TOP (@Limit) Id
@@ -201,7 +186,7 @@ public class SqlJobStorage : IJobStorage
                 INSERTED.Id, INSERTED.Queue, INSERTED.Type, INSERTED.Payload, 
                 INSERTED.Status, INSERTED.AttemptCount, 
                 INSERTED.Priority, INSERTED.ScheduledAtUtc, INSERTED.Tags, 
-                INSERTED.IdempotencyKey, INSERTED.WorkerId, INSERTED.ErrorDetails,
+                INSERTED.IdempotencyKey, INSERTED.WorkerId, INSERTED.ErrorDetails, INSERTED.CreatedBy,
                 INSERTED.CreatedAtUtc, INSERTED.StartedAtUtc, INSERTED.FinishedAtUtc, INSERTED.LastUpdatedUtc
             FROM {_tableName} J
             INNER JOIN SortedJobs SJ ON J.Id = SJ.Id";

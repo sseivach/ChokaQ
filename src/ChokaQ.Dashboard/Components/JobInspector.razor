@@ -1,0 +1,204 @@
+@using ChokaQ.Abstractions
+@using ChokaQ.Abstractions.DTOs
+@using ChokaQ.Abstractions.Enums
+@using System.Text.Json
+@inject IJobStorage JobStorage
+
+@if (IsVisible && _job != null)
+{
+    <div class="inspector-backdrop" @onclick="Close"></div>
+
+    <div class="inspector-panel">
+
+        <div class="inspector-header">
+            <div class="inspector-title">
+                <h3>Job Inspector</h3>
+                <div class="inspector-subtitle">
+                    <span style="color: var(--cq-info); font-weight: bold; margin-right: 8px;">GUID:</span>
+                    <span style="user-select: all;">@_job.Id</span>
+                </div>
+            </div>
+
+            <button class="btn-icon" @onclick="Close" title="Close Panel">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="inspector-body">
+
+            <div class="inspector-section">
+                <div class="d-flex align-items-center justify-content-between p-3 rounded border" style="background-color: var(--cq-bg); border-color: var(--cq-border) !important;">
+                    <div>
+                        <div class="section-title" style="margin-bottom: 0;">Current Status</div>
+                        <div class="fs-5 fw-bold mt-1" style="color: @GetStatusColor()">
+                            @_job.Status.ToString().ToUpper()
+                        </div>
+                    </div>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="@GetStatusColor()" viewBox="0 0 16 16" style="opacity: 0.8;">
+                        <path fill-rule="evenodd" d="M6 2a.5.5 0 0 1 .47.33L10 12.036l1.53-4.208A.5.5 0 0 1 12 7.5h3.5a.5.5 0 0 1 0 1h-3.15l-1.88 5.17a.5.5 0 0 1-.94 0L6 3.964 4.47 8.171A.5.5 0 0 1 4 8.5H.5a.5.5 0 0 1 0-1h3.15l1.88-5.17A.5.5 0 0 1 6 2Z" />
+                    </svg>
+                </div>
+            </div>
+
+            <div class="inspector-section">
+                <div class="section-title">
+                    Job Metadata
+                </div>
+                <ul class="meta-list">
+                    <li>
+                        <span class="meta-label">Job Type</span>
+                        <span class="meta-value text-break" style="max-width: 60%; text-align: right;">@_job.Type</span>
+                    </li>
+                    <li>
+                        <span class="meta-label">Target Queue</span>
+                        <span class="meta-value">@_job.Queue</span>
+                    </li>
+                    <li>
+                        <span class="meta-label">Priority</span>
+                        <span class="meta-value">@_job.Priority</span>
+                    </li>
+                    <li>
+                        <span class="meta-label">Created By</span>
+                        <span class="meta-value">@(_job.CreatedBy ?? "-")</span>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="inspector-section">
+                <div class="section-title">
+                    Execution Timeline
+                </div>
+                <ul class="meta-list">
+                    <li>
+                        <span class="meta-label">Created At</span>
+                        <span class="meta-value">@_job.CreatedAtUtc.ToLocalTime().ToString("G")</span>
+                    </li>
+                    @if (_job.StartedAtUtc.HasValue)
+                    {
+                        <li>
+                            <span class="meta-label">Started At</span>
+                            <span class="meta-value">@_job.StartedAtUtc.Value.ToLocalTime().ToString("G")</span>
+                        </li>
+                    }
+                    @if (_job.FinishedAtUtc.HasValue)
+                    {
+                        <li>
+                            <span class="meta-label">Finished At</span>
+                            <span class="meta-value">@_job.FinishedAtUtc.Value.ToLocalTime().ToString("G")</span>
+                        </li>
+                    }
+                    <li>
+                        <span class="meta-label">Retry Attempts</span>
+                        <span class="meta-value">@_job.AttemptCount</span>
+                    </li>
+                </ul>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_job.ErrorDetails))
+            {
+                <div class="inspector-section">
+                    <div class="section-title text-danger">
+                        Exception Stack Trace
+                    </div>
+                    <div class="code-block error">
+                        @_job.ErrorDetails
+                    </div>
+                </div>
+            }
+
+            <div class="inspector-section">
+                <div class="section-title">
+                    Payload Data
+                </div>
+                <div class="code-block">
+                    @PrettyPrintJson(_job.Payload)
+                </div>
+            </div>
+
+        </div>
+
+        <div class="inspector-footer">
+            @if (CanRequeue)
+            {
+                <button class="btn-action btn-primary-action" @onclick="() => OnRestart.InvokeAsync(_job.Id)">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z" />
+                        <path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3M3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9z" />
+                    </svg>
+                    Requeue Job
+                </button>
+            }
+
+            <button class="btn-action btn-danger-action" @onclick="() => OnDelete.InvokeAsync(_job.Id)">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z" />
+                    <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z" />
+                </svg>
+                Delete
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public string? JobId { get; set; }
+    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
+
+    [Parameter] public EventCallback<string> OnRestart { get; set; }
+    [Parameter] public EventCallback<string> OnDelete { get; set; }
+
+    private JobStorageDto? _job;
+
+    private bool CanRequeue => _job?.Status == JobStatus.Failed ||
+                               _job?.Status == JobStatus.Cancelled ||
+                               _job?.Status == JobStatus.Succeeded;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsVisible && !string.IsNullOrEmpty(JobId))
+        {
+            // Simple caching: only fetch if ID changed
+            if (_job?.Id != JobId)
+            {
+                _job = await JobStorage.GetJobAsync(JobId);
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task Close()
+    {
+        IsVisible = false;
+        _job = null;
+        await IsVisibleChanged.InvokeAsync(false);
+    }
+
+    private string GetStatusColor()
+    {
+        return _job?.Status switch
+        {
+            JobStatus.Failed => "var(--cq-danger)",
+            JobStatus.Succeeded => "var(--cq-success)",
+            JobStatus.Processing => "var(--cq-warning)",
+            JobStatus.Cancelled => "var(--cq-text-muted)",
+            _ => "var(--cq-info)"
+        };
+    }
+
+    private string PrettyPrintJson(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return "{}";
+        try
+        {
+            var doc = JsonDocument.Parse(json);
+            return JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch
+        {
+            return json;
+        }
+    }
+}

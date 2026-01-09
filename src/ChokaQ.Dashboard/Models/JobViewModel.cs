@@ -11,4 +11,8 @@ public class JobViewModel
     public DateTime AddedAt { get; set; }
     public TimeSpan? Duration { get; set; }
     public int Progress { get; set; } = 0;
+
+    // Extended properties for UI detail view
+    public string Payload { get; set; } = "{}";
+    public string? ErrorDetails { get; set; }
 }

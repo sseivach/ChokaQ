@@ -3,39 +3,58 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager Navigation
 
-<div class="card bg-dark text-white border-secondary mb-4 shadow-sm">
-    <div class="card-header border-secondary d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">🏭 Workload Generator</h5>
+<div class="card cq-card shadow-sm mb-4">
+    <div class="card-header py-3 d-flex justify-content-between align-items-center"
+         style="background-color: var(--cq-panel-bg); border-bottom: 1px solid var(--cq-border);">
+        <h5 class="mb-0 fw-bold">🏭 Workload Generator</h5>
     </div>
     <div class="card-body">
 
-        <div class="d-flex gap-3 align-items-end mb-3">
-            <div class="flex-grow-1">
-                <label class="form-label text-secondary small">Batch Size</label>
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label text-secondary small text-uppercase fw-bold">Batch Size</label>
                 <select class="form-select bg-dark text-white border-secondary" @bind="selectedCount">
-                    @for (int i = 10; i <= 100; i += 10)
-                    {
-                        <option value="@i">@i Items</option>
-                    }
+                    <option value="1">1 Item (Single)</option>
+                    <option value="10">10 Items</option>
+                    <option value="50">50 Items</option>
+                    <option value="100">100 Items</option>
+                    <option value="500">500 Items (Load Test)</option>
                 </select>
             </div>
 
-            <button class="btn btn-primary" @onclick="SendBatch" disabled="@isLoading">
-                @if (isLoading)
-                {
-                    <span class="spinner-border spinner-border-sm me-2"></span>
-                    <span>Uploading...</span>
-                }
-                else
-                {
-                    <span>🚀 Send Batch</span>
-                }
-            </button>
+            <div class="col-md-3">
+                <label class="form-label text-secondary small text-uppercase fw-bold">Priority</label>
+                <select class="form-select bg-dark text-white border-secondary" @bind="selectedPriority">
+                    <option value="0">Low (0)</option>
+                    <option value="10">Normal (10)</option>
+                    <option value="20">High (20)</option>
+                    <option value="100">🔥 CRITICAL (100)</option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label text-secondary small text-uppercase fw-bold">Operator</label>
+                <input type="text" class="form-control bg-dark text-white border-secondary" placeholder="Username" @bind="username" />
+            </div>
+
+            <div class="col-md-3">
+                <button class="btn btn-primary w-100 fw-bold" @onclick="SendBatch" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                        <span>Enqueuing...</span>
+                    }
+                    else
+                    {
+                        <span>🚀 Launch Jobs</span>
+                    }
+                </button>
+            </div>
         </div>
 
         @if (!string.IsNullOrEmpty(statusMessage))
         {
-            <div class="alert @statusClass d-flex align-items-center" role="alert">
+            <div class="alert @statusClass d-flex align-items-center mt-3 mb-0" role="alert">
                 <div>@statusMessage</div>
             </div>
         }
@@ -44,6 +63,8 @@
 
 @code {
     private int selectedCount = 10;
+    private int selectedPriority = 10;
+    private string username = "Admin";
     private bool isLoading = false;
     private string? statusMessage;
     private string statusClass = "alert-info";
@@ -58,30 +79,38 @@
             var client = HttpClientFactory.CreateClient();
             client.BaseAddress = new Uri(Navigation.BaseUri);
 
-            // [UPDATED] Sequential IDs for deterministic testing
+            // Generate deterministic payloads
             var payloads = Enumerable.Range(1, selectedCount)
-                .Select(i => $"Job #{i} | Created at {DateTime.Now:T}")
+                .Select(i => $"Task #{i} | Initiated by {username} | Pri: {selectedPriority}")
                 .ToList();
 
-            var response = await client.PostAsJsonAsync("/api/jobs/batch", payloads);
+            var request = new
+            {
+                Payloads = payloads,
+                Priority = selectedPriority,
+                CreatedBy = username
+            };
+
+            var response = await client.PostAsJsonAsync("/api/jobs/batch", request);
 
             if (response.IsSuccessStatusCode)
             {
+                // Simple DTO for result message
                 var result = await response.Content.ReadFromJsonAsync<BatchResult>();
                 statusClass = "alert-success";
-                statusMessage = $"✅ Success! {result?.Message}";
+                statusMessage = $"✅ Done! {result?.Message}";
             }
             else
             {
                 var error = await response.Content.ReadAsStringAsync();
                 statusClass = "alert-danger";
-                statusMessage = $"❌ API Error ({response.StatusCode}): {error}";
+                statusMessage = $"❌ Server Error ({response.StatusCode}): {error}";
             }
         }
         catch (Exception ex)
         {
             statusClass = "alert-danger";
-            statusMessage = $"💥 Exception: {ex.Message}";
+            statusMessage = $"💥 Network Error: {ex.Message}";
         }
         finally
         {

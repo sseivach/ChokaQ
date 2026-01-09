@@ -36,7 +36,7 @@ public class InMemoryJobStorage : IJobStorage
         string? idempotencyKey = null,
         CancellationToken ct = default)
     {
-        // Use UtcDateTime to align with the DTO change (DateTime instead of DateTimeOffset)
+        // Use UtcDateTime to align with the DTO change
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
         // Calculate schedule time if delay is provided
@@ -55,6 +55,7 @@ public class InMemoryJobStorage : IJobStorage
             IdempotencyKey: idempotencyKey,
             WorkerId: null,
             ErrorDetails: null,
+            CreatedBy: createdBy,
             CreatedAtUtc: now,
             StartedAtUtc: null,
             FinishedAtUtc: null,
@@ -84,7 +85,7 @@ public class InMemoryJobStorage : IJobStorage
     {
         if (!_jobs.TryGetValue(id, out var existing)) return new ValueTask<bool>(false);
 
-        var now = _timeProvider.GetUtcNow().UtcDateTime; // Fix type mismatch
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
 
         var updated = existing with
         {

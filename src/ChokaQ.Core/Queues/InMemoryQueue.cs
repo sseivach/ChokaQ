@@ -33,7 +33,6 @@ public class InMemoryQueue : IChokaQQueue
             SingleReader = false, // Multiple workers can read (Scalability ready)
             SingleWriter = false  // Multiple threads can write (API ready)
         };
-
         _queue = Channel.CreateUnbounded<IChokaQJob>(options);
     }
 
@@ -43,7 +42,12 @@ public class InMemoryQueue : IChokaQQueue
     public ChannelReader<IChokaQJob> Reader => _queue.Reader;
 
     /// <inheritdoc />
-    public async Task EnqueueAsync<TJob>(TJob job, CancellationToken ct = default) where TJob : IChokaQJob
+    public async Task EnqueueAsync<TJob>(
+        TJob job,
+        int priority = 10,
+        string? createdBy = null,
+        string? tags = null,
+        CancellationToken ct = default) where TJob : IChokaQJob
     {
         // 1. Serialize payload for persistence
         var payload = JsonSerializer.Serialize(job);
@@ -56,6 +60,9 @@ public class InMemoryQueue : IChokaQQueue
              queue: "default",
              jobType: job.GetType().AssemblyQualifiedName!,
              payload: payload,
+             priority: priority,   // Pass priority
+             createdBy: createdBy, // Pass user
+             tags: tags,           // Pass tags
              ct: ct
         );
 
@@ -63,7 +70,6 @@ public class InMemoryQueue : IChokaQQueue
         // We notify the UI immediately so the user sees the job in the "Pending" state.
         try
         {
-            // Pass jobTypeName to the notifier
             await _notifier.NotifyJobUpdatedAsync(job.Id, jobTypeName, JobStatus.Pending, 0);
         }
         catch (Exception ex)

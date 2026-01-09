@@ -1,5 +1,6 @@
 ﻿@using ChokaQ.Dashboard.Models
 @using Microsoft.AspNetCore.SignalR.Client
+@using ChokaQ.Dashboard.Components
 
 <div class="card cq-card shadow-sm">
     <div class="card-header py-3 d-flex justify-content-between align-items-center"
@@ -41,7 +42,8 @@
                     <JobRow @key="job.Id"
                             Job="job"
                             OnCancelRequested="HandleCancelRequest"
-                            OnRestartRequested="HandleRestartRequest" />
+                            OnRestartRequested="HandleRestartRequest"
+                            OnSelected="OpenInspector" />
                 }
 
                 @if (!Jobs.Any())
@@ -57,6 +59,11 @@
     </div>
 </div>
 
+<JobInspector @bind-IsVisible="_isInspectorVisible"
+              JobId="@_selectedJobId"
+              OnRestart="HandleRestartRequest"
+              OnDelete="HandleDeleteRequest" />
+
 @code {
     [Parameter] public IEnumerable<JobViewModel> Jobs { get; set; } = Enumerable.Empty<JobViewModel>();
     [Parameter] public bool IsConnected { get; set; }
@@ -65,22 +72,38 @@
     // Receive Hub Connection to send commands
     [Parameter] public HubConnection? HubConnection { get; set; }
 
+    // Inspector State
+    private bool _isInspectorVisible;
+    private string? _selectedJobId;
+
     private async Task HandleCancelRequest(string jobId)
     {
         if (HubConnection is not null && IsConnected)
         {
-            // Call the server-side Hub method "CancelJob"
             await HubConnection.InvokeAsync("CancelJob", jobId);
         }
     }
 
-    // Restart Handler
     private async Task HandleRestartRequest(string jobId)
     {
         if (HubConnection is not null && IsConnected)
         {
-            // Call the server-side method "RestartJob"
             await HubConnection.InvokeAsync("RestartJob", jobId);
+            // Optionally close inspector after action
+            // _isInspectorVisible = false;
         }
+    }
+
+    private void OpenInspector(string jobId)
+    {
+        _selectedJobId = jobId;
+        _isInspectorVisible = true;
+    }
+
+    private Task HandleDeleteRequest(string jobId)
+    {
+        // TODO: Implement delete logic in Hub and Worker
+        _isInspectorVisible = false;
+        return Task.CompletedTask;
     }
 }
