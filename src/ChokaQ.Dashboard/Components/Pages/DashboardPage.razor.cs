@@ -1,29 +1,21 @@
 ﻿using ChokaQ.Abstractions.Enums;
-using ChokaQ.Dashboard.Components;
+using ChokaQ.Dashboard.Components.Features;
 using ChokaQ.Dashboard.Models;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
 using System.Timers;
 
-namespace ChokaQ.Dashboard;
+namespace ChokaQ.Dashboard.Components.Pages;
 
-public partial class ChokaQDashboard : IAsyncDisposable
+public partial class DashboardPage : IAsyncDisposable
 {
     [Inject] public NavigationManager Navigation { get; set; } = default!;
 
     private HubConnection? _hubConnection;
-
-    // We keep a separate list for the UI execution to avoid "Collection Modified" errors during rendering
     private List<JobViewModel> _jobs = new();
-
-    // Throttling timer
     private System.Timers.Timer? _uiRefreshTimer;
-    private bool _dirty = false; // Flag to indicate if data changed
-
-    // Default is "office"
+    private bool _dirty = false;
     private string _currentTheme = "office";
-
-    // Reference to the child component
     private CircuitMonitor? _circuitMonitor;
 
     private bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
@@ -47,7 +39,6 @@ public partial class ChokaQDashboard : IAsyncDisposable
 
     protected override async Task OnInitializedAsync()
     {
-        // 1. Setup Throttling Timer (Updates UI every 500ms max)
         _uiRefreshTimer = new System.Timers.Timer(500);
         _uiRefreshTimer.AutoReset = true;
         _uiRefreshTimer.Elapsed += async (sender, e) =>
@@ -60,15 +51,20 @@ public partial class ChokaQDashboard : IAsyncDisposable
         };
         _uiRefreshTimer.Start();
 
-        // 2. Setup SignalR
+        // Important: Use relative path for Hub to work with Middleware mapping
+        // Navigation.ToAbsoluteUri("chokaq/hub") assuming the user mapped it to /chokaq
+        // But since we are inside the page mapped to /chokaq, relative path "chokaq/hub" from root might be needed.
+        // Let's assume standard mapping for now.Ideally, pass the path via parameters.
+        // We will try to connect to the hub relative to current base or absolute.
+        // Since we mapped hub to {path}/hub in Extensions, we need to construct it.
+        // For simplicity in this iteration, let's assume default "/chokaq/hub".
+
         _hubConnection = new HubConnectionBuilder()
-            .WithUrl(Navigation.ToAbsoluteUri("/chokaq-hub"))
+            .WithUrl(Navigation.ToAbsoluteUri("/chokaq/hub"))
             .WithAutomaticReconnect()
             .Build();
 
-        // Receive 'type' parameter
-        _hubConnection.On<string, string, int, int, double?, string?, DateTime?>(
-            "JobUpdated",
+        _hubConnection.On<string, string, int, int, double?, string?, DateTime?>("JobUpdated",
             (jobId, type, statusInt, attempts, durationMs, createdBy, startedAt) =>
             {
                 var status = (JobStatus)statusInt;
@@ -96,14 +92,7 @@ public partial class ChokaQDashboard : IAsyncDisposable
         await _hubConnection.StartAsync();
     }
 
-    private void UpdateJob(
-        string jobId,
-        string type,
-        JobStatus status,
-        int attempts,
-        double? durationMs,
-        string? createdBy,
-        DateTime? startedAt)
+    private void UpdateJob(string jobId, string type, JobStatus status, int attempts, double? durationMs, string? createdBy, DateTime? startedAt)
     {
         var existing = _jobs.FirstOrDefault(j => j.Id == jobId);
         var now = DateTime.Now;
@@ -113,11 +102,8 @@ public partial class ChokaQDashboard : IAsyncDisposable
             existing.Status = status;
             existing.Attempts = attempts;
             existing.Type = type;
-
-            // Update metadata if provided (sometimes it might be null on partial updates, but usually we send full context)
             if (createdBy != null) existing.CreatedBy = createdBy;
             if (startedAt != null) existing.StartedAtUtc = startedAt;
-
             if (durationMs.HasValue) existing.Duration = TimeSpan.FromMilliseconds(durationMs.Value);
         }
         else
@@ -134,23 +120,17 @@ public partial class ChokaQDashboard : IAsyncDisposable
                 StartedAtUtc = startedAt
             });
 
-            if (_jobs.Count > 1000)
-            {
-                _jobs.RemoveRange(1000, _jobs.Count - 1000);
-            }
+            if (_jobs.Count > 1000) _jobs.RemoveRange(1000, _jobs.Count - 1000);
         }
     }
 
-    private void HandleSettingsUpdated()
-    {
-        StateHasChanged();
-    }
+    private void HandleSettingsUpdated() => StateHasChanged();
 
     private void ClearHistory()
     {
         _jobs.Clear();
         _dirty = true;
-        StateHasChanged(); // Force immediate clear
+        StateHasChanged();
     }
 
     public async ValueTask DisposeAsync()
@@ -160,7 +140,6 @@ public partial class ChokaQDashboard : IAsyncDisposable
             _uiRefreshTimer.Stop();
             _uiRefreshTimer.Dispose();
         }
-
         if (_hubConnection is not null) await _hubConnection.DisposeAsync();
         GC.SuppressFinalize(this);
     }

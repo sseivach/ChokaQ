@@ -1,15 +1,10 @@
-﻿@using ChokaQ.Dashboard.Components
+@using ChokaQ.Dashboard.Components.Features
 @using ChokaQ.Dashboard.Models
 @using Microsoft.AspNetCore.Components.Web
-
-<HeadContent>
-    <link rel="stylesheet" href="_content/ChokaQ.Dashboard/css/chokaq.css" />
-</HeadContent>
 
 <div class="cq-dashboard @CurrentThemeClass">
 
     <div class="d-flex justify-content-between align-items-center mb-4">
-
         <div class="d-flex align-items-baseline gap-3">
             <h5 class="mb-0 fw-bold">CHOKAQ MONITORING</h5>
             <small style="color: var(--cq-text-muted)">v1.0.0</small>
@@ -20,7 +15,6 @@
             <select class="form-select form-select-sm cq-select" style="width: 160px;"
                     value="@_currentTheme"
                     @onchange="@(e => HandleThemeChanged(e.Value?.ToString() ?? "office"))">
-
                 <option value="office">Return to Office</option>
                 <option value="nightshift">Night Shift</option>
                 <option value="caviar">Black Caviar</option>
@@ -28,7 +22,6 @@
                 <option value="kiddie">Script Kiddie</option>
                 <option value="bsod">Blue Screen</option>
                 <option value="bravosix">Bravo Six</option>
-
             </select>
         </div>
     </div>

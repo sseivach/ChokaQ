@@ -22,4 +22,8 @@
 		<ProjectReference Include="..\ChokaQ.Core\ChokaQ.Core.csproj" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <Folder Include="Components\Layout\" />
+	</ItemGroup>
+
 </Project>
