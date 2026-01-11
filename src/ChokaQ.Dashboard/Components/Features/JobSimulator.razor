@@ -1,0 +1,70 @@
+﻿@using ChokaQ.Abstractions
+@using ChokaQ.Abstractions.Jobs
+@inject IChokaQQueue Queue
+
+<div class="card cq-card shadow-sm mb-4">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center"
+         style="background-color: var(--cq-panel-bg); border-bottom: 1px solid var(--cq-border);">
+        <h6 class="mb-0 fw-bold small text-uppercase" style="color: var(--cq-text-muted)">
+            ⚡ System Load Simulator
+        </h6>
+    </div>
+    <div class="card-body p-3">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="small text-muted fw-bold mb-1">BATCH SIZE</label>
+                <select class="form-select form-select-sm cq-select" @bind="selectedCount">
+                    <option value="1">1 Job</option>
+                    <option value="10">10 Jobs</option>
+                    <option value="100">100 Jobs</option>
+                    <option value="500">500 Jobs (Stress)</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="small text-muted fw-bold mb-1">PRIORITY</label>
+                <select class="form-select form-select-sm cq-select" @bind="selectedPriority">
+                    <option value="10">Normal (10)</option>
+                    <option value="20">High (20)</option>
+                    <option value="100">Critical (100)</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <div class="form-check form-switch pt-3">
+                    <input class="form-check-input" type="checkbox" id="failSwitch" @bind="shouldFail">
+                    <label class="form-check-label small text-muted" for="failSwitch">Simulate Failures</label>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <button class="btn btn-sm btn-outline-primary w-100 fw-bold"
+                        @onclick="LaunchJobs" disabled="@isLoading">
+                    @(isLoading ? "Launching..." : "🚀 Ignite")
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private int selectedCount = 10;
+    private int selectedPriority = 10;
+    private bool shouldFail = false;
+    private bool isLoading = false;
+
+    private async Task LaunchJobs()
+    {
+        isLoading = true;
+        await Task.Run(async () =>
+        {
+            var tasks = new List<Task>();
+            for (int i = 0; i < selectedCount; i++)
+            {
+                var fail = shouldFail && (i % 5 == 0);
+                var job = new SystemTestJob($"Load Test #{i}", 500, fail);
+                tasks.Add(Queue.EnqueueAsync(job, selectedPriority, "Simulator"));
+            }
+            await Task.WhenAll(tasks);
+            isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        });
+    }
+}

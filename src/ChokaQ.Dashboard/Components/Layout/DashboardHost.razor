@@ -1,5 +1,8 @@
+@page "/"
+@using ChokaQ.Dashboard
 @using ChokaQ.Dashboard.Components.Pages
 @using Microsoft.AspNetCore.Components.Web
+@inject ChokaQDashboardOptions Options
 
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
@@ -7,22 +10,33 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ChokaQ Mission Control</title>
-    <base href="/" />
-    
+
+    <base href="@(Options.RoutePrefix.TrimEnd('/') + "/")" />
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    
-    <link href="_content/ChokaQ.Dashboard/css/chokaq.css" rel="stylesheet" />
-    
+
+    <link href="/_content/ChokaQ.Dashboard/css/base.css" rel="stylesheet" />
+
+    <link href="/_content/ChokaQ.Dashboard/css/themes/office.css" rel="stylesheet" />
+    <link href="/_content/ChokaQ.Dashboard/css/themes/nightshift.css" rel="stylesheet" />
+    <link href="/_content/ChokaQ.Dashboard/css/themes/caviar.css" rel="stylesheet" />
+    <link href="/_content/ChokaQ.Dashboard/css/themes/flashbang.css" rel="stylesheet" />
+    <link href="/_content/ChokaQ.Dashboard/css/themes/kiddie.css" rel="stylesheet" />
+    <link href="/_content/ChokaQ.Dashboard/css/themes/bravosix.css" rel="stylesheet" />
+    <link href="/_content/ChokaQ.Dashboard/css/themes/bluescreen.css" rel="stylesheet" />
+
+    <link href="/_content/ChokaQ.Dashboard/ChokaQ.Dashboard.bundle.scp.css" rel="stylesheet" />
+
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Segoe+UI:wght@400;600;700&display=swap" rel="stylesheet">
-    
+
     <HeadOutlet />
 </head>
 <body class="cq-bg">
-    
-    <DashboardPage />
 
-    <script src="_framework/blazor.web.js"></script>
-    
+    <DashboardPage @rendermode="RenderMode.InteractiveServer" />
+
+    <script src="/_framework/blazor.web.js"></script>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

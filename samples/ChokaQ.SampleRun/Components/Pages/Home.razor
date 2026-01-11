@@ -1,0 +1,115 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using ChokaQ.Abstractions
+@using ChokaQ.Abstractions.Jobs
+@inject IChokaQQueue Queue
+
+<PageTitle>ChokaQ Launcher</PageTitle>
+
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+
+            <div class="text-center mb-5">
+                <h1 class="display-5 fw-bold text-primary">ChokaQ Launcher</h1>
+                <p class="lead text-muted">Generate load and monitor results in real-time.</p>
+            </div>
+
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-bold">🚀 Job Generator</h5>
+                </div>
+                <div class="card-body p-4">
+
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small">Job Count</label>
+                            <input type="number" class="form-control" @bind="count" min="1" max="10000" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small">Priority (0-100)</label>
+                            <input type="number" class="form-control" @bind="priority" />
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label fw-bold small">Created By (User Name)</label>
+                            <input type="text" class="form-control" @bind="userName" placeholder="e.g. LoadTester" />
+                        </div>
+                        <div class="col-md-12">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="failSwitch" @bind="shouldFail">
+                                <label class="form-check-label" for="failSwitch">Simulate Random Failures</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-primary btn-lg fw-bold" @onclick="Launch" disabled="@isLoading">
+                            @if (isLoading)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                <span>Generating...</span>
+                            }
+                            else
+                            {
+                                <span>🔥 FIRE JOBS</span>
+                            }
+                        </button>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(statusMessage))
+                    {
+                        <div class="alert alert-success mt-3 mb-0 text-center">
+                            @statusMessage
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="text-center">
+                <a href="/chokaq" target="_blank" class="btn btn-outline-dark px-4 py-2">
+                    📊 Open Dashboard in New Tab
+                </a>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+@code {
+    private int count = 100;
+    private int priority = 10;
+    private string userName = "LauncherApp";
+    private bool shouldFail = false;
+    private bool isLoading = false;
+    private string? statusMessage;
+
+    private async Task Launch()
+    {
+        isLoading = true;
+        statusMessage = null;
+
+        // Run in background to keep UI responsive
+        await Task.Run(async () =>
+        {
+            var tasks = new List<Task>();
+            for (int i = 0; i < count; i++)
+            {
+                // Fail every 10th job if requested
+                var failThis = shouldFail && (i % 10 == 0);
+
+                var job = new SystemTestJob(
+                    Payload: $"Batch Job #{i} from Launcher",
+                    DurationMs: 500,
+                    ShouldFail: failThis
+                );
+
+                tasks.Add(Queue.EnqueueAsync(job, priority, userName));
+            }
+
+            await Task.WhenAll(tasks);
+        });
+
+        isLoading = false;
+        statusMessage = $"Successfully enqueued {count} jobs!";
+    }
+}

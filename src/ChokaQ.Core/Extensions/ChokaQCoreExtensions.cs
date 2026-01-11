@@ -1,7 +1,9 @@
 ﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Core.Contexts;
 using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
+using ChokaQ.Core.Handlers;
 using ChokaQ.Core.Processing;
 using ChokaQ.Core.State;
 using ChokaQ.Core.Workers;
@@ -32,6 +34,8 @@ public static class ChokaQCoreExtensions
         services.TryAddSingleton<JobWorker>();
         services.TryAddSingleton<IWorkerManager>(sp => sp.GetRequiredService<JobWorker>());
         services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
+
+        services.TryAddTransient<IChokaQJobHandler<SystemTestJob>, SystemTestJobHandler>();
 
         return services;
     }

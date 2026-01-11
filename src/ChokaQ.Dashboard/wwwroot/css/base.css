@@ -1,22 +1,38 @@
-﻿/* Base Layout & Structure */
+﻿/* GLOBAL RESET for Full Screen App */
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden; /* Prevent accidental horizontal scroll */
+}
+
+/* Base Layout & Structure */
 .cq-dashboard {
+    /* FULL HEIGHT MAGIC */
+    min-height: 100vh;
+    box-sizing: border-box; /* Include padding in height calculation */
+    display: flex;
+    flex-direction: column;
     padding: 1rem;
-    border-radius: 8px;
-    border: 1px solid var(--cq-border);
     background-color: var(--cq-bg);
     color: var(--cq-text);
     font-family: var(--cq-font, 'Segoe UI', sans-serif);
     transition: background-color 0.3s ease, color 0.3s ease;
-    /* GLOBAL FONT RESIZE (High Density) */
+    /* GLOBAL FONT RESIZE */
     font-size: 13px;
     line-height: 1.4;
 }
+
+/* Remove border-radius if full screen looks weird with it, 
+   or keep it if you want "floating" look. 
+   Currently removed border to look like native app. */
 
 .cq-card {
     background-color: var(--cq-panel-bg);
     border: 1px solid var(--cq-border);
     color: var(--cq-text);
     padding: 0 !important;
+    border-radius: 6px;
 }
 
     .cq-card .card-body {
@@ -41,7 +57,7 @@
         text-transform: uppercase;
         letter-spacing: 0.5px;
         font-weight: 700;
-        background-color: var(--cq-panel-bg); /* Sticky headers support */
+        background-color: var(--cq-panel-bg);
     }
 
     .cq-table td {
@@ -53,20 +69,16 @@
         overflow: hidden;
         text-overflow: ellipsis;
         font-size: 13px;
-        /* Smooth transition for hover effect */
         transition: background-color 0.1s ease-in-out, box-shadow 0.1s ease-in-out;
     }
 
-    /* === IMPROVED HOVER EFFECT === */
+    /* Hover Effect */
     .cq-table tr:hover td {
-        /* Neutral Grey 15%: Darkens light themes, Lightens dark themes */
         background-color: rgba(127, 127, 127, 0.15) !important;
         cursor: pointer;
     }
 
-        /* Add a visual "Active Stripe" on the left */
         .cq-table tr:hover td:first-child {
-            /* Inset box shadow acts as a border but doesn't shift layout */
             box-shadow: inset 4px 0 0 var(--cq-info);
         }
 
@@ -80,7 +92,7 @@
     font-size: 12px;
 }
 
-/* Button overrides */
+/* Buttons */
 .btn-outline-secondary {
     color: var(--cq-text-muted);
     border-color: var(--cq-text-muted);
@@ -91,7 +103,7 @@
         color: var(--cq-bg);
     }
 
-/* Tabs styling */
+/* Tabs */
 .nav-pills .nav-link {
     color: var(--cq-text-muted);
     font-weight: 600;
@@ -104,7 +116,7 @@
         color: white;
     }
 
-/* Scrollbar styling */
+/* Scrollbars */
 ::-webkit-scrollbar {
     width: 8px;
     height: 8px;

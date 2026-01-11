@@ -1,4 +1,5 @@
 @using ChokaQ.Dashboard.Components.Features
+@using ChokaQ.Dashboard.Components.Shared
 @using ChokaQ.Dashboard.Models
 @using Microsoft.AspNetCore.Components.Web
 
@@ -25,16 +26,15 @@
             </select>
         </div>
     </div>
+    <StatsCard Jobs="_jobs" />
 
-    <DashboardStats Jobs="_jobs" />
+    <JobSimulator />
 
     <CircuitMonitor @ref="_circuitMonitor" />
-
     <DashboardSettings OnSettingsApplied="HandleSettingsUpdated" />
 
     <JobFeed Jobs="_jobs"
              IsConnected="IsConnected"
              HubConnection="_hubConnection"
              OnClearHistory="ClearHistory" />
-
 </div>

@@ -46,17 +46,20 @@ public static class ChokaQSqlServerExtensions
         // We want SqlJobWorker which polls the database.
 
         // A. Remove the Hosted Service registration for JobWorker
-        // We iterate backwards to safely remove items from the collection
-        var hostedServiceDescriptor = services.FirstOrDefault(d =>
+        // Since JobWorker is often registered via a factory (sp => ...), ImplementationType might be null.
+        // We check the factory's ReturnType to identify it correctly.
+        var workerDescriptors = services.Where(d =>
             d.ServiceType == typeof(IHostedService) &&
-            (d.ImplementationType == typeof(JobWorker) || d.ImplementationFactory?.Method.ReturnType == typeof(JobWorker)));
+            (d.ImplementationType == typeof(JobWorker) ||
+             d.ImplementationFactory?.Method.ReturnType == typeof(JobWorker)))
+            .ToList();
 
-        if (hostedServiceDescriptor != null)
+        foreach (var descriptor in workerDescriptors)
         {
-            services.Remove(hostedServiceDescriptor);
+            services.Remove(descriptor);
         }
 
-        // B. Remove the IWorkerManager registration
+        // B. Remove the IWorkerManager registration (which points to the old worker)
         services.RemoveAll<IWorkerManager>();
 
         // C. Register SqlJobWorker

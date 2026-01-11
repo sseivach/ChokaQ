@@ -10,6 +10,7 @@ namespace ChokaQ.Dashboard.Components.Pages;
 public partial class DashboardPage : IAsyncDisposable
 {
     [Inject] public NavigationManager Navigation { get; set; } = default!;
+    [Inject] public ChokaQDashboardOptions Options { get; set; } = default!;
 
     private HubConnection? _hubConnection;
     private List<JobViewModel> _jobs = new();
@@ -51,16 +52,15 @@ public partial class DashboardPage : IAsyncDisposable
         };
         _uiRefreshTimer.Start();
 
-        // Important: Use relative path for Hub to work with Middleware mapping
-        // Navigation.ToAbsoluteUri("chokaq/hub") assuming the user mapped it to /chokaq
-        // But since we are inside the page mapped to /chokaq, relative path "chokaq/hub" from root might be needed.
-        // Let's assume standard mapping for now.Ideally, pass the path via parameters.
-        // We will try to connect to the hub relative to current base or absolute.
-        // Since we mapped hub to {path}/hub in Extensions, we need to construct it.
-        // For simplicity in this iteration, let's assume default "/chokaq/hub".
+        // --- FIXED: DYNAMIC HUB URL ---
+        // We use the RoutePrefix from options to build the correct Hub URL.
+        // If RoutePrefix is "/admin/jobs", Hub is "/admin/jobs/hub".
+
+        var hubPath = Options.RoutePrefix.TrimEnd('/') + "/hub";
+        var hubUrl = Navigation.ToAbsoluteUri(hubPath);
 
         _hubConnection = new HubConnectionBuilder()
-            .WithUrl(Navigation.ToAbsoluteUri("/chokaq/hub"))
+            .WithUrl(hubUrl)
             .WithAutomaticReconnect()
             .Build();
 
