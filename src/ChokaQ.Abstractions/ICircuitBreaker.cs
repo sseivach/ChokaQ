@@ -1,4 +1,5 @@
-﻿using ChokaQ.Abstractions.Enums;
+﻿using ChokaQ.Abstractions.DTOs;
+using ChokaQ.Abstractions.Enums;
 
 namespace ChokaQ.Abstractions;
 
@@ -29,5 +30,5 @@ public interface ICircuitBreaker
     /// Retrieves the status of all tracked circuits (Job Types).
     /// Used for monitoring/dashboard.
     /// </summary>
-    IReadOnlyDictionary<string, CircuitStatus> GetCircuitStates();
+    IEnumerable<CircuitStatsDto> GetCircuitStats();
 }

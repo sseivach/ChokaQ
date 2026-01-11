@@ -1,4 +1,5 @@
 ﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.DTOs; // Needed for DTO
 using ChokaQ.Abstractions.Enums;
 using System.Collections.Concurrent;
 
@@ -8,9 +9,9 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
 {
     private readonly TimeProvider _timeProvider;
 
-    // Configuration constants (could be moved to appsettings later)
-    private const int FailureThreshold = 5; // Number of consecutive failures to open the circuit
-    private const int BreakDurationSeconds = 30; // Duration to keep the circuit open
+    // Configuration constants
+    private const int FailureThreshold = 5;
+    private const int BreakDurationSeconds = 30; // Circuit stays open for 30s
 
     private readonly ConcurrentDictionary<string, CircuitStateEntry> _states = new();
 
@@ -24,26 +25,22 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
         var entry = GetEntry(jobType);
         var now = _timeProvider.GetUtcNow();
 
-        // 1. Closed: Business as usual.
         if (entry.Status == CircuitStatus.Closed) return true;
 
-        // 2. Open: Check if the timeout has elapsed.
         if (entry.Status == CircuitStatus.Open)
         {
+            // Check if timeout elapsed
             if (now >= entry.LastFailureUtc.AddSeconds(BreakDurationSeconds))
             {
-                // Timeout elapsed, try to transition to Half-Open.
-                // Using TryTransition to ensure atomicity.
                 if (entry.TryTransitionToHalfOpen())
                 {
                     return true;
                 }
             }
-            return false; // Still open, block execution.
+            return false;
         }
 
-        // 3. Half-Open: Allow execution.
-        // In a more complex implementation, we might want to limit concurrency here.
+        // Half-Open: Allow execution (could limit concurrency here in future)
         return true;
     }
 
@@ -52,7 +49,6 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
         var entry = GetEntry(jobType);
         if (entry.Status != CircuitStatus.Closed)
         {
-            // Success! The external service recovered. Reset everything.
             entry.Reset();
         }
     }
@@ -67,12 +63,10 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
 
         if (entry.Status == CircuitStatus.HalfOpen)
         {
-            // Failed during trial. Immediately re-open the circuit.
             entry.Status = CircuitStatus.Open;
         }
         else if (entry.FailureCount >= FailureThreshold)
         {
-            // Failure threshold reached. Open the circuit.
             entry.Status = CircuitStatus.Open;
         }
     }
@@ -80,15 +74,25 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
     public CircuitStatus GetStatus(string jobType) => GetEntry(jobType).Status;
 
     /// <summary>
-    /// Returns a snapshot of current states.
+    /// Implementation of the new DTO-based stats method.
     /// </summary>
-    public IReadOnlyDictionary<string, CircuitStatus> GetCircuitStates()
+    public IEnumerable<CircuitStatsDto> GetCircuitStats()
     {
-        // Project the internal Entry objects to a simple Dictionary<string, Status>
-        return _states.ToDictionary(
-            kvp => kvp.Key,
-            kvp => kvp.Value.Status
-        );
+        return _states.Select(kvp =>
+        {
+            var jobType = kvp.Key;
+            var entry = kvp.Value;
+
+            DateTime? resetAt = null;
+
+            // Calculate reset time if Open
+            if (entry.Status == CircuitStatus.Open)
+            {
+                resetAt = entry.LastFailureUtc.AddSeconds(BreakDurationSeconds).UtcDateTime;
+            }
+
+            return new CircuitStatsDto(jobType, entry.Status, entry.FailureCount, resetAt);
+        });
     }
 
     private CircuitStateEntry GetEntry(string jobType)
@@ -96,10 +100,9 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
         return _states.GetOrAdd(jobType, _ => new CircuitStateEntry());
     }
 
-    // Inner class to hold the state
     private class CircuitStateEntry
     {
-        public volatile CircuitStatus Status = CircuitStatus.Closed; // Volatile for thread safety
+        public volatile CircuitStatus Status = CircuitStatus.Closed;
         public int FailureCount;
         public DateTimeOffset LastFailureUtc;
 

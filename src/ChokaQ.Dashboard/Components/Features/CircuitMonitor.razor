@@ -1,8 +1,10 @@
 ﻿@using ChokaQ.Abstractions
+@using ChokaQ.Abstractions.DTOs
 @using ChokaQ.Abstractions.Enums
+@implements IDisposable
 @inject ICircuitBreaker CircuitBreaker
 
-@if (_circuitStates.Any())
+@if (_circuits.Any())
 {
     <div class="card cq-card shadow-sm mb-4">
         <div class="card-header py-2 d-flex align-items-center gap-2"
@@ -13,18 +15,29 @@
         </div>
         <div class="card-body p-2">
             <div class="d-flex flex-wrap gap-2">
-                @foreach (var circuit in _circuitStates)
+                @foreach (var circuit in _circuits)
                 {
                     <div class="d-flex align-items-center gap-2 px-3 py-1 border rounded"
-                         style="border-color: var(--cq-border) !important; background-color: @GetBgColor(circuit.Value);">
+                         style="border-color: var(--cq-border) !important; background-color: @GetBgColor(circuit.Status);">
 
-                        <span style="font-size: 0.8rem;">@GetIcon(circuit.Value)</span>
+                        <span style="font-size: 0.8rem;">@GetIcon(circuit.Status)</span>
 
-                        <span class="small fw-bold">@FormatName(circuit.Key)</span>
+                        <div class="d-flex flex-column" style="line-height: 1.1;">
+                            <span class="small fw-bold">@FormatName(circuit.JobType)</span>
 
-                        <span class="badge bg-dark text-white" style="font-size: 0.65rem;">
-                            @circuit.Value.ToString().ToUpper()
-                        </span>
+                            @if (circuit.Status == CircuitStatus.Open && circuit.ResetAtUtc.HasValue)
+                            {
+                                <span style="font-size: 0.65rem; color: var(--cq-danger); font-weight: bold; font-family: monospace;">
+                                    RESET IN: @GetTimeRemaining(circuit.ResetAtUtc.Value)
+                                </span>
+                            }
+                            else
+                            {
+                                <span style="font-size: 0.65rem; color: var(--cq-text-muted);">
+                                    @circuit.Status.ToString().ToUpper()
+                                </span>
+                            }
+                        </div>
                     </div>
                 }
             </div>
@@ -33,24 +46,44 @@
 }
 
 @code {
-    private Dictionary<string, CircuitStatus> _circuitStates = new();
+    private List<CircuitStatsDto> _circuits = new();
+    private System.Threading.Timer? _localTimer;
 
-    // Allows parent to trigger refresh manually
+    // Called by Parent (DashboardPage) on SignalR updates
     public void Refresh()
     {
-        _circuitStates = CircuitBreaker.GetCircuitStates().ToDictionary(k => k.Key, v => v.Value);
-        StateHasChanged();
+        FetchData();
+        InvokeAsync(StateHasChanged);
     }
 
     protected override void OnInitialized()
     {
-        Refresh();
+        FetchData();
+        // Run a local timer every second to update the countdown text smoothly
+        // independent of backend events.
+        _localTimer = new System.Threading.Timer(_ =>
+        {
+            if (_circuits.Any(c => c.Status == CircuitStatus.Open))
+            {
+                InvokeAsync(StateHasChanged);
+            }
+        }, null, 1000, 1000);
+    }
+
+    private void FetchData()
+    {
+        _circuits = CircuitBreaker.GetCircuitStats().ToList();
+    }
+
+    private string GetTimeRemaining(DateTime resetAtUtc)
+    {
+        var remaining = resetAtUtc - DateTime.UtcNow;
+        if (remaining.TotalSeconds <= 0) return "READY";
+        return $"{remaining.TotalSeconds:F1}s";
     }
 
     private string FormatName(string fullName)
     {
-        // Extracts "PrintMessageJob" from "ChokaQ.SampleApp.Jobs.PrintMessageJob"
-        // If it's too long, just take the last part for cleaner UI
         if (string.IsNullOrEmpty(fullName)) return "Unknown";
         var parts = fullName.Split('.');
         return parts.Last();
@@ -58,15 +91,20 @@
 
     private string GetBgColor(CircuitStatus status) => status switch
     {
-        CircuitStatus.Open => "rgba(220, 53, 69, 0.1)", // Redish tint
-        CircuitStatus.HalfOpen => "rgba(255, 193, 7, 0.1)", // Yellowish tint
+        CircuitStatus.Open => "rgba(220, 53, 69, 0.1)",
+        CircuitStatus.HalfOpen => "rgba(255, 193, 7, 0.1)",
         _ => "transparent"
     };
 
     private string GetIcon(CircuitStatus status) => status switch
     {
-        CircuitStatus.Open => "🔴",    // Red Circle
-        CircuitStatus.HalfOpen => "🟡",// Yellow Circle
-        _ => "🟢"                      // Green Circle
+        CircuitStatus.Open => "🛑",
+        CircuitStatus.HalfOpen => "⚠️",
+        _ => "✅"
     };
+
+    public void Dispose()
+    {
+        _localTimer?.Dispose();
+    }
 }
