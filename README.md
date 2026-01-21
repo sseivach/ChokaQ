@@ -12,7 +12,8 @@ It bridges the gap between simple in-memory queues and heavy enterprise service 
 
 ## Key Features
 
-* **Zero-Dependency Core:** The core processing engine uses native .NET primitives (System.Threading.Channels) for high-speed in-memory processing without external dependencies.
+* **Zero-Dependency Core:** The engine logic (`ChokaQ.Core`) relies strictly on standard .NET abstractions, keeping your dependency tree clean.
+* **Efficient SQL Storage:** The optional SQL Server provider uses **Dapper** as a lightweight micro-ORM for maximum performance over raw ADO.NET.
 * **Resilient Architecture:** Built-in implementation of Circuit Breaker patterns and Retry Policies with exponential backoff to handle transient failures.
 * **Robust Storage:** Pluggable storage architecture.
     * **In-Memory:** For development and testing.
