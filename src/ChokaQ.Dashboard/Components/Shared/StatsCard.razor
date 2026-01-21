@@ -4,7 +4,8 @@
 <div class="row mb-3 g-2 row-cols-2 row-cols-md-6">
 
     <div class="col">
-        <div class="card cq-card shadow-sm h-100">
+        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Pending) ? "active" : "")"
+             @onclick="() => Select(JobStatus.Pending)" style="cursor: pointer;">
             <div class="card-body">
                 <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Pending</small>
                 <div class="fs-4 fw-bold mt-1" style="color: var(--cq-info)">
@@ -15,7 +16,8 @@
     </div>
 
     <div class="col">
-        <div class="card cq-card shadow-sm h-100">
+        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Processing) ? "active" : "")"
+             @onclick="() => Select(JobStatus.Processing)" style="cursor: pointer;">
             <div class="card-body">
                 <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Processing</small>
                 <div class="fs-4 fw-bold mt-1" style="color: var(--cq-warning)">
@@ -26,7 +28,8 @@
     </div>
 
     <div class="col">
-        <div class="card cq-card shadow-sm h-100">
+        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Succeeded) ? "active" : "")"
+             @onclick="() => Select(JobStatus.Succeeded)" style="cursor: pointer;">
             <div class="card-body">
                 <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Succeeded</small>
                 <div class="fs-4 fw-bold mt-1" style="color: var(--cq-success)">
@@ -37,7 +40,8 @@
     </div>
 
     <div class="col">
-        <div class="card cq-card shadow-sm h-100">
+        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Failed) ? "active" : "")"
+             @onclick="() => Select(JobStatus.Failed)" style="cursor: pointer;">
             <div class="card-body">
                 <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Failed</small>
                 <div class="fs-4 fw-bold mt-1" style="color: var(--cq-danger)">
@@ -48,7 +52,8 @@
     </div>
 
     <div class="col">
-        <div class="card cq-card shadow-sm h-100">
+        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Cancelled) ? "active" : "")"
+             @onclick="() => Select(JobStatus.Cancelled)" style="cursor: pointer;">
             <div class="card-body">
                 <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Canceled</small>
                 <div class="fs-4 fw-bold mt-1" style="color: var(--cq-text-muted)">
@@ -59,7 +64,8 @@
     </div>
 
     <div class="col">
-        <div class="card cq-card shadow-sm h-100">
+        <div class="card cq-card shadow-sm h-100 filter-card @(SelectedStatus == null ? "active" : "")"
+             @onclick="() => OnStatusSelected.InvokeAsync(null)" style="cursor: pointer;">
             <div class="card-body">
                 <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Total Jobs</small>
                 <div class="fs-4 fw-bold mt-1">
@@ -70,6 +76,31 @@
     </div>
 </div>
 
+<style>
+    .filter-card {
+        transition: transform 0.1s, border-color 0.2s;
+    }
+
+        .filter-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--cq-text-muted);
+        }
+
+        .filter-card.active {
+            border: 2px solid var(--cq-info);
+            background-color: rgba(128, 128, 128, 0.05);
+        }
+</style>
+
 @code {
     [Parameter] public ICollection<JobViewModel> Jobs { get; set; } = new List<JobViewModel>();
+    [Parameter] public JobStatus? SelectedStatus { get; set; }
+    [Parameter] public EventCallback<JobStatus?> OnStatusSelected { get; set; }
+
+    private bool IsActive(JobStatus status) => SelectedStatus == status;
+
+    private async Task Select(JobStatus status)
+    {
+        await OnStatusSelected.InvokeAsync(status);
+    }
 }

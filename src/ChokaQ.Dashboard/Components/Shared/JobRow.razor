@@ -2,7 +2,15 @@
 @using ChokaQ.Dashboard.Models
 @using Microsoft.AspNetCore.SignalR.Client
 
-<tr class="cq-job-row" @onclick="SelectJob">
+<tr class="cq-job-row @(IsSelected ? "selected-row" : "")" @onclick="HandleRowClick">
+
+    <td class="text-center" @onclick:stopPropagation="true">
+        <input type="checkbox"
+               class="form-check-input darker-border-checkbox"
+               checked="@IsSelected"
+               @onchange="HandleCheckboxChange" />
+    </td>
+
     <td class="font-monospace fw-bold" style="color: var(--cq-info); font-size: 0.85rem;" title="@Job.Id">
         @Job.Id.Substring(0, 8)...
     </td>
@@ -59,8 +67,7 @@
         @if (Job.Status == JobStatus.Processing)
         {
             <div class="progress" style="height: 4px; background-color: var(--cq-border);">
-                <div class="progress-bar"
-                     role="progressbar"
+                <div class="progress-bar" role="progressbar"
                      style="width: @(Job.Progress)%; background-color: var(--cq-info); transition: width 0.3s ease;">
                 </div>
             </div>
@@ -119,51 +126,42 @@
 </tr>
 
 <style>
-    /* Inline style for the row pointer, could be moved to css file */
     .cq-job-row {
         cursor: pointer;
         transition: background-color 0.2s;
+    }
+
+    .selected-row td {
+        background-color: rgba(0, 120, 212, 0.1) !important;
     }
 </style>
 
 @code {
     [Parameter] public required JobViewModel Job { get; set; }
+    [Parameter] public bool IsSelected { get; set; }
 
     [Parameter] public EventCallback<string> OnCancelRequested { get; set; }
-
     [Parameter] public EventCallback<string> OnRestartRequested { get; set; }
-
-    // New callback for selection
     [Parameter] public EventCallback<string> OnSelected { get; set; }
 
-    private async Task CancelJob()
-    {
-        await OnCancelRequested.InvokeAsync(Job.Id);
-    }
+    [Parameter] public EventCallback<bool> OnSelectionChanged { get; set; }
 
-    private async Task RestartJob()
-    {
-        await OnRestartRequested.InvokeAsync(Job.Id);
-    }
+    private async Task CancelJob() => await OnCancelRequested.InvokeAsync(Job.Id);
+    private async Task RestartJob() => await OnRestartRequested.InvokeAsync(Job.Id);
 
-    private async Task SelectJob()
+    private async Task HandleRowClick() => await OnSelected.InvokeAsync(Job.Id);
+
+    private async Task HandleCheckboxChange(ChangeEventArgs e)
     {
-        await OnSelected.InvokeAsync(Job.Id);
+        var isChecked = (bool)(e.Value ?? false);
+        await OnSelectionChanged.InvokeAsync(isChecked);
     }
 
     private string FormatDuration(TimeSpan? duration)
     {
         if (!duration.HasValue || duration.Value == TimeSpan.Zero) return "-";
-
-        // Less than 1 second, show ms
-        if (duration.Value.TotalSeconds < 1)
-            return $"{duration.Value.TotalMilliseconds:F0}ms";
-
-        // Less than 1 minute, show seconds and ms
-        if (duration.Value.TotalMinutes < 1)
-            return $"{duration.Value.Seconds}s {duration.Value.Milliseconds}ms";
-
-        // Default format for longer durations
+        if (duration.Value.TotalSeconds < 1) return $"{duration.Value.TotalMilliseconds:F0}ms";
+        if (duration.Value.TotalMinutes < 1) return $"{duration.Value.Seconds}s {duration.Value.Milliseconds}ms";
         return $"{duration.Value.Minutes}m {duration.Value.Seconds}s";
     }
 }
