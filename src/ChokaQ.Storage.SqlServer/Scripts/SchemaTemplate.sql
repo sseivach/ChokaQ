@@ -108,3 +108,16 @@ BEGIN
     INSERT INTO [{SCHEMA}].[Queues] ([Name], [IsPaused]) VALUES ('default', 0)
 END
 GO
+
+-- 7. Stats Index (Critical for Dashboard Performance)
+-- Allows calculating counts and timelines without scanning payloads.
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_{SCHEMA}_Jobs_Stats' AND object_id = OBJECT_ID(N'[{SCHEMA}].[Jobs]'))
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_{SCHEMA}_Jobs_Stats] ON [{SCHEMA}].[Jobs]
+    (
+        [Queue] ASC,
+        [Status] ASC
+    )
+    INCLUDE ([StartedAtUtc], [FinishedAtUtc])
+END
+GO

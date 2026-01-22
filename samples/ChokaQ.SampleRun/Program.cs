@@ -11,6 +11,9 @@ builder.Services.AddRazorComponents()
 
 // 2. Add ChokaQ Core
 builder.Services.AddChokaQ();
+builder.Services.Configure<ChokaQ.Storage.SqlServer.SqlJobStorageOptions>(opt =>
+{
+});
 
 // 3. Add SQL Storage
 builder.Services.UseSqlServer(options =>

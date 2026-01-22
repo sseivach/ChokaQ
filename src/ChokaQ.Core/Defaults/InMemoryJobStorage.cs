@@ -129,7 +129,7 @@ public class InMemoryJobStorage : IJobStorage
     public ValueTask<IEnumerable<JobStorageDto>> FetchAndLockNextBatchAsync(
         string workerId,
         int limit,
-        string[]? allowedQueues, // <--- Updated
+        string[]? allowedQueues,
         CancellationToken ct = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
@@ -145,7 +145,7 @@ public class InMemoryJobStorage : IJobStorage
         var candidates = _jobs.Values
             .Where(j => j.Status == JobStatus.Pending &&
                         (!j.ScheduledAtUtc.HasValue || j.ScheduledAtUtc <= now) &&
-                        allowedSet.Contains(j.Queue)) // <--- Logic used directly here
+                        allowedSet.Contains(j.Queue))
             .OrderByDescending(j => j.Priority)
             .ThenBy(j => j.ScheduledAtUtc)
             .ThenBy(j => j.CreatedAtUtc)
@@ -173,7 +173,7 @@ public class InMemoryJobStorage : IJobStorage
     }
 
     /// <summary>
-    /// [NEW] In-Memory implementation of Queue Management.
+    /// In-Memory implementation of Queue Management with full statistics.
     /// Calculates stats on the fly from the dictionary.
     /// </summary>
     public ValueTask<IEnumerable<QueueDto>> GetQueuesAsync(CancellationToken ct = default)
@@ -191,26 +191,51 @@ public class InMemoryJobStorage : IJobStorage
             // Ensure state is tracked
             _queueStates.TryGetValue(qName, out bool isPaused);
 
-            // Aggregate counts
-            var pending = _jobs.Values.Count(j => j.Queue == qName && j.Status == JobStatus.Pending);
-            var processing = _jobs.Values.Count(j => j.Queue == qName && j.Status == JobStatus.Processing);
-            var failed = _jobs.Values.Count(j => j.Queue == qName && j.Status == JobStatus.Failed);
+            // Filter jobs for this queue once
+            var queueJobs = _jobs.Values.Where(j => j.Queue == qName).ToList();
 
-            result.Add(new QueueDto(qName, isPaused, pending, processing, failed));
+            // Calculate aggregates
+            var pending = queueJobs.Count(j => j.Status == JobStatus.Pending);
+            var processing = queueJobs.Count(j => j.Status == JobStatus.Processing);
+            var failed = queueJobs.Count(j => j.Status == JobStatus.Failed);
+            var succeeded = queueJobs.Count(j => j.Status == JobStatus.Succeeded); // <--- NEW
+
+            // Calculate timestamps
+            var firstJob = queueJobs
+                .Where(j => j.StartedAtUtc.HasValue)
+                .OrderBy(j => j.StartedAtUtc)
+                .Select(j => j.StartedAtUtc)
+                .FirstOrDefault();
+
+            var lastJob = queueJobs
+                .Where(j => j.FinishedAtUtc.HasValue)
+                .OrderByDescending(j => j.FinishedAtUtc)
+                .Select(j => j.FinishedAtUtc)
+                .FirstOrDefault();
+
+            result.Add(new QueueDto(
+                qName,
+                isPaused,
+                pending,
+                processing,
+                failed,
+                succeeded,
+                firstJob,
+                lastJob
+            ));
         }
 
         return new ValueTask<IEnumerable<QueueDto>>(result);
     }
 
-    /// <summary>
-    /// [NEW] Updates the paused state of a queue in memory.
-    /// </summary>
+    /// <inheritdoc />
     public ValueTask SetQueueStateAsync(string queueName, bool isPaused, CancellationToken ct = default)
     {
         _queueStates.AddOrUpdate(queueName, isPaused, (key, oldValue) => isPaused);
         return ValueTask.CompletedTask;
     }
 
+    /// <inheritdoc />
     public ValueTask UpdateJobPriorityAsync(string id, int newPriority, CancellationToken ct = default)
     {
         if (_jobs.TryGetValue(id, out var existing))

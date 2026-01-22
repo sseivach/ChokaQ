@@ -5,5 +5,8 @@ public record QueueDto(
     bool IsPaused,
     int PendingCount,
     int ProcessingCount,
-    int FailedCount
+    int FailedCount,
+    int SucceededCount,
+    DateTime? FirstJobAtUtc,
+    DateTime? LastJobAtUtc
 );

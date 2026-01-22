@@ -213,25 +213,37 @@ public class SqlJobStorage : IJobStorage
     // =========================================================================
 
     /// <inheritdoc />
+    /// <inheritdoc />
     public async ValueTask<IEnumerable<QueueDto>> GetQueuesAsync(CancellationToken ct = default)
     {
         var queuesTable = $"[{_schemaName}].[Queues]";
         var jobsTable = $"[{_schemaName}].[Jobs]";
 
         var sql = $@"
-            MERGE {queuesTable} AS target
-            USING (SELECT DISTINCT Queue FROM {jobsTable}) AS source
-            ON (target.Name = source.Queue)
-            WHEN NOT MATCHED THEN
-                INSERT (Name, IsPaused) VALUES (source.Queue, 0);
-
+            WITH JobStats AS (
+                SELECT 
+                    Queue,
+                    COUNT(CASE WHEN Status = 0 THEN 1 END) as PendingCount,
+                    COUNT(CASE WHEN Status = 1 THEN 1 END) as ProcessingCount,
+                    COUNT(CASE WHEN Status = 2 THEN 1 END) as SucceededCount,
+                    COUNT(CASE WHEN Status = 3 THEN 1 END) as FailedCount,
+                    MIN(StartedAtUtc) as FirstJobAtUtc,
+                    MAX(FinishedAtUtc) as LastJobAtUtc
+                FROM {jobsTable}
+                GROUP BY Queue
+            )
             SELECT 
-                Q.Name,
-                Q.IsPaused,
-                (SELECT COUNT(*) FROM {jobsTable} WHERE Queue = Q.Name AND Status = 0) as PendingCount,
-                (SELECT COUNT(*) FROM {jobsTable} WHERE Queue = Q.Name AND Status = 1) as ProcessingCount,
-                (SELECT COUNT(*) FROM {jobsTable} WHERE Queue = Q.Name AND Status = 3) as FailedCount
-            FROM {queuesTable} Q";
+                COALESCE(Q.Name, JS.Queue) as Name,
+                CAST(COALESCE(Q.IsPaused, 0) AS BIT) as IsPaused, -- FIX: Cast to BIT for boolean mapping
+                ISNULL(JS.PendingCount, 0) as PendingCount,
+                ISNULL(JS.ProcessingCount, 0) as ProcessingCount,
+                ISNULL(JS.FailedCount, 0) as FailedCount,         -- FIX: Reordered to match DTO
+                ISNULL(JS.SucceededCount, 0) as SucceededCount,   -- FIX: Reordered to match DTO
+                JS.FirstJobAtUtc,
+                JS.LastJobAtUtc
+            FROM {queuesTable} Q
+            FULL OUTER JOIN JobStats JS ON JS.Queue = Q.Name
+            ORDER BY JS.LastJobAtUtc DESC";
 
         using var connection = new SqlConnection(_connectionString);
         return await connection.QueryAsync<QueueDto>(new CommandDefinition(sql, cancellationToken: ct));
