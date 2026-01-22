@@ -14,6 +14,10 @@ namespace ChokaQ.Core.Defaults;
 public class InMemoryJobStorage : IJobStorage
 {
     private readonly ConcurrentDictionary<string, JobStorageDto> _jobs = new();
+
+    // Stores the paused state of queues: Key = QueueName, Value = IsPaused
+    private readonly ConcurrentDictionary<string, bool> _queueStates = new();
+
     private readonly ILogger<InMemoryJobStorage> _logger;
     private readonly TimeProvider _timeProvider;
 
@@ -21,6 +25,9 @@ public class InMemoryJobStorage : IJobStorage
     {
         _logger = logger;
         _timeProvider = timeProvider;
+
+        // Ensure default queue exists and is running
+        _queueStates.TryAdd("default", false);
     }
 
     /// <inheritdoc />
@@ -36,10 +43,7 @@ public class InMemoryJobStorage : IJobStorage
         string? idempotencyKey = null,
         CancellationToken ct = default)
     {
-        // Use UtcDateTime to align with the DTO change
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-
-        // Calculate schedule time if delay is provided
         DateTime? scheduledAt = delay.HasValue ? now.Add(delay.Value) : null;
 
         var job = new JobStorageDto(
@@ -64,10 +68,11 @@ public class InMemoryJobStorage : IJobStorage
 
         if (_jobs.TryAdd(id, job))
         {
+            // Ensure queue is tracked
+            _queueStates.TryAdd(queue, false);
             return new ValueTask<string>(id);
         }
 
-        // Handle unlikely ID collision
         var ex = new InvalidOperationException($"Job ID collision detected: {id}");
         _logger.LogError(ex, "Failed to create job in memory.");
         throw ex;
@@ -121,25 +126,32 @@ public class InMemoryJobStorage : IJobStorage
     }
 
     /// <inheritdoc />
-    public ValueTask<IEnumerable<JobStorageDto>> FetchAndLockNextBatchAsync(string workerId, int limit, CancellationToken ct = default)
+    public ValueTask<IEnumerable<JobStorageDto>> FetchAndLockNextBatchAsync(
+        string workerId,
+        int limit,
+        string[]? allowedQueues, // <--- Updated
+        CancellationToken ct = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var lockedJobs = new List<JobStorageDto>();
 
-        // Simulation of transactional locking for In-Memory storage.
-        // NOTE: This is not strictly thread-safe in a high-concurrency scenario without global locks,
-        // but sufficient for local development and testing.
+        // Convert array to HashSet for O(1) lookups
+        var allowedSet = allowedQueues != null
+            ? new HashSet<string>(allowedQueues)
+            : new HashSet<string>();
 
-        // 1. Find candidates: Pending, Schedule reached, Ordered by Priority
+        if (allowedSet.Count == 0) return new ValueTask<IEnumerable<JobStorageDto>>(lockedJobs);
+
         var candidates = _jobs.Values
-            .Where(j => j.Status == JobStatus.Pending && (!j.ScheduledAtUtc.HasValue || j.ScheduledAtUtc <= now))
+            .Where(j => j.Status == JobStatus.Pending &&
+                        (!j.ScheduledAtUtc.HasValue || j.ScheduledAtUtc <= now) &&
+                        allowedSet.Contains(j.Queue)) // <--- Logic used directly here
             .OrderByDescending(j => j.Priority)
             .ThenBy(j => j.ScheduledAtUtc)
             .ThenBy(j => j.CreatedAtUtc)
             .Take(limit)
             .ToList();
 
-        // 2. Try to lock (update status to Processing)
         foreach (var job in candidates)
         {
             var updated = job with
@@ -151,7 +163,6 @@ public class InMemoryJobStorage : IJobStorage
                 AttemptCount = job.AttemptCount + 1
             };
 
-            // Use TryUpdate to ensure we don't pick up a job that another thread just modified
             if (_jobs.TryUpdate(job.Id, updated, job))
             {
                 lockedJobs.Add(updated);
@@ -159,5 +170,44 @@ public class InMemoryJobStorage : IJobStorage
         }
 
         return new ValueTask<IEnumerable<JobStorageDto>>(lockedJobs);
+    }
+
+    /// <summary>
+    /// [NEW] In-Memory implementation of Queue Management.
+    /// Calculates stats on the fly from the dictionary.
+    /// </summary>
+    public ValueTask<IEnumerable<QueueDto>> GetQueuesAsync(CancellationToken ct = default)
+    {
+        // 1. Identify all known queues (from jobs + explicitly tracked)
+        var queueNames = _jobs.Values.Select(j => j.Queue)
+            .Union(_queueStates.Keys)
+            .Distinct()
+            .ToList();
+
+        var result = new List<QueueDto>();
+
+        foreach (var qName in queueNames)
+        {
+            // Ensure state is tracked
+            _queueStates.TryGetValue(qName, out bool isPaused);
+
+            // Aggregate counts
+            var pending = _jobs.Values.Count(j => j.Queue == qName && j.Status == JobStatus.Pending);
+            var processing = _jobs.Values.Count(j => j.Queue == qName && j.Status == JobStatus.Processing);
+            var failed = _jobs.Values.Count(j => j.Queue == qName && j.Status == JobStatus.Failed);
+
+            result.Add(new QueueDto(qName, isPaused, pending, processing, failed));
+        }
+
+        return new ValueTask<IEnumerable<QueueDto>>(result);
+    }
+
+    /// <summary>
+    /// [NEW] Updates the paused state of a queue in memory.
+    /// </summary>
+    public ValueTask SetQueueStateAsync(string queueName, bool isPaused, CancellationToken ct = default)
+    {
+        _queueStates.AddOrUpdate(queueName, isPaused, (key, oldValue) => isPaused);
+        return ValueTask.CompletedTask;
     }
 }

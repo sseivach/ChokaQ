@@ -19,6 +19,7 @@ public interface IChokaQQueue
     Task EnqueueAsync<TJob>(
         TJob job,
         int priority = 10,
+        string queue = "default", // <--- NEW PARAMETER
         string? createdBy = null,
         string? tags = null,
         CancellationToken ct = default) where TJob : IChokaQJob;

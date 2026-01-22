@@ -66,5 +66,16 @@ public interface IJobStorage
     ValueTask<IEnumerable<JobStorageDto>> FetchAndLockNextBatchAsync(
         string workerId,
         int limit,
+        string[]? allowedQueues,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Retrieves the list of all active queues and their stats.
+    /// </summary>
+    ValueTask<IEnumerable<QueueDto>> GetQueuesAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Pauses or Resumes a specific queue.
+    /// </summary>
+    ValueTask SetQueueStateAsync(string queueName, bool isPaused, CancellationToken ct = default);
 }

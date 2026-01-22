@@ -30,6 +30,15 @@
                             <label class="form-label fw-bold small">Priority (0-100)</label>
                             <input type="number" class="form-control" @bind="priority" />
                         </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small">Target Queue</label>
+                            <select class="form-select" @bind="targetQueue">
+                                <option value="default">Default</option>
+                                <option value="critical">Critical</option>
+                                <option value="background">Background</option>
+                                <option value="emails">Emails</option>
+                            </select>
+                        </div>
                         <div class="col-md-12">
                             <label class="form-label fw-bold small">Created By (User Name)</label>
                             <input type="text" class="form-control" @bind="userName" placeholder="e.g. LoadTester" />
@@ -78,6 +87,7 @@
 @code {
     private int count = 100;
     private int priority = 10;
+    private string targetQueue = "default";
     private string userName = "LauncherApp";
     private bool shouldFail = false;
     private bool isLoading = false;
@@ -103,7 +113,7 @@
                     ShouldFail: failThis
                 );
 
-                tasks.Add(Queue.EnqueueAsync(job, priority, userName));
+                tasks.Add(Queue.EnqueueAsync(job, priority, targetQueue, userName));
             }
 
             await Task.WhenAll(tasks);

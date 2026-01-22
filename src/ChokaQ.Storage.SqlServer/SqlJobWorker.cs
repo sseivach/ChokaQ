@@ -122,23 +122,45 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
 
                 try
                 {
-                    // 1. Fetch & Lock (Atomic operation in SQL)
-                    // We fetch 1 job at a time per worker thread to ensure fair distribution
-                    var batch = await _storage.FetchAndLockNextBatchAsync(workerId, 1, workerCt);
+                    // [STEP 1] Traffic Control & Queue Discovery
+                    // Retrieve all known queues and their states
+                    var allQueues = await _storage.GetQueuesAsync(workerCt);
+
+                    // Filter: Only queues that are NOT paused
+                    var activeQueues = allQueues
+                        .Where(q => !q.IsPaused)
+                        .Select(q => q.Name)
+                        .ToArray();
+
+                    // [STEP 2] The Red Light Check 🔴
+                    // If NO queues are active (all paused), we sleep.
+                    if (activeQueues.Length == 0)
+                    {
+                        // "Cool down" delay to prevent spamming the DB when everything is paused
+                        await Task.Delay(5000, workerCt);
+                        continue;
+                    }
+
+                    // [STEP 3] Fetch & Lock (Atomic operation in SQL)
+                    // We pass the list of 'activeQueues' so the DB only gives us allowed jobs.
+                    // We fetch 1 job at a time per worker thread to ensure fair distribution.
+                    var batch = await _storage.FetchAndLockNextBatchAsync(workerId, 1, activeQueues, workerCt);
                     var jobDto = batch.FirstOrDefault();
 
                     if (jobDto != null)
                     {
                         jobProcessed = true;
 
-                        // 2. Deserialize payload
+                        // 4. Deserialize payload
                         var jobType = Type.GetType(jobDto.Type);
+
                         if (jobType != null)
                         {
                             var jobObject = JsonSerializer.Deserialize(jobDto.Payload, jobType) as IChokaQJob;
+
                             if (jobObject != null)
                             {
-                                // 3. Process
+                                // 5. Process
                                 await _processor.ProcessJobAsync(jobObject, workerId, workerCt);
                             }
                             else
@@ -185,7 +207,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                     await Task.Delay(5000, workerCt);
                 }
 
-                // 4. Backoff Strategy
+                // 6. Backoff Strategy
                 // If we didn't find any work, sleep for a while to save resources.
                 // If we DID find work, try to fetch the next one immediately (High throughput).
                 if (!jobProcessed)
@@ -244,7 +266,6 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
             // We don't necessarily need to deserialize the payload just to requeue it,
             // but we do need the Object to create a new "Instance" if we were using a fresh ID,
             // However, for restart, we usually just reset the status of the EXISTING record.
-
             _logger.LogInformation("Restarting job {JobId}...", jobId);
 
             // Reset state in DB to Pending, Attempt = 0

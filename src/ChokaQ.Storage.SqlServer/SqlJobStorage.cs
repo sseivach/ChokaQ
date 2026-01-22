@@ -15,8 +15,9 @@ namespace ChokaQ.Storage.SqlServer;
 public class SqlJobStorage : IJobStorage
 {
     private readonly string _connectionString;
-    private readonly ILogger<SqlJobStorage> _logger;
+    private readonly string _schemaName;
     private readonly string _tableName;
+    private readonly ILogger<SqlJobStorage> _logger;
 
     public SqlJobStorage(
         string connectionString,
@@ -36,6 +37,7 @@ public class SqlJobStorage : IJobStorage
             throw new ArgumentException($"Invalid schema name: '{schemaName}'. Only alphanumeric characters and underscores are allowed.");
         }
 
+        _schemaName = schemaName; // <--- Сохраняем схему
         _tableName = $"[{schemaName}].[Jobs]";
     }
 
@@ -94,7 +96,6 @@ public class SqlJobStorage : IJobStorage
     /// <inheritdoc />
     public async ValueTask<JobStorageDto?> GetJobAsync(string id, CancellationToken ct = default)
     {
-        // Added CreatedBy to SELECT
         var sql = $@"
             SELECT Id, Queue, Type, Payload, Status, AttemptCount, 
                    Priority, ScheduledAtUtc, Tags, IdempotencyKey, WorkerId, ErrorDetails, CreatedBy,
@@ -147,7 +148,6 @@ public class SqlJobStorage : IJobStorage
     /// <inheritdoc />
     public async ValueTask<IEnumerable<JobStorageDto>> GetJobsAsync(int limit = 50, CancellationToken ct = default)
     {
-        // Added CreatedBy to SELECT
         var sql = $@"
             SELECT TOP (@Limit) 
                    Id, Queue, Type, Payload, Status, AttemptCount, 
@@ -164,15 +164,22 @@ public class SqlJobStorage : IJobStorage
     public async ValueTask<IEnumerable<JobStorageDto>> FetchAndLockNextBatchAsync(
         string workerId,
         int limit,
+        string[]? allowedQueues, // <--- Accepted here
         CancellationToken ct = default)
     {
-        // Added CreatedBy to OUTPUT INSERTED
+        // Guard clause: If allowedQueues is empty, we shouldn't fetch anything.
+        if (allowedQueues == null || allowedQueues.Length == 0)
+        {
+            return Enumerable.Empty<JobStorageDto>();
+        }
+
         var sql = $@"
             WITH SortedJobs AS (
                 SELECT TOP (@Limit) Id
                 FROM {_tableName} WITH (ROWLOCK, READPAST, UPDLOCK)
                 WHERE Status = 0 -- Pending
                   AND (ScheduledAtUtc IS NULL OR ScheduledAtUtc <= @Now)
+                  AND Queue IN @AllowedQueues  -- <--- THE MAGIC FILTER
                 ORDER BY Priority DESC, ScheduledAtUtc ASC, CreatedAtUtc ASC
             )
             UPDATE J
@@ -196,7 +203,51 @@ public class SqlJobStorage : IJobStorage
         {
             Limit = limit,
             WorkerId = workerId,
-            Now = DateTime.UtcNow
+            Now = DateTime.UtcNow,
+            AllowedQueues = allowedQueues // Dapper expands this to: ('queue1', 'queue2')
         }, cancellationToken: ct));
+    }
+
+    // =========================================================================
+    // NEW METHODS: Queue Management
+    // =========================================================================
+
+    /// <inheritdoc />
+    public async ValueTask<IEnumerable<QueueDto>> GetQueuesAsync(CancellationToken ct = default)
+    {
+        var queuesTable = $"[{_schemaName}].[Queues]";
+        var jobsTable = $"[{_schemaName}].[Jobs]";
+
+        var sql = $@"
+            MERGE {queuesTable} AS target
+            USING (SELECT DISTINCT Queue FROM {jobsTable}) AS source
+            ON (target.Name = source.Queue)
+            WHEN NOT MATCHED THEN
+                INSERT (Name, IsPaused) VALUES (source.Queue, 0);
+
+            SELECT 
+                Q.Name,
+                Q.IsPaused,
+                (SELECT COUNT(*) FROM {jobsTable} WHERE Queue = Q.Name AND Status = 0) as PendingCount,
+                (SELECT COUNT(*) FROM {jobsTable} WHERE Queue = Q.Name AND Status = 1) as ProcessingCount,
+                (SELECT COUNT(*) FROM {jobsTable} WHERE Queue = Q.Name AND Status = 3) as FailedCount
+            FROM {queuesTable} Q";
+
+        using var connection = new SqlConnection(_connectionString);
+        return await connection.QueryAsync<QueueDto>(new CommandDefinition(sql, cancellationToken: ct));
+    }
+
+    /// <inheritdoc />
+    public async ValueTask SetQueueStateAsync(string queueName, bool isPaused, CancellationToken ct = default)
+    {
+        var queuesTable = $"[{_schemaName}].[Queues]";
+
+        var sql = $@"
+            UPDATE {queuesTable}
+            SET IsPaused = @IsPaused, LastUpdatedUtc = SYSUTCDATETIME()
+            WHERE Name = @Name";
+
+        using var connection = new SqlConnection(_connectionString);
+        await connection.ExecuteAsync(new CommandDefinition(sql, new { Name = queueName, IsPaused = isPaused }, cancellationToken: ct));
     }
 }
