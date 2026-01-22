@@ -1,4 +1,6 @@
 ﻿using ChokaQ.Abstractions;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace ChokaQ.Core.Processing;
 
@@ -21,8 +23,10 @@ public interface IJobProcessor
     /// <summary>
     /// Processes a single job with full resilience logic.
     /// </summary>
-    /// <param name="job">The job to process.</param>
-    /// <param name="workerId">The ID of the worker thread (for logging).</param>
+    /// <param name="jobId">Unique Job ID.</param>
+    /// <param name="jobType">Type key or class name.</param>
+    /// <param name="payload">JSON payload.</param>
+    /// <param name="workerId">The ID of the worker thread.</param>
     /// <param name="workerCt">The worker's cancellation token.</param>
-    Task ProcessJobAsync(IChokaQJob job, string workerId, CancellationToken workerCt);
+    Task ProcessJobAsync(string jobId, string jobType, string payload, string workerId, CancellationToken workerCt);
 }

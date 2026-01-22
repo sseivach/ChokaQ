@@ -5,10 +5,19 @@ using ChokaQ.Core.Processing;
 using ChokaQ.Core.State;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace ChokaQ.Core.Workers;
 
+/// <summary>
+/// In-Memory Worker implementation used for development or non-persistent scenarios.
+/// Consumes jobs from System.Threading.Channels.
+/// </summary>
 public class JobWorker : BackgroundService, IWorkerManager
 {
     private readonly InMemoryQueue _queue;
@@ -59,14 +68,16 @@ public class JobWorker : BackgroundService, IWorkerManager
         // Also ensure state is updated if it was pending
         _logger.LogInformation("Marking job {JobId} as Cancelled (if not already).", jobId);
 
-        // UPDATE STATE: Cancelled
+        // Fetch metadata to keep state consistent
+        var job = await _storage.GetJobAsync(jobId);
+
         await _stateManager.UpdateStateAsync(
             jobId,
-            "Job",
+            job?.Type ?? "Unknown",
             JobStatus.Cancelled,
-            0,
+            job?.AttemptCount ?? 0,
             executionDurationMs: null,
-            createdBy: null,
+            createdBy: job?.CreatedBy,
             startedAtUtc: null);
     }
 
@@ -83,28 +94,39 @@ public class JobWorker : BackgroundService, IWorkerManager
 
         try
         {
-            var jobType = Type.GetType(storageDto.Type);
-            if (jobType == null) throw new InvalidOperationException($"Cannot load type '{storageDto.Type}'.");
-
-            var jobObject = JsonSerializer.Deserialize(storageDto.Payload, jobType) as IChokaQJob;
-            if (jobObject == null) throw new InvalidOperationException("Failed to deserialize payload.");
-
             _logger.LogInformation("Restarting job {JobId}...", jobId);
 
+            // 1. Reset State
             await _storage.UpdateJobStateAsync(jobId, JobStatus.Pending);
             await _storage.IncrementJobAttemptAsync(jobId, 0);
 
-            // UPDATE STATE: Pending
             await _stateManager.UpdateStateAsync(
                 jobId,
-                jobObject.GetType().Name,
+                storageDto.Type,
                 JobStatus.Pending,
                 0,
                 executionDurationMs: null,
                 createdBy: storageDto.CreatedBy,
                 startedAtUtc: null);
 
-            await _queue.RequeueAsync(jobObject);
+            // 2. Re-queue logic depends on strategy
+            // Since this is the In-Memory worker, we need to reconstruct the object to push it back to the channel.
+            // This relies on the payload being deserializable in Bus Mode.
+            // In Pipe Mode with In-Memory Queue, this might be limited if we can't deserialize to IChokaQJob.
+
+            var jobType = Type.GetType(storageDto.Type);
+            if (jobType != null)
+            {
+                var jobObject = JsonSerializer.Deserialize(storageDto.Payload, jobType) as IChokaQJob;
+                if (jobObject != null)
+                {
+                    await _queue.RequeueAsync(jobObject);
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Could not resolve type {Type} for In-Memory restart. Job is reset in DB but not in Channel.", storageDto.Type);
+            }
         }
         catch (Exception ex)
         {
@@ -126,7 +148,6 @@ public class JobWorker : BackgroundService, IWorkerManager
         lock (_lock)
         {
             int current = _workers.Count;
-
             if (targetCount > current)
             {
                 int toAdd = targetCount - current;
@@ -163,8 +184,22 @@ public class JobWorker : BackgroundService, IWorkerManager
                 {
                     while (_queue.Reader.TryRead(out var job))
                     {
-                        // All complex logic is now delegated to the processor
-                        await _processor.ProcessJobAsync(job, workerId, workerCt);
+                        // ADAPTER LOGIC:
+                        // The In-Memory queue holds IChokaQJob objects (Bus Mode artifacts).
+                        // The Processor now expects raw strings (Pipe Mode compatible).
+                        // We must serialize the object back to payload string to satisfy the unified contract.
+
+                        var typeKey = job.GetType().AssemblyQualifiedName ?? job.GetType().Name;
+                        var payload = JsonSerializer.Serialize(job, job.GetType());
+
+                        await _processor.ProcessJobAsync(
+                            job.Id,
+                            typeKey,
+                            payload,
+                            workerId,
+                            workerCt
+                        );
+
                         if (workerCt.IsCancellationRequested) break;
                     }
                 }

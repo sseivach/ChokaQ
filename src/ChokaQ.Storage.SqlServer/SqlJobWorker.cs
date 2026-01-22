@@ -15,12 +15,11 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
     private readonly IJobStateManager _stateManager;
     private readonly ILogger<SqlJobWorker> _logger;
     private readonly SqlJobStorageOptions _options;
-
     private readonly List<(Task Task, CancellationTokenSource Cts)> _workers = new();
     private readonly object _lock = new();
-
     private readonly TimeSpan _pollingInterval = TimeSpan.FromSeconds(1);
 
+    // Configuration delegated to Processor
     public int MaxRetries
     {
         get => _processor.MaxRetries;
@@ -64,7 +63,6 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
         lock (_lock)
         {
             int current = _workers.Count;
-
             if (targetCount > current)
             {
                 int toAdd = targetCount - current;
@@ -100,12 +98,10 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
             while (!workerCt.IsCancellationRequested)
             {
                 bool jobProcessed = false;
-
                 try
                 {
                     // [STEP 1] Traffic Control & Queue Discovery
                     var allQueues = await _storage.GetQueuesAsync(workerCt);
-
                     var activeQueues = allQueues
                         .Where(q => !q.IsPaused)
                         .Select(q => q.Name)
@@ -114,12 +110,10 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                     // [STEP 2] The Red Light Check 🔴
                     if (activeQueues.Length == 0)
                     {
-                        // Logging for debug purposes
                         if (_logger.IsEnabled(LogLevel.Debug))
                         {
                             _logger.LogDebug("[Worker {ID}] No active queues found. Sleeping...", workerId);
                         }
-
                         await Task.Delay(5000, workerCt);
                         continue;
                     }
@@ -132,51 +126,17 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                     {
                         jobProcessed = true;
 
-                        // 4. Deserialize payload
-                        var jobType = Type.GetType(jobDto.Type);
-
-                        if (jobType != null)
-                        {
-                            var jobObject = JsonSerializer.Deserialize(jobDto.Payload, jobType) as IChokaQJob;
-
-                            if (jobObject != null)
-                            {
-                                // 5. Process
-                                await _processor.ProcessJobAsync(jobObject, workerId, workerCt);
-                            }
-                            else
-                            {
-                                _logger.LogError("Failed to deserialize job {JobId} payload.", jobDto.Id);
-
-                                await _stateManager.UpdateStateAsync(
-                                    jobDto.Id,
-                                    jobDto.Type,
-                                    JobStatus.Failed,
-                                    jobDto.AttemptCount,
-                                    executionDurationMs: null,
-                                    createdBy: jobDto.CreatedBy,
-                                    startedAtUtc: null,
-                                    queue: jobDto.Queue,
-                                    priority: jobDto.Priority,
-                                    ct: workerCt);
-                            }
-                        }
-                        else
-                        {
-                            _logger.LogError("Unknown job type: {Type} for job {JobId}.", jobDto.Type, jobDto.Id);
-
-                            await _stateManager.UpdateStateAsync(
-                                jobDto.Id,
-                                jobDto.Type,
-                                JobStatus.Failed,
-                                jobDto.AttemptCount,
-                                executionDurationMs: null,
-                                createdBy: jobDto.CreatedBy,
-                                startedAtUtc: null,
-                                queue: jobDto.Queue,
-                                priority: jobDto.Priority,
-                                ct: workerCt);
-                        }
+                        // [STEP 4] Processing
+                        // IMPORTANT: We no longer deserialize here. 
+                        // We pass the raw Type string and Payload JSON directly to the Processor.
+                        // The Processor delegates to the Dispatcher (Pipe or Bus), which decides what to do.
+                        await _processor.ProcessJobAsync(
+                            jobDto.Id,
+                            jobDto.Type,
+                            jobDto.Payload,
+                            workerId,
+                            workerCt
+                        );
                     }
                 }
                 catch (OperationCanceledException)
@@ -240,14 +200,11 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
 
         try
         {
-            var jobType = Type.GetType(storageDto.Type);
-            if (jobType == null) throw new InvalidOperationException($"Cannot load type '{storageDto.Type}'.");
-
             _logger.LogInformation("Restarting job {JobId}...", jobId);
 
             await _stateManager.UpdateStateAsync(
                 jobId,
-                jobType.Name,
+                storageDto.Type,
                 JobStatus.Pending,
                 0,
                 executionDurationMs: null,
