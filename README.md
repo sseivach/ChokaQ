@@ -1,6 +1,6 @@
 # ChokaQ
 
-![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)
+![.NET 10](https://img.shields.io/badge/.NET-10.0%20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-Active%20Development-orange)
 
