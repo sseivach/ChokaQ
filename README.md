@@ -118,6 +118,11 @@ app.MapPost("/send-email", async (IChokaQQueue queue) =>
 
 Access the dashboard at `/chokaq` (or your configured route prefix).
 
+### Layout
+The dashboard is divided into two logical zones to improve usability:
+1.  **Active Zone (Top):** Displays cards for jobs currently in the "Processing" state. This allows immediate visibility of active workers.
+2.  **History Zone (Bottom):** A virtualized list displaying the Queue (Pending) and History (Succeeded/Failed/Cancelled).
+
 ### Features
 * **Circuit Monitor:** Real-time health check of all Job Types. If a job type fails repeatedly, the circuit opens, and the status is reflected here.
 * **Job Inspector:** Click on any job row to open a detailed panel containing the JSON payload, timestamps, and error details.
@@ -140,5 +145,3 @@ When using SQL Server, ChokaQ acts as a Polling Consumer.
 ## License
 
 This project is licensed under the MIT License.
-Sergei Seivach
-2026

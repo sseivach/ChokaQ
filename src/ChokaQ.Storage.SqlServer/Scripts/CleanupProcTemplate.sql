@@ -39,9 +39,6 @@ BEGIN
         
         COMMIT TRANSACTION;
         
-        -- Throttling (Optional): 
-        -- Uncomment below if this procedure causes performance issues for active users.
-        -- WAITFOR DELAY '00:00:00.010'; 
     END
 
     -- ======================================================

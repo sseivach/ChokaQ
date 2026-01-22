@@ -92,3 +92,32 @@ BEGIN
     )
 END
 GO
+
+-- 6. Queues Table (Traffic Control)
+-- Stores the state (Paused/Active) of named queues.
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[{SCHEMA}].[Queues]') AND type in (N'U'))
+BEGIN
+    CREATE TABLE [{SCHEMA}].[Queues](
+        [Name] [nvarchar](50) NOT NULL,
+        [IsPaused] [bit] NOT NULL DEFAULT 0,
+        [LastUpdatedUtc] [datetime2](7) NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT [PK_{SCHEMA}_Queues] PRIMARY KEY CLUSTERED ([Name] ASC)
+    )
+
+    -- Ensure 'default' queue exists
+    INSERT INTO [{SCHEMA}].[Queues] ([Name], [IsPaused]) VALUES ('default', 0)
+END
+GO
+
+-- 7. Stats Index (Critical for Dashboard Performance)
+-- Allows calculating counts and timelines without scanning payloads.
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_{SCHEMA}_Jobs_Stats' AND object_id = OBJECT_ID(N'[{SCHEMA}].[Jobs]'))
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_{SCHEMA}_Jobs_Stats] ON [{SCHEMA}].[Jobs]
+    (
+        [Queue] ASC,
+        [Status] ASC
+    )
+    INCLUDE ([StartedAtUtc], [FinishedAtUtc])
+END
+GO

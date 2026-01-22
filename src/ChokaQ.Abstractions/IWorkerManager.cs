@@ -32,4 +32,7 @@ public interface IWorkerManager
     /// Restarts a job by resetting its state and pushing it back to the queue.
     /// </summary>
     Task RestartJobAsync(string jobId);
+
+    // Bulk Action support
+    Task SetJobPriorityAsync(string jobId, int priority);
 }

@@ -28,12 +28,14 @@ public class JobStateManager : IJobStateManager
         double? executionDurationMs = null,
         string? createdBy = null,
         DateTime? startedAtUtc = null,
+        string queue = "default",
+        int priority = 10,
         CancellationToken ct = default)
     {
-        // 1. Persist
+        // 1. Persist to DB
         await _storage.UpdateJobStateAsync(jobId, status, ct);
 
-        // 2. Notify
+        // 2. Notify UI with FULL context
         try
         {
             await _notifier.NotifyJobUpdatedAsync(
@@ -42,8 +44,10 @@ public class JobStateManager : IJobStateManager
                 status,
                 attemptCount,
                 executionDurationMs,
-                createdBy,    // Pass it
-                startedAtUtc  // Pass it
+                createdBy,
+                startedAtUtc,
+                queue,
+                priority
             );
         }
         catch (Exception ex)

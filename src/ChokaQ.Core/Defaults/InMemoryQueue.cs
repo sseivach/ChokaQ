@@ -45,6 +45,7 @@ public class InMemoryQueue : IChokaQQueue
     public async Task EnqueueAsync<TJob>(
         TJob job,
         int priority = 10,
+        string queue = "default",
         string? createdBy = null,
         string? tags = null,
         CancellationToken ct = default) where TJob : IChokaQJob
@@ -57,7 +58,7 @@ public class InMemoryQueue : IChokaQQueue
         // We save BEFORE enqueueing to ensure data safety.
         await _storage.CreateJobAsync(
              id: job.Id,
-             queue: "default",
+             queue: queue,
              jobType: job.GetType().AssemblyQualifiedName!,
              payload: payload,
              priority: priority,   // Pass priority
@@ -77,7 +78,9 @@ public class InMemoryQueue : IChokaQQueue
                 0,
                 null,
                 createdBy,
-                null
+                null,
+                queue,
+                priority
             );
         }
         catch (Exception ex)

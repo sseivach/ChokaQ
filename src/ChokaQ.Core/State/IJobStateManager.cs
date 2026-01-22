@@ -16,6 +16,8 @@ public interface IJobStateManager
         double? executionDurationMs = null,
         string? createdBy = null,
         DateTime? startedAtUtc = null,
+        string queue = "default",
+        int priority = 10,
         CancellationToken ct = default
     );
 }

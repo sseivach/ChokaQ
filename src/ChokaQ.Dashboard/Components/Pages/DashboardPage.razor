@@ -26,10 +26,8 @@
             </select>
         </div>
     </div>
-    <StatsCard Jobs="_jobs" />
 
-    <JobSimulator />
-
+    <QueueManager HubConnection="_hubConnection" />
     <CircuitMonitor @ref="_circuitMonitor" />
     <DashboardSettings OnSettingsApplied="HandleSettingsUpdated" />
 
