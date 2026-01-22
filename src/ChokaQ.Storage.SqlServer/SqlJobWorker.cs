@@ -176,7 +176,8 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                                     executionDurationMs: null,
                                     createdBy: jobDto.CreatedBy,
                                     startedAtUtc: null,
-                                    ct: workerCt);
+                                    queue: jobDto.Queue,
+                                    priority: jobDto.Priority,                                    ct: workerCt);
                             }
                         }
                         else
@@ -192,6 +193,8 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                                 executionDurationMs: null,
                                 createdBy: jobDto.CreatedBy,
                                 startedAtUtc: null,
+                                queue: jobDto.Queue,
+                                priority: jobDto.Priority,
                                 ct: workerCt);
                         }
                     }
@@ -230,18 +233,24 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
             concreteProcessor.CancelJob(jobId);
         }
 
-        // Ensure state is updated in DB
         _logger.LogInformation("Marking job {JobId} as Cancelled.", jobId);
+
+        // Fetch job to get details for proper notification (Queue, Priority)
+        var job = await _storage.GetJobAsync(jobId);
+        if (job == null) return;
 
         // UPDATE STATE: Cancelled (Manual)
         await _stateManager.UpdateStateAsync(
             jobId,
-            "Unknown",
+            job.Type,
             JobStatus.Cancelled,
-            0,
+            job.AttemptCount,
             executionDurationMs: null,
-            createdBy: null, // We don't have the DTO here, pass null
-            startedAtUtc: null);
+            createdBy: job.CreatedBy,
+            startedAtUtc: job.StartedAtUtc,
+            queue: job.Queue,
+            priority: job.Priority
+        );
     }
 
     public async Task RestartJobAsync(string jobId)
@@ -263,9 +272,6 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
             var jobType = Type.GetType(storageDto.Type);
             if (jobType == null) throw new InvalidOperationException($"Cannot load type '{storageDto.Type}'.");
 
-            // We don't necessarily need to deserialize the payload just to requeue it,
-            // but we do need the Object to create a new "Instance" if we were using a fresh ID,
-            // However, for restart, we usually just reset the status of the EXISTING record.
             _logger.LogInformation("Restarting job {JobId}...", jobId);
 
             // Reset state in DB to Pending, Attempt = 0
@@ -279,7 +285,10 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                 0,
                 executionDurationMs: null,
                 createdBy: storageDto.CreatedBy, // Pass original creator
-                startedAtUtc: null);
+                startedAtUtc: null,
+                queue: storageDto.Queue,
+                priority: storageDto.Priority
+            );
 
             await _storage.IncrementJobAttemptAsync(jobId, 0);
         }
@@ -287,5 +296,11 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
         {
             _logger.LogError(ex, "Failed to restart job {JobId}.", jobId);
         }
+    }
+
+    public async Task SetJobPriorityAsync(string jobId, int priority)
+    {
+        _logger.LogInformation("Updating priority for Job {JobId} to {Priority}.", jobId, priority);
+        await _storage.UpdateJobPriorityAsync(jobId, priority);
     }
 }

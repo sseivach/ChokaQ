@@ -1,4 +1,6 @@
 ﻿using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Dashboard.Components.Features;
 using ChokaQ.Dashboard.Models;
 using Microsoft.AspNetCore.Components;
@@ -11,16 +13,16 @@ public partial class DashboardPage : IAsyncDisposable
 {
     [Inject] public NavigationManager Navigation { get; set; } = default!;
     [Inject] public ChokaQDashboardOptions Options { get; set; } = default!;
+    [Inject] public IJobStorage JobStorage { get; set; } = default!;
 
     private HubConnection? _hubConnection;
     private List<JobViewModel> _jobs = new();
     private System.Timers.Timer? _uiRefreshTimer;
-    private bool _dirty = false;
     private string _currentTheme = "office";
     private CircuitMonitor? _circuitMonitor;
-
     private bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
 
+    // --- Theme Logic ---
     private string CurrentThemeClass => _currentTheme switch
     {
         "nightshift" => "cq-theme-nightshift",
@@ -40,22 +42,16 @@ public partial class DashboardPage : IAsyncDisposable
 
     protected override async Task OnInitializedAsync()
     {
-        _uiRefreshTimer = new System.Timers.Timer(500);
+        // 1. Initial Data Load
+        await LoadJobsAsync();
+
+        // 2. Setup Polling
+        _uiRefreshTimer = new System.Timers.Timer(2000);
         _uiRefreshTimer.AutoReset = true;
-        _uiRefreshTimer.Elapsed += async (sender, e) =>
-        {
-            if (_dirty)
-            {
-                _dirty = false;
-                await InvokeAsync(StateHasChanged);
-            }
-        };
+        _uiRefreshTimer.Elapsed += async (sender, e) => await LoadJobsAsync();
         _uiRefreshTimer.Start();
 
-        // --- FIXED: DYNAMIC HUB URL ---
-        // We use the RoutePrefix from options to build the correct Hub URL.
-        // If RoutePrefix is "/admin/jobs", Hub is "/admin/jobs/hub".
-
+        // 3. SignalR Setup
         var hubPath = Options.RoutePrefix.TrimEnd('/') + "/hub";
         var hubUrl = Navigation.ToAbsoluteUri(hubPath);
 
@@ -64,17 +60,51 @@ public partial class DashboardPage : IAsyncDisposable
             .WithAutomaticReconnect()
             .Build();
 
-        _hubConnection.On<string, string, int, int, double?, string?, DateTime?>("JobUpdated",
-            (jobId, type, statusInt, attempts, durationMs, createdBy, startedAt) =>
+        // [FULL SIGNALR PIPELINE via DTO]
+        // We now receive a single DTO object, fixing the "9 arguments" error.
+        _hubConnection.On<JobUpdateDto>("JobUpdated", (dto) =>
+        {
+            InvokeAsync(() =>
             {
-                var status = (JobStatus)statusInt;
-                InvokeAsync(() =>
+                var existing = _jobs.FirstOrDefault(j => j.Id == dto.JobId);
+
+                if (existing != null)
                 {
-                    UpdateJob(jobId, type, status, attempts, durationMs, createdBy, startedAt);
-                    _circuitMonitor?.Refresh();
-                    _dirty = true;
-                });
+                    // Update existing row
+                    existing.Status = dto.Status;
+                    existing.Attempts = dto.AttemptCount;
+                    existing.Duration = dto.ExecutionDurationMs.HasValue
+                        ? TimeSpan.FromMilliseconds(dto.ExecutionDurationMs.Value)
+                        : null;
+                    existing.StartedAtUtc = dto.StartedAtUtc?.ToLocalTime();
+
+                    // Update metadata
+                    existing.Queue = dto.Queue;
+                    existing.Priority = dto.Priority;
+                }
+                else
+                {
+                    // New Job
+                    _jobs.Insert(0, new JobViewModel
+                    {
+                        Id = dto.JobId,
+                        Queue = dto.Queue,
+                        Type = dto.Type,
+                        Status = dto.Status,
+                        Attempts = dto.AttemptCount,
+                        Priority = dto.Priority,
+                        AddedAt = DateTime.Now,
+                        CreatedBy = dto.CreatedBy,
+                        StartedAtUtc = dto.StartedAtUtc?.ToLocalTime()
+                    });
+
+                    if (_jobs.Count > 1000) _jobs.RemoveAt(_jobs.Count - 1);
+                }
+
+                _circuitMonitor?.Refresh();
+                StateHasChanged();
             });
+        });
 
         _hubConnection.On<string, int>("JobProgress", (jobId, percentage) =>
         {
@@ -84,7 +114,7 @@ public partial class DashboardPage : IAsyncDisposable
                 if (job != null)
                 {
                     job.Progress = percentage;
-                    _dirty = true;
+                    StateHasChanged();
                 }
             });
         });
@@ -92,36 +122,37 @@ public partial class DashboardPage : IAsyncDisposable
         await _hubConnection.StartAsync();
     }
 
-    private void UpdateJob(string jobId, string type, JobStatus status, int attempts, double? durationMs, string? createdBy, DateTime? startedAt)
+    private async Task LoadJobsAsync()
     {
-        var existing = _jobs.FirstOrDefault(j => j.Id == jobId);
-        var now = DateTime.Now;
+        try
+        {
+            var storageJobs = await JobStorage.GetJobsAsync(1000);
 
-        if (existing != null)
-        {
-            existing.Status = status;
-            existing.Attempts = attempts;
-            existing.Type = type;
-            if (createdBy != null) existing.CreatedBy = createdBy;
-            if (startedAt != null) existing.StartedAtUtc = startedAt;
-            if (durationMs.HasValue) existing.Duration = TimeSpan.FromMilliseconds(durationMs.Value);
-        }
-        else
-        {
-            _jobs.Insert(0, new JobViewModel
+            var viewModels = storageJobs.Select(dto => new JobViewModel
             {
-                Id = jobId,
-                Type = type,
-                Status = status,
-                Attempts = attempts,
-                AddedAt = now,
-                Duration = durationMs.HasValue ? TimeSpan.FromMilliseconds(durationMs.Value) : TimeSpan.Zero,
-                CreatedBy = createdBy,
-                StartedAtUtc = startedAt
-            });
+                Id = dto.Id,
+                Queue = dto.Queue,
+                Type = dto.Type,
+                Status = dto.Status,
+                Priority = dto.Priority,
+                Attempts = dto.AttemptCount,
+                AddedAt = dto.CreatedAtUtc.ToLocalTime(),
+                Duration = dto.FinishedAtUtc.HasValue && dto.StartedAtUtc.HasValue
+                    ? dto.FinishedAtUtc.Value - dto.StartedAtUtc.Value
+                    : null,
+                CreatedBy = dto.CreatedBy,
+                StartedAtUtc = dto.StartedAtUtc?.ToLocalTime(),
+                Payload = dto.Payload,
+                ErrorDetails = dto.ErrorDetails
+            }).ToList();
 
-            if (_jobs.Count > 1000) _jobs.RemoveRange(1000, _jobs.Count - 1000);
+            await InvokeAsync(() =>
+            {
+                _jobs = viewModels;
+                StateHasChanged();
+            });
         }
+        catch { /* ignore connection errors */ }
     }
 
     private void HandleSettingsUpdated() => StateHasChanged();
@@ -129,7 +160,6 @@ public partial class DashboardPage : IAsyncDisposable
     private void ClearHistory()
     {
         _jobs.Clear();
-        _dirty = true;
         StateHasChanged();
     }
 

@@ -3,10 +3,6 @@ using ChokaQ.Abstractions.Enums;
 
 namespace ChokaQ.Core.Defaults;
 
-/// <summary>
-/// A silent notifier used when no UI/Dashboard is configured.
-/// This prevents dependency injection errors in Console Apps or Workers.
-/// </summary>
 internal class NullNotifier : IChokaQNotifier
 {
     public Task NotifyJobUpdatedAsync(
@@ -16,9 +12,10 @@ internal class NullNotifier : IChokaQNotifier
         int attemptCount,
         double? executionDurationMs = null,
         string? createdBy = null,
-        DateTime? startedAtUtc = null)
+        DateTime? startedAtUtc = null,
+        string queue = "default",
+        int priority = 10)
     {
-        // Do nothing.
         return Task.CompletedTask;
     }
 

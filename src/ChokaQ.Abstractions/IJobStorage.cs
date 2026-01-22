@@ -78,4 +78,6 @@ public interface IJobStorage
     /// Pauses or Resumes a specific queue.
     /// </summary>
     ValueTask SetQueueStateAsync(string queueName, bool isPaused, CancellationToken ct = default);
+
+    ValueTask UpdateJobPriorityAsync(string id, int newPriority, CancellationToken ct = default);
 }

@@ -16,8 +16,8 @@
     </td>
 
     <td>
-        <span class="fw-bold small" style="color: var(--cq-text-muted)">
-            @(Job.CreatedBy ?? "System")
+        <span class="badge bg-light text-dark border font-monospace">
+            @Job.Queue
         </span>
     </td>
 
@@ -27,17 +27,14 @@
         </span>
     </td>
 
-    <td class="font-monospace text-muted">
-        @if (Job.StartedAtUtc.HasValue)
-        {
-            var local = Job.StartedAtUtc.Value.ToLocalTime();
-            <div style="line-height: 1; font-size: 0.7rem; font-weight: 600;">@local.ToString("MM/dd/yyyy")</div>
-            <div style="line-height: 1; font-size: 0.65rem; opacity: 0.75; margin-top: 2px;">@local.ToString("HH:mm:ss.fff")</div>
-        }
-        else
-        {
-            <span>-</span>
-        }
+    <td class="text-center fw-bold text-muted">
+        @Job.Priority
+    </td>
+
+    <td>
+        <span class="fw-bold small" style="color: var(--cq-text-muted)">
+            @(Job.CreatedBy ?? "System")
+        </span>
     </td>
 
     <td>
@@ -143,12 +140,10 @@
     [Parameter] public EventCallback<string> OnCancelRequested { get; set; }
     [Parameter] public EventCallback<string> OnRestartRequested { get; set; }
     [Parameter] public EventCallback<string> OnSelected { get; set; }
-
     [Parameter] public EventCallback<bool> OnSelectionChanged { get; set; }
 
     private async Task CancelJob() => await OnCancelRequested.InvokeAsync(Job.Id);
     private async Task RestartJob() => await OnRestartRequested.InvokeAsync(Job.Id);
-
     private async Task HandleRowClick() => await OnSelected.InvokeAsync(Job.Id);
 
     private async Task HandleCheckboxChange(ChangeEventArgs e)

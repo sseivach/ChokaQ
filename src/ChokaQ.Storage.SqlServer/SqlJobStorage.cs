@@ -250,4 +250,16 @@ public class SqlJobStorage : IJobStorage
         using var connection = new SqlConnection(_connectionString);
         await connection.ExecuteAsync(new CommandDefinition(sql, new { Name = queueName, IsPaused = isPaused }, cancellationToken: ct));
     }
+
+    /// <inheritdoc />
+    public async ValueTask UpdateJobPriorityAsync(string id, int newPriority, CancellationToken ct = default)
+    {
+        var sql = $@"
+            UPDATE {_tableName}
+            SET Priority = @Priority, LastUpdatedUtc = SYSUTCDATETIME()
+            WHERE Id = @Id";
+
+        using var connection = new SqlConnection(_connectionString);
+        await connection.ExecuteAsync(new CommandDefinition(sql, new { Id = id, Priority = newPriority }, cancellationToken: ct));
+    }
 }

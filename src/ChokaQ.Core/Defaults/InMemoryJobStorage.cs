@@ -210,4 +210,18 @@ public class InMemoryJobStorage : IJobStorage
         _queueStates.AddOrUpdate(queueName, isPaused, (key, oldValue) => isPaused);
         return ValueTask.CompletedTask;
     }
+
+    public ValueTask UpdateJobPriorityAsync(string id, int newPriority, CancellationToken ct = default)
+    {
+        if (_jobs.TryGetValue(id, out var existing))
+        {
+            var updated = existing with
+            {
+                Priority = newPriority,
+                LastUpdatedUtc = _timeProvider.GetUtcNow().UtcDateTime
+            };
+            _jobs.TryUpdate(id, updated, existing);
+        }
+        return ValueTask.CompletedTask;
+    }
 }

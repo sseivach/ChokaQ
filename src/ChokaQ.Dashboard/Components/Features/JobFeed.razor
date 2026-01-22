@@ -57,12 +57,18 @@
             <span class="small fw-bold text-muted">BULK ACTIONS:</span>
             
             <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-2" @onclick="RestartSelected">
-                🔄 Restart (@SelectedCount)
+                🔄 Restart
             </button>
             
             <button class="btn btn-sm btn-outline-danger d-flex align-items-center gap-2" @onclick="CancelSelected">
-                🛑 Cancel (@SelectedCount)
+                🛑 Cancel
             </button>
+
+            <div class="d-flex align-items-center gap-1 ms-2 border-start ps-3" style="border-color: var(--cq-border) !important;">
+                <span class="small fw-bold text-muted">SET PRIORITY:</span>
+                <input type="number" class="form-control form-control-sm cq-input" style="width: 60px;" @bind="_bulkPriorityValue" />
+                <button class="btn btn-sm btn-outline-info" @onclick="SetPrioritySelected">Apply</button>
+            </div>
 
              <button class="btn btn-sm btn-link text-decoration-none text-muted ms-auto" @onclick="ClearSelection">
                 Deselect All
@@ -81,9 +87,10 @@
                                @onchange="ToggleSelectAll" />
                     </th>
                     <th style="width: 15%">ID</th>
-                    <th style="width: 10%">User</th>
+                    <th style="width: 10%">Queue</th>
                     <th style="width: 15%">Type</th>
-                    <th style="width: 15%">Started At</th>
+                    <th style="width: 5%" class="text-center">Pri</th>
+                    <th style="width: 10%">User</th>
                     <th style="width: 10%">Status</th>
                     <th style="width: 15%">Progress</th>
                     <th style="width: 5%">Att.</th>
@@ -103,19 +110,12 @@
                                 OnSelected="OpenInspector" />
                     </ItemContent>
                     <Placeholder>
-                        <tr><td colspan="10" class="text-center py-2 text-muted">Loading...</td></tr>
+                        <tr><td colspan="12" class="text-center py-2 text-muted">Loading...</td></tr>
                     </Placeholder>
                     <EmptyContent>
                         <tr>
-                            <td colspan="10" class="text-center py-5" style="color: var(--cq-text-muted)">
-                                @if(!string.IsNullOrEmpty(_searchQuery))
-                                {
-                                    <span>No jobs match your search "@_searchQuery".</span>
-                                }
-                                else
-                                {
-                                    <span>No jobs found in this status.</span>
-                                }
+                            <td colspan="12" class="text-center py-5" style="color: var(--cq-text-muted)">
+                                <span>No jobs found.</span>
                             </td>
                         </tr>
                     </EmptyContent>
@@ -142,15 +142,16 @@
     [Parameter] public HubConnection? HubConnection { get; set; }
 
     private bool _isInspectorVisible;
-    private string? _selectedInspectorJobId; // Переименовал, чтобы не путать с чекбоксами
+    private string? _selectedInspectorJobId;
     
     // Filtering State
     private string _searchQuery = "";
-    private JobStatus? _activeStatusFilter = null; // null = Show All
+    private JobStatus? _activeStatusFilter = null; 
 
     // Selection State
     private HashSet<string> _selectedJobIds = new();
     private int SelectedCount => _selectedJobIds.Count;
+    private int _bulkPriorityValue = 10; // Default bulk value
 
     // Computed Filter Logic
     private ICollection<JobViewModel> FilteredJobs
@@ -159,21 +160,19 @@
         {
             IEnumerable<JobViewModel> query = Jobs;
 
-            // 1. Status Filter
             if (_activeStatusFilter.HasValue)
             {
                 query = query.Where(x => x.Status == _activeStatusFilter.Value);
             }
 
-            // 2. Search Filter
             if (!string.IsNullOrWhiteSpace(_searchQuery))
             {
                 var term = _searchQuery.Trim();
                 query = query.Where(x => 
                     x.Id.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                     x.Type.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    x.Queue.Contains(term, StringComparison.OrdinalIgnoreCase) || // Search queue
                     (x.CreatedBy != null && x.CreatedBy.Contains(term, StringComparison.OrdinalIgnoreCase))
-                    // Payload search is expensive, add if needed: || x.Payload.Contains(term)
                 );
             }
 
@@ -183,17 +182,13 @@
 
     private void SetStatusFilter(JobStatus? status)
     {
-        // Toggle logic: click same card twice -> clear filter
         if (_activeStatusFilter == status)
             _activeStatusFilter = null;
         else
             _activeStatusFilter = status;
             
-        // Reset selection on filter change to avoid confusion
         _selectedJobIds.Clear();
     }
-
-    // --- SELECTION LOGIC ---
 
     private void ToggleSelection(string jobId, bool isSelected)
     {
@@ -208,11 +203,7 @@
         var isChecked = (bool)(e.Value ?? false);
         if (isChecked)
         {
-            // Select only visible filtered jobs
-            foreach (var job in FilteredJobs)
-            {
-                _selectedJobIds.Add(job.Id);
-            }
+            foreach (var job in FilteredJobs) _selectedJobIds.Add(job.Id);
         }
         else
         {
@@ -222,19 +213,14 @@
 
     private void ClearSelection() => _selectedJobIds.Clear();
 
-
     // --- ACTIONS ---
 
     private async Task RestartSelected()
     {
         if (HubConnection is not null && IsConnected)
         {
-            // Clone list to avoid modification errors during iteration
             var toProcess = _selectedJobIds.ToList();
-            foreach (var id in toProcess)
-            {
-                await HubConnection.InvokeAsync("RestartJob", id);
-            }
+            foreach (var id in toProcess) await HubConnection.InvokeAsync("RestartJob", id);
             _selectedJobIds.Clear();
         }
     }
@@ -244,9 +230,20 @@
         if (HubConnection is not null && IsConnected)
         {
             var toProcess = _selectedJobIds.ToList();
-            foreach (var id in toProcess)
+            foreach (var id in toProcess) await HubConnection.InvokeAsync("CancelJob", id);
+            _selectedJobIds.Clear();
+        }
+    }
+
+    // [NEW] Bulk Priority Logic
+    private async Task SetPrioritySelected()
+    {
+        if (HubConnection is not null && IsConnected)
+        {
+            var toProcess = _selectedJobIds.ToList();
+            foreach (var id in toProcess) 
             {
-                await HubConnection.InvokeAsync("CancelJob", id);
+                await HubConnection.InvokeAsync("SetPriority", id, _bulkPriorityValue);
             }
             _selectedJobIds.Clear();
         }

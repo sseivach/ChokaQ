@@ -1,6 +1,5 @@
 ﻿using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.Enums;
-using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
 using ChokaQ.Core.State;
 using Microsoft.Extensions.Logging;
@@ -16,7 +15,7 @@ public class JobProcessor : IJobProcessor
     private readonly ICircuitBreaker _breaker;
     private readonly IJobExecutor _executor;
     private readonly IJobStateManager _stateManager;
-    private readonly InMemoryQueue _queue;
+    private readonly ChokaQ.Core.Defaults.InMemoryQueue _queue; // Using concrete type for internal requeue logic
 
     // Registry of tokens for currently running jobs to allow cancellation
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeJobTokens = new();
@@ -30,7 +29,7 @@ public class JobProcessor : IJobProcessor
         ICircuitBreaker breaker,
         IJobExecutor executor,
         IJobStateManager stateManager,
-        InMemoryQueue queue)
+        ChokaQ.Core.Defaults.InMemoryQueue queue)
     {
         _storage = storage;
         _logger = logger;
@@ -61,8 +60,10 @@ public class JobProcessor : IJobProcessor
             return;
         }
 
-        // Capture metadata to pass along with status updates
+        // Capture metadata including Queue and Priority to pass along with status updates
         var createdBy = storageDto?.CreatedBy;
+        var queueName = storageDto?.Queue ?? "default"; // <--- Capture Queue
+        var priority = storageDto?.Priority ?? 10;      // <--- Capture Priority
         int currentAttempt = storageDto?.AttemptCount ?? 1;
         var jobTypeName = job.GetType().Name;
 
@@ -86,7 +87,10 @@ public class JobProcessor : IJobProcessor
             currentAttempt,
             executionDurationMs: null,
             createdBy: createdBy,
-            startedAtUtc: startedAt);
+            startedAtUtc: startedAt,
+            queue: queueName,
+            priority: priority,
+            ct: workerCt);
 
         // Create a specific cancellation token for this job execution
         using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(workerCt);
@@ -114,7 +118,10 @@ public class JobProcessor : IJobProcessor
                 currentAttempt,
                 executionDurationMs: durationMs,
                 createdBy: createdBy,
-                startedAtUtc: startedAt);
+                startedAtUtc: startedAt,
+                queue: queueName,
+                priority: priority,
+                ct: workerCt);
 
             _logger.LogInformation("[Worker {ID}] Job {JobId} done in {Duration}ms.", workerId, job.Id, durationMs);
         }
@@ -132,12 +139,15 @@ public class JobProcessor : IJobProcessor
                 currentAttempt,
                 executionDurationMs: durationMs,
                 createdBy: createdBy,
-                startedAtUtc: startedAt);
+                startedAtUtc: startedAt,
+                queue: queueName,
+                priority: priority,
+                ct: workerCt);
         }
         catch (Exception ex)
         {
             sw.Stop();
-            await HandleExceptionAsync(job, jobTypeName, workerId, currentAttempt, ex, workerCt, sw.Elapsed.TotalMilliseconds, createdBy, startedAt);
+            await HandleExceptionAsync(job, jobTypeName, workerId, currentAttempt, ex, workerCt, sw.Elapsed.TotalMilliseconds, createdBy, startedAt, queueName, priority);
         }
         finally
         {
@@ -154,7 +164,9 @@ public class JobProcessor : IJobProcessor
         CancellationToken workerCt,
         double failedAfterMs,
         string? createdBy,
-        DateTime? startedAt)
+        DateTime? startedAt,
+        string queueName,
+        int priority)
     {
         _breaker.ReportFailure(jobTypeName);
 
@@ -168,10 +180,14 @@ public class JobProcessor : IJobProcessor
                 currentAttempt,
                 executionDurationMs: failedAfterMs,
                 createdBy: createdBy,
-                startedAtUtc: startedAt);
+                startedAtUtc: startedAt,
+                queue: queueName,
+                priority: priority,
+                ct: workerCt);
             return;
         }
 
+        // We re-fetch here to ensure we don't retry a cancelled job
         var storageDto = await _storage.GetJobAsync(job.Id);
         if (storageDto == null || storageDto.Status == JobStatus.Cancelled) return;
 
@@ -198,8 +214,12 @@ public class JobProcessor : IJobProcessor
                 nextAttempt,
                 executionDurationMs: null,
                 createdBy: createdBy,
-                startedAtUtc: null); // Reset start time for next run
+                startedAtUtc: null,
+                queue: queueName,
+                priority: priority,
+                ct: workerCt);
 
+            // Reset start time for next run
             await Task.Delay(totalDelayMs, workerCt);
             await _queue.RequeueAsync(job, workerCt);
         }
@@ -214,7 +234,10 @@ public class JobProcessor : IJobProcessor
                 currentAttempt,
                 executionDurationMs: failedAfterMs,
                 createdBy: createdBy,
-                startedAtUtc: startedAt);
+                startedAtUtc: startedAt,
+                queue: queueName,
+                priority: priority,
+                ct: workerCt);
         }
     }
 }

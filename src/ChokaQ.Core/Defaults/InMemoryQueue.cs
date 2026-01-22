@@ -78,7 +78,9 @@ public class InMemoryQueue : IChokaQQueue
                 0,
                 null,
                 createdBy,
-                null
+                null,
+                queue,
+                priority
             );
         }
         catch (Exception ex)

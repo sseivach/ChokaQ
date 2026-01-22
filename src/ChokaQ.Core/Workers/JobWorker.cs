@@ -176,4 +176,9 @@ public class JobWorker : BackgroundService, IWorkerManager
             _logger.LogInformation("[Worker {ID}] Stopped.", workerId);
         }
     }
+
+    public async Task SetJobPriorityAsync(string jobId, int priority)
+    {
+        await _storage.UpdateJobPriorityAsync(jobId, priority);
+    }
 }

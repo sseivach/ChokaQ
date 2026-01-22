@@ -1,4 +1,5 @@
 ﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Dashboard.Hubs;
 using Microsoft.AspNetCore.SignalR;
@@ -14,18 +15,25 @@ internal class ChokaQSignalRNotifier(IHubContext<ChokaQHub> hubContext) : IChoka
         int attemptCount,
         double? executionDurationMs = null,
         string? createdBy = null,
-        DateTime? startedAtUtc = null)
+        DateTime? startedAtUtc = null,
+        string queue = "default",
+        int priority = 10)
     {
-        await hubContext.Clients.All.SendAsync(
-            "JobUpdated",
+        // PACKING: Convert 9 arguments into 1 DTO to bypass SignalR 8-arg limit
+        var dto = new JobUpdateDto(
             jobId,
             type,
-            (int)status,
+            status,
             attemptCount,
             executionDurationMs,
             createdBy,
-            startedAtUtc
+            startedAtUtc,
+            queue,
+            priority
         );
+
+        // Send just ONE object
+        await hubContext.Clients.All.SendAsync("JobUpdated", dto);
     }
 
     public async Task NotifyJobProgressAsync(string jobId, int percentage)
