@@ -1,8 +1,4 @@
-﻿using ChokaQ.Abstractions;
-using System.Threading;
-using System.Threading.Tasks;
-
-namespace ChokaQ.Core.Processing;
+﻿namespace ChokaQ.Core.Processing;
 
 /// <summary>
 /// Encapsulates the complete lifecycle of processing a single job.
