@@ -9,75 +9,55 @@
 ChokaQ is a lightweight, high-performance background job engine designed explicitly for .NET 10.
 It bridges the gap between simple in-memory queues and heavy enterprise service buses.
 
-## Key Features
+## The 2x2 Architecture Matrix
 
-* **Hybrid Engine:** Choose between **Type-Safe Bus** (clean architecture) or **Raw Pipe** (high performance) modes.
-* **Explicit Configuration:** No magic scanning. Use **Profiles** to strictly define your job topology.
-* **Zero-Dependency Core:** The engine logic (`ChokaQ.Core`) relies strictly on standard .NET abstractions.
-* **Efficient SQL Storage:** The optional SQL Server provider uses **Dapper** with `ROWLOCK/READPAST` for maximum throughput.
-* **Real-Time Dashboard:** A zero-config UI built on Blazor Server + SignalR.
-* **Resilient Architecture:** Built-in Circuit Breaker, Retries with Exponential Backoff, and Idempotency support.
+ChokaQ is built on a modular architecture where **Processing Strategy** (The Brain) and **Storage Strategy** (The Memory) are completely independent. You can mix and match them to fit your exact needs.
 
-## Installation
-
-Currently, ChokaQ is available as a source-only library.
-Clone the repository to integrate it into your solution.
-
-```bash
-git clone https://github.com/your-username/ChokaQ.git
-```
-
-## Getting Started
-
-In `Program.cs`, register the core services and storage. Then choose your operating mode.
-
-```csharp
-var builder = WebApplication.CreateBuilder(args);
-
-// 1. Configure Storage (SQL Server)
-builder.Services.UseSqlServer(options =>
-{
-    options.ConnectionString = builder.Configuration.GetConnectionString("ChokaQDb");
-    options.SchemaName = "chokaq";
-    options.AutoCreateSqlTable = true;
-});
-
-// 2. Add Dashboard (Optional)
-builder.Services.AddChokaQDashboard(options => options.RoutePrefix = "/chokaq");
-```
+| | **In-Memory Storage** (Default) | **SQL Server Storage** (Persistent) |
+| :--- | :--- | :--- |
+| **Bus Mode**<br>(Typed Profiles) | **Dev / Test / Light Tasks**<br>Type-safe logic, instant execution, but volatile. | **Enterprise Standard**<br>Type-safe, reliable, history, retries after restart. |
+| **Pipe Mode**<br>(Raw String/JSON) | **"Rocket Mode"**<br>Maximum throughput, zero overhead, fire-and-forget. | **Integration / Proxy**<br>Store raw payloads from external systems without typed DTOs. |
 
 ---
 
-### Mode A: The Enterprise Bus (Recommended)
-Best for clean architecture, type safety, and maintainability.
+## Configuration Guide
 
-**1. Define DTO & Handler**
+### Step 1: Choose Your Storage (Memory vs. SQL)
+
+**Option A: SQL Server (Persistent)**
+Use this for production workloads where data loss is not acceptable.
 ```csharp
-public record EmailJob(string To, string Subject) : ChokaQBaseJob;
-
-public class EmailHandler : IChokaQJobHandler<EmailJob>
+builder.Services.UseSqlServer(options =>
 {
-    public async Task HandleAsync(EmailJob job, CancellationToken ct)
-    {
-        Console.WriteLine($"Sending email to {job.To}...");
-    }
-}
+    options.ConnectionString = builder.Configuration.GetConnectionString("ChokaQDb");
+    options.AutoCreateSqlTable = true;
+});
 ```
 
-**2. Create a Profile**
-Group your jobs logically (e.g., `MailingProfile.cs`).
+**Option B: In-Memory (Volatile)**
+Simply **do nothing**. If you don't configure SQL, ChokaQ defaults to high-performance `System.Threading.Channels`.
+*Note: Jobs are lost if the application restarts.*
+
+---
+
+### Step 2: Choose Your Processing (Bus vs. Pipe)
+
+**Option A: The Enterprise Bus (Recommended)**
+Best for clean architecture. You define DTOs, Handlers, and group them into Profiles.
+
+*1. Create a Profile*
 ```csharp
 public class MailingProfile : ChokaQJobProfile
 {
     public MailingProfile()
     {
-        // Explicitly map the string Key to the C# Type and Handler
-        CreateJob<EmailJob, EmailHandler>("send_email_v1");
+        // Map "send_email" key -> EmailJob DTO -> EmailHandler
+        CreateJob<EmailJob, EmailHandler>("send_email");
     }
 }
 ```
 
-**3. Register**
+*2. Register*
 ```csharp
 builder.Services.AddChokaQ(options =>
 {
@@ -85,64 +65,66 @@ builder.Services.AddChokaQ(options =>
 });
 ```
 
----
+**Option B: The Raw Pipe**
+Best for simple consumers or dynamic routing. You receive the raw `type` string and `payload` JSON.
 
-### Mode B: The Raw Pipe
-Best for simple consumers, proxies, or dynamic routing where you don't want typed DTOs.
-
-**1. Implement Pipe Handler**
-You get the raw `jobType` string and the `payload` JSON.
+*1. Create a Pipe Handler*
 ```csharp
-public class GlobalPipeHandler : IChokaQPipeHandler
+public class MyPipe : IChokaQPipeHandler
 {
-    public async Task HandleAsync(string jobType, string payload, CancellationToken ct)
+    public async Task HandleAsync(string type, string payload, CancellationToken ct)
     {
-        switch (jobType)
-        {
-            case "legacy_job":
-                // Parse payload manually and execute
-                break;
-        }
+        if (type == "fast_event") Console.WriteLine(payload);
     }
 }
 ```
 
-**2. Register**
+*2. Register*
 ```csharp
 builder.Services.AddChokaQ(options =>
 {
-    options.UsePipe<GlobalPipeHandler>();
+    options.UsePipe<MyPipe>();
 });
 ```
 
 ---
 
-## Enqueue Jobs
+## Examples of Combinations
 
-Inject `IChokaQQueue` into your API endpoints or services.
-
+### 1. The "Enterprise Standard" (Bus + SQL)
+*Use case: Critical business transactions, emails, reports.*
 ```csharp
-app.MapPost("/send-email", async (IChokaQQueue queue) =>
-{
-    var job = new EmailJob("user@example.com", "Welcome!");
-    
-    // The engine automatically resolves the key "send_email_v1" from your Profile
-    await queue.EnqueueAsync(job, priority: 20, queue: "emails");
-    
-    return Results.Ok(new { JobId = job.Id });
-});
+builder.Services.AddChokaQ(opt => opt.AddProfile<BusinessProfile>());
+builder.Services.UseSqlServer(opt => opt.ConnectionString = "...");
 ```
 
-## Architecture Details
+### 2. The "Rocket Mode" (Pipe + Memory)
+*Use case: Fire-and-forget metrics, logs, non-critical notifications.*
+```csharp
+// No SQL configuration needed
+builder.Services.AddChokaQ(opt => opt.UsePipe<FastHandler>());
+```
 
-### SQL Persistence
-When using SQL Server, ChokaQ acts as a Polling Consumer.
-1.  **Enqueue:** The job is serialized to JSON and saved to the `[chokaq].[Jobs]` table.
-2.  **Poll:** The `SqlJobWorker` polls the database using an optimized query with `ROWLOCK, READPAST, UPDLOCK` hints.
-This ensures that multiple API instances (web farm scenarios) never process the same job twice.
+### 3. The "Dev Sandbox" (Bus + Memory)
+*Use case: Developing with typed jobs locally without needing a DB.*
+```csharp
+// No SQL configuration needed
+builder.Services.AddChokaQ(opt => opt.AddProfile<BusinessProfile>());
+```
 
-### Circuit Breaker
-If a job type fails repeatedly (default threshold: 5), the circuit opens, preventing further execution for a set duration. This protects your downstream services from being overwhelmed during outages.
+---
+
+## Dashboard
+
+Regardless of the mode, the dashboard works out of the box (though In-Memory history is lost on restart).
+
+```csharp
+builder.Services.AddChokaQDashboard(options => options.RoutePrefix = "/chokaq");
+```
+
+## Author
+
+Created by **Sergei Seivach**.
 
 ## License
 
