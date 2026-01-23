@@ -1,7 +1,4 @@
-﻿using System.Threading.Tasks;
-using System.Threading;
-
-namespace ChokaQ.Abstractions;
+﻿namespace ChokaQ.Abstractions;
 
 /// <summary>
 /// Defines the contract for the "Pipe" mode handler.

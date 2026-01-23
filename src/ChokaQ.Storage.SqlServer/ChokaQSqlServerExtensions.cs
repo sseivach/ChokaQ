@@ -1,7 +1,7 @@
 ﻿using ChokaQ.Abstractions;
-using ChokaQ.Core.Workers; // Access to JobWorker for removal
+using ChokaQ.Core.Workers;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions; // For RemoveAll/Replace
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 

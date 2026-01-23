@@ -1,5 +1,4 @@
 ﻿using ChokaQ.Abstractions;
-using Microsoft.Extensions.Logging;
 
 namespace ChokaQ.SampleRun.Jobs;
 

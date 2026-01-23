@@ -4,9 +4,7 @@ using ChokaQ.Dashboard.Components.Layout;
 using ChokaQ.Dashboard.Hubs;
 using ChokaQ.Dashboard.Services;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 
 namespace ChokaQ;
 // Root namespace for easier discovery

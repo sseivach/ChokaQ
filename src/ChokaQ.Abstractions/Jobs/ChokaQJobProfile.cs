@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-
-namespace ChokaQ.Abstractions;
+﻿namespace ChokaQ.Abstractions;
 
 /// <summary>
 /// Base class for defining job configurations.
@@ -31,9 +28,3 @@ public abstract class ChokaQJobProfile
         Registrations.Add(new JobRegistration(typeKey, typeof(TJob), typeof(THandler)));
     }
 }
-
-/// <summary>
-/// DTO to hold registration info.
-/// Made public so ChokaQ.Core can access the types during DI registration.
-/// </summary>
-public record JobRegistration(string Key, Type JobType, Type HandlerType);

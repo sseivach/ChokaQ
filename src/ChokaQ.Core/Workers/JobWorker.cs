@@ -5,12 +5,7 @@ using ChokaQ.Core.Processing;
 using ChokaQ.Core.State;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace ChokaQ.Core.Workers;
 
