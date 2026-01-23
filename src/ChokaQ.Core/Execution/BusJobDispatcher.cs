@@ -10,18 +10,19 @@ using System.Threading.Tasks;
 
 namespace ChokaQ.Core.Execution;
 
-/// <summary>
-/// Implementation of IJobDispatcher for the "Bus" strategy.
-/// Performs Type discovery, JSON deserialization, and Generic Handler resolution.
-/// </summary>
 public class BusJobDispatcher : IJobDispatcher
 {
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly JobTypeRegistry _registry; // <--- INJECTED REGISTRY
     private readonly ILogger<BusJobDispatcher> _logger;
 
-    public BusJobDispatcher(IServiceScopeFactory scopeFactory, ILogger<BusJobDispatcher> logger)
+    public BusJobDispatcher(
+        IServiceScopeFactory scopeFactory,
+        JobTypeRegistry registry,
+        ILogger<BusJobDispatcher> logger)
     {
         _scopeFactory = scopeFactory;
+        _registry = registry;
         _logger = logger;
     }
 
@@ -34,45 +35,41 @@ public class BusJobDispatcher : IJobDispatcher
         var jobContext = serviceProvider.GetRequiredService<JobContext>();
         jobContext.JobId = jobId;
 
-        // 2. Resolve CLR Type from string
-        // In Bus mode, the jobType MUST be a valid Type Name.
-        var clrType = Type.GetType(jobType);
+        // 2. Resolve Type from Registry (Fast & Safe)
+        var clrType = _registry.GetTypeByKey(jobType);
+
+        // Fallback: Try standard Type.GetType if not in registry (legacy support)
         if (clrType == null)
         {
-            // Try to search in loaded assemblies if simple name is provided
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                clrType = asm.GetType(jobType);
-                if (clrType != null) break;
-            }
+            clrType = Type.GetType(jobType);
         }
 
         if (clrType == null)
         {
-            throw new InvalidOperationException($"Bus Mode: Could not resolve C# type for '{jobType}'. Ensure the assembly is loaded.");
+            throw new InvalidOperationException($"Bus Mode: Unknown Job Type '{jobType}'. Ensure the job class is defined in a scanned assembly.");
         }
 
-        // 3. Deserialize Payload
+        // 3. Deserialize
         var jobObject = JsonSerializer.Deserialize(payload, clrType) as IChokaQJob;
         if (jobObject == null)
         {
-            throw new InvalidOperationException($"Bus Mode: Failed to deserialize payload into type '{clrType.Name}'.");
+            throw new InvalidOperationException($"Bus Mode: Failed to deserialize payload for '{clrType.Name}'.");
         }
 
-        // 4. Resolve Generic Handler (IChokaQJobHandler<T>)
+        // 4. Resolve Handler
         var handlerType = typeof(IChokaQJobHandler<>).MakeGenericType(clrType);
         var handler = serviceProvider.GetService(handlerType);
 
         if (handler == null)
         {
-            throw new InvalidOperationException($"Bus Mode: No handler registered for job type '{clrType.Name}'.");
+            throw new InvalidOperationException($"Bus Mode: No IChokaQJobHandler<{clrType.Name}> found in DI. Did you forget to register it?");
         }
 
-        // 5. Invoke HandleAsync via Reflection
+        // 5. Invoke
         var method = handlerType.GetMethod("HandleAsync");
         if (method == null)
         {
-            throw new InvalidOperationException($"Method 'HandleAsync' not found on handler {handlerType.Name}");
+            throw new InvalidOperationException($"Method 'HandleAsync' not found on {handlerType.Name}");
         }
 
         try
@@ -82,10 +79,7 @@ public class BusJobDispatcher : IJobDispatcher
         }
         catch (TargetInvocationException ex)
         {
-            if (ex.InnerException != null)
-            {
-                throw ex.InnerException;
-            }
+            if (ex.InnerException != null) throw ex.InnerException;
             throw;
         }
     }

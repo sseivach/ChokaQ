@@ -1,35 +1,29 @@
 ﻿using ChokaQ.Abstractions;
-using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 
 namespace ChokaQ.Core;
 
 /// <summary>
 /// Configuration options for the ChokaQ engine.
-/// Allows selecting between "Bus" (Type-Safe) and "Pipe" (Raw) modes.
+/// Supports "Pipe" mode (raw) or "Bus" mode (via explicit Profiles).
 /// </summary>
 public class ChokaQOptions
 {
     internal bool IsPipeMode { get; private set; } = false;
     internal Type? PipeHandlerType { get; private set; }
 
-    // Default to Bus mode, but assemblies might need to be explicit in future
-    internal List<Assembly> ScanAssemblies { get; private set; } = new();
+    // List of profile types to instantiate and register
+    internal List<Type> ProfileTypes { get; private set; } = new();
 
     /// <summary>
-    /// Enables "Bus" mode (Default).
-    /// Scans the provided assemblies for IChokaQJob implementations and Handlers.
+    /// Enables "Bus" mode and registers a mapping profile.
     /// </summary>
-    /// <param name="markerTypes">Types from assemblies to scan.</param>
-    public void UseBus(params Type[] markerTypes)
+    /// <typeparam name="TProfile">The profile class inheriting from ChokaQJobProfile.</typeparam>
+    public void AddProfile<TProfile>() where TProfile : ChokaQJobProfile
     {
-        IsPipeMode = false;
-        foreach (var t in markerTypes)
-        {
-            ScanAssemblies.Add(t.Assembly);
-        }
+        IsPipeMode = false; // Adding a profile implies Bus mode
+        ProfileTypes.Add(typeof(TProfile));
     }
 
     /// <summary>
@@ -41,5 +35,6 @@ public class ChokaQOptions
     {
         IsPipeMode = true;
         PipeHandlerType = typeof(THandler);
+        ProfileTypes.Clear(); // Pipe mode excludes Profiles
     }
 }

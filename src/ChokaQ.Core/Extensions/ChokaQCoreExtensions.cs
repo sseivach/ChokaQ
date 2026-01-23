@@ -1,83 +1,86 @@
 ﻿using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Core.Contexts;
 using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
-using ChokaQ.Core.Handlers;
 using ChokaQ.Core.Processing;
 using ChokaQ.Core.State;
 using ChokaQ.Core.Workers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using System;
-using System.Reflection;
 
 namespace ChokaQ.Core.Extensions;
 
 public static class ChokaQCoreExtensions
 {
-    /// <summary>
-    /// Registers ChokaQ Core services.
-    /// </summary>
-    /// <param name="configure">Configuration action to select Pipe or Bus mode.</param>
     public static IServiceCollection AddChokaQ(this IServiceCollection services, Action<ChokaQOptions>? configure = null)
     {
-        // 1. Run Configuration
         var options = new ChokaQOptions();
 
-        // If no config provided, default to Bus mode with calling assembly
-        if (configure == null)
-        {
-            options.UseBus(Assembly.GetCallingAssembly().GetTypes()[0]);
-        }
-        else
+        if (configure != null)
         {
             configure(options);
         }
 
-        // 2. Register Dispatcher Strategy
-        if (options.IsPipeMode)
-        {
-            // Strategy A: Pipe
-            services.TryAddSingleton<IJobDispatcher, PipeJobDispatcher>();
-
-            // Register the user's handler
-            if (options.PipeHandlerType != null)
-            {
-                services.TryAddTransient(typeof(IChokaQPipeHandler), options.PipeHandlerType);
-            }
-        }
-        else
-        {
-            // Strategy B: Bus
-            services.TryAddSingleton<IJobDispatcher, BusJobDispatcher>();
-
-            // Register System Test Handler by default for Bus mode
-            services.TryAddTransient<IChokaQJobHandler<SystemTestJob>, SystemTestJobHandler>();
-
-            // Future: Here we would implement Assembly Scanning for other handlers based on options.ScanAssemblies
-        }
-
-        // 3. Common Services
+        // 1. Core Services (Infrastructure)
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<ICircuitBreaker, InMemoryCircuitBreaker>();
         services.TryAddSingleton<IJobStorage, InMemoryJobStorage>();
         services.TryAddSingleton<IChokaQNotifier, NullNotifier>();
-
         services.TryAddScoped<JobContext>();
         services.TryAddScoped<IJobContext>(sp => sp.GetRequiredService<JobContext>());
 
+        // Queue needs to know about Registry now
         services.TryAddSingleton<InMemoryQueue>();
         services.TryAddSingleton<IChokaQQueue>(sp => sp.GetRequiredService<InMemoryQueue>());
 
         services.TryAddSingleton<IJobStateManager, JobStateManager>();
-
-        // JobProcessor now depends on IJobDispatcher
         services.TryAddSingleton<IJobProcessor, JobProcessor>();
-
         services.TryAddSingleton<JobWorker>();
         services.TryAddSingleton<IWorkerManager>(sp => sp.GetRequiredService<JobWorker>());
         services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
+
+        // 2. Dispatcher Strategy & Profile Processing
+        if (options.IsPipeMode)
+        {
+            // --- PIPE MODE ---
+            services.TryAddSingleton<IJobDispatcher, PipeJobDispatcher>();
+            if (options.PipeHandlerType != null)
+            {
+                services.TryAddTransient(typeof(IChokaQPipeHandler), options.PipeHandlerType);
+            }
+            // Register empty registry for dependencies
+            services.TryAddSingleton(new JobTypeRegistry());
+        }
+        else
+        {
+            // --- BUS MODE (Explicit Profiles) ---
+            services.TryAddSingleton<IJobDispatcher, BusJobDispatcher>();
+
+            var registry = new JobTypeRegistry();
+
+            // Process each registered profile
+            foreach (var profileType in options.ProfileTypes)
+            {
+                // Instantiate the profile to run its constructor
+                if (Activator.CreateInstance(profileType) is ChokaQJobProfile profileInstance)
+                {
+                    foreach (var reg in profileInstance.Registrations)
+                    {
+                        // A. Populate Registry (Key <-> DTO Type)
+                        registry.Register(reg.Key, reg.JobType);
+
+                        // B. Register Handler in DI
+                        // We register it as the Interface (IChokaQJobHandler<T>) 
+                        // so BusJobDispatcher can resolve it.
+                        var interfaceType = typeof(IChokaQJobHandler<>).MakeGenericType(reg.JobType);
+                        services.TryAddTransient(interfaceType, reg.HandlerType);
+                    }
+                }
+            }
+
+            services.AddSingleton(registry);
+        }
 
         return services;
     }

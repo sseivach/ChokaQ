@@ -7,140 +7,142 @@
 **Current Status:** Work in Progress / Proof of Concept
 
 ChokaQ is a lightweight, high-performance background job engine designed explicitly for .NET 10.
-
-It bridges the gap between simple in-memory queues and heavy enterprise service buses. Built with Clean Architecture principles, it leverages native System.Threading.Channels for maximum throughput and offers a reactive Blazor Server dashboard powered by SignalR for real-time monitoring.
+It bridges the gap between simple in-memory queues and heavy enterprise service buses.
 
 ## Key Features
 
-* **Zero-Dependency Core:** The engine logic (`ChokaQ.Core`) relies strictly on standard .NET abstractions, keeping your dependency tree clean.
-* **Efficient SQL Storage:** The optional SQL Server provider uses **Dapper** as a lightweight micro-ORM for maximum performance over raw ADO.NET.
-* **Resilient Architecture:** Built-in implementation of Circuit Breaker patterns and Retry Policies with exponential backoff to handle transient failures.
-* **Robust Storage:** Pluggable storage architecture.
-    * **In-Memory:** For development and testing.
-    * **SQL Server:** Production-grade persistence using Dapper. Features atomic locking (ROWLOCK, READPAST, UPDLOCK) to safely handle concurrency across multiple worker nodes.
-* **Real-Time Dashboard:** A zero-config UI built on Blazor Server.
-    * **Live Updates:** Powered by SignalR, requiring no page refreshes.
-    * **Active Job Zone:** Dedicated view for currently executing jobs.
-    * **Job Inspector:** Detailed view of job payloads, stack traces, and execution timelines.
-    * **Theming:** Includes multiple built-in themes (Office, Night Shift, High Contrast, etc.).
-* **Developer Friendly:** Strongly-typed jobs and seamless Dependency Injection integration.
+* **Hybrid Engine:** Choose between **Type-Safe Bus** (clean architecture) or **Raw Pipe** (high performance) modes.
+* **Explicit Configuration:** No magic scanning. Use **Profiles** to strictly define your job topology.
+* **Zero-Dependency Core:** The engine logic (`ChokaQ.Core`) relies strictly on standard .NET abstractions.
+* **Efficient SQL Storage:** The optional SQL Server provider uses **Dapper** with `ROWLOCK/READPAST` for maximum throughput.
+* **Real-Time Dashboard:** A zero-config UI built on Blazor Server + SignalR.
+* **Resilient Architecture:** Built-in Circuit Breaker, Retries with Exponential Backoff, and Idempotency support.
 
 ## Installation
 
-Currently, ChokaQ is available as a source-only library. Clone the repository to integrate it into your solution.
+Currently, ChokaQ is available as a source-only library.
+Clone the repository to integrate it into your solution.
 
 ```bash
 git clone https://github.com/your-username/ChokaQ.git
 ```
 
-## Quick Start
+## Getting Started
 
-### 1. Register Services
-
-In your `Program.cs`, register the core services, storage, and dashboard.
+In `Program.cs`, register the core services and storage. Then choose your operating mode.
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Add Core Services
-builder.Services.AddChokaQ();
-
-// 2. Configure Storage (SQL Server)
+// 1. Configure Storage (SQL Server)
 builder.Services.UseSqlServer(options =>
 {
     options.ConnectionString = builder.Configuration.GetConnectionString("ChokaQDb");
     options.SchemaName = "chokaq";
-    options.AutoCreateSqlTable = true; // Auto-provision schema on startup
+    options.AutoCreateSqlTable = true;
 });
 
-// 3. Add Dashboard
-builder.Services.AddChokaQDashboard(options =>
-{
-    options.RoutePrefix = "/chokaq";
-});
+// 2. Add Dashboard (Optional)
+builder.Services.AddChokaQDashboard(options => options.RoutePrefix = "/chokaq");
 ```
 
-### 2. Define a Job
+---
 
-Create a record that implements `IChokaQJob`. You can inherit from `ChokaQBaseJob` to handle unique ID generation automatically.
+### Mode A: The Enterprise Bus (Recommended)
+Best for clean architecture, type safety, and maintainability.
 
+**1. Define DTO & Handler**
 ```csharp
-using ChokaQ.Abstractions;
+public record EmailJob(string To, string Subject) : ChokaQBaseJob;
 
-public record SendEmailJob(string Email, string Subject) : ChokaQBaseJob;
-```
-
-### 3. Create a Handler
-
-Implement `IChokaQJobHandler<T>`. This class is registered automatically and supports Dependency Injection.
-
-```csharp
-using ChokaQ.Abstractions;
-
-public class SendEmailHandler : IChokaQJobHandler<SendEmailJob>
+public class EmailHandler : IChokaQJobHandler<EmailJob>
 {
-    private readonly ILogger<SendEmailHandler> _logger;
-
-    public SendEmailHandler(ILogger<SendEmailHandler> logger)
+    public async Task HandleAsync(EmailJob job, CancellationToken ct)
     {
-        _logger = logger;
-    }
-
-    public async Task HandleAsync(SendEmailJob job, CancellationToken ct)
-    {
-        _logger.LogInformation("Sending email to {Email}...", job.Email);
-        
-        // Simulate actual work
-        await Task.Delay(1000, ct); 
-        
-        _logger.LogInformation("Email sent successfully.");
+        Console.WriteLine($"Sending email to {job.To}...");
     }
 }
 ```
 
-### 4. Enqueue Jobs
+**2. Create a Profile**
+Group your jobs logically (e.g., `MailingProfile.cs`).
+```csharp
+public class MailingProfile : ChokaQJobProfile
+{
+    public MailingProfile()
+    {
+        // Explicitly map the string Key to the C# Type and Handler
+        CreateJob<EmailJob, EmailHandler>("send_email_v1");
+    }
+}
+```
 
-Inject `IChokaQQueue` into your API endpoints or services to dispatch jobs.
+**3. Register**
+```csharp
+builder.Services.AddChokaQ(options =>
+{
+    options.AddProfile<MailingProfile>();
+});
+```
+
+---
+
+### Mode B: The Raw Pipe
+Best for simple consumers, proxies, or dynamic routing where you don't want typed DTOs.
+
+**1. Implement Pipe Handler**
+You get the raw `jobType` string and the `payload` JSON.
+```csharp
+public class GlobalPipeHandler : IChokaQPipeHandler
+{
+    public async Task HandleAsync(string jobType, string payload, CancellationToken ct)
+    {
+        switch (jobType)
+        {
+            case "legacy_job":
+                // Parse payload manually and execute
+                break;
+        }
+    }
+}
+```
+
+**2. Register**
+```csharp
+builder.Services.AddChokaQ(options =>
+{
+    options.UsePipe<GlobalPipeHandler>();
+});
+```
+
+---
+
+## Enqueue Jobs
+
+Inject `IChokaQQueue` into your API endpoints or services.
 
 ```csharp
 app.MapPost("/send-email", async (IChokaQQueue queue) =>
 {
-    var job = new SendEmailJob("user@example.com", "Welcome to ChokaQ");
+    var job = new EmailJob("user@example.com", "Welcome!");
     
-    // Enqueue with priority (Default: 10)
-    await queue.EnqueueAsync(job, priority: 20, createdBy: "API_User");
+    // The engine automatically resolves the key "send_email_v1" from your Profile
+    await queue.EnqueueAsync(job, priority: 20, queue: "emails");
     
     return Results.Ok(new { JobId = job.Id });
 });
 ```
 
-## Dashboard Overview
-
-Access the dashboard at `/chokaq` (or your configured route prefix).
-
-### Layout
-The dashboard is divided into two logical zones to improve usability:
-1.  **Active Zone (Top):** Displays cards for jobs currently in the "Processing" state. This allows immediate visibility of active workers.
-2.  **History Zone (Bottom):** A virtualized list displaying the Queue (Pending) and History (Succeeded/Failed/Cancelled).
-
-### Features
-* **Circuit Monitor:** Real-time health check of all Job Types. If a job type fails repeatedly, the circuit opens, and the status is reflected here.
-* **Job Inspector:** Click on any job row to open a detailed panel containing the JSON payload, timestamps, and error details.
-* **Controls:** Supports manual Cancellation and Restarting of jobs directly from the UI.
-
 ## Architecture Details
-
-### Core Engine
-The core engine relies on `System.Threading.Channels` to act as a high-throughput buffer. This decouples the Producer (API) from the Consumer (Worker).
 
 ### SQL Persistence
 When using SQL Server, ChokaQ acts as a Polling Consumer.
 1.  **Enqueue:** The job is serialized to JSON and saved to the `[chokaq].[Jobs]` table.
-2.  **Poll:** The `SqlJobWorker` polls the database using an optimized query with `ROWLOCK, READPAST, UPDLOCK` hints. This ensures that multiple API instances (web farm scenarios) never process the same job twice.
+2.  **Poll:** The `SqlJobWorker` polls the database using an optimized query with `ROWLOCK, READPAST, UPDLOCK` hints.
+This ensures that multiple API instances (web farm scenarios) never process the same job twice.
 
-### Resilience
-* **Circuit Breaker:** If a job type fails repeatedly (default threshold: 5), the circuit opens, preventing further execution for a set duration to allow the downstream system to recover.
-* **Idempotency:** Pass an optional `IdempotencyKey` during enqueue to prevent duplicate processing of the same business event.
+### Circuit Breaker
+If a job type fails repeatedly (default threshold: 5), the circuit opens, preventing further execution for a set duration. This protects your downstream services from being overwhelmed during outages.
 
 ## License
 
