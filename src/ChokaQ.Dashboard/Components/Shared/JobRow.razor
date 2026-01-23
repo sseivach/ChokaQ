@@ -1,6 +1,4 @@
 ﻿@using ChokaQ.Abstractions.Enums
-@using ChokaQ.Dashboard.Models
-@using Microsoft.AspNetCore.SignalR.Client
 
 <tr class="cq-job-row @(IsSelected ? "selected-row" : "")" @onclick="HandleRowClick">
 
@@ -38,26 +36,9 @@
     </td>
 
     <td>
-        @if (Job.Status == JobStatus.Processing)
-        {
-            <span class="badge" style="background-color: var(--cq-warning); color: #000;">PROCESSING</span>
-        }
-        else if (Job.Status == JobStatus.Succeeded)
-        {
-            <span class="badge" style="background-color: var(--cq-success); color: #fff;">SUCCEEDED</span>
-        }
-        else if (Job.Status == JobStatus.Failed)
-        {
-            <span class="badge" style="background-color: var(--cq-danger); color: #fff;">FAILED</span>
-        }
-        else if (Job.Status == JobStatus.Cancelled)
-        {
-            <span class="badge bg-secondary text-white">CANCELLED</span>
-        }
-        else
-        {
-            <span class="badge" style="background-color: var(--cq-text-muted); color: #fff;">PENDING</span>
-        }
+        <span class="badge @GetStatusBadgeClass()">
+            @GetStatusLabel()
+        </span>
     </td>
 
     <td>
@@ -108,9 +89,7 @@
             </button>
         }
 
-        @if (Job.Status == JobStatus.Succeeded ||
-                Job.Status == JobStatus.Failed ||
-                Job.Status == JobStatus.Cancelled)
+        @if (Job.Status == JobStatus.Succeeded || Job.Status == JobStatus.Failed || Job.Status == JobStatus.Cancelled)
         {
             <button class="btn btn-sm btn-outline-primary me-2"
                     title="Restart Job"
@@ -132,31 +111,3 @@
         background-color: rgba(0, 120, 212, 0.1) !important;
     }
 </style>
-
-@code {
-    [Parameter] public required JobViewModel Job { get; set; }
-    [Parameter] public bool IsSelected { get; set; }
-
-    [Parameter] public EventCallback<string> OnCancelRequested { get; set; }
-    [Parameter] public EventCallback<string> OnRestartRequested { get; set; }
-    [Parameter] public EventCallback<string> OnSelected { get; set; }
-    [Parameter] public EventCallback<bool> OnSelectionChanged { get; set; }
-
-    private async Task CancelJob() => await OnCancelRequested.InvokeAsync(Job.Id);
-    private async Task RestartJob() => await OnRestartRequested.InvokeAsync(Job.Id);
-    private async Task HandleRowClick() => await OnSelected.InvokeAsync(Job.Id);
-
-    private async Task HandleCheckboxChange(ChangeEventArgs e)
-    {
-        var isChecked = (bool)(e.Value ?? false);
-        await OnSelectionChanged.InvokeAsync(isChecked);
-    }
-
-    private string FormatDuration(TimeSpan? duration)
-    {
-        if (!duration.HasValue || duration.Value == TimeSpan.Zero) return "-";
-        if (duration.Value.TotalSeconds < 1) return $"{duration.Value.TotalMilliseconds:F0}ms";
-        if (duration.Value.TotalMinutes < 1) return $"{duration.Value.Seconds}s {duration.Value.Milliseconds}ms";
-        return $"{duration.Value.Minutes}m {duration.Value.Seconds}s";
-    }
-}

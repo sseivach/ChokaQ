@@ -21,6 +21,12 @@ public interface IJobProcessor
     int RetryDelaySeconds { get; set; }
 
     /// <summary>
+    /// Configuration: Time to wait (in seconds) when the Circuit Breaker blocks execution.
+    /// Default: 5 seconds.
+    /// </summary>
+    int CircuitBreakerDelaySeconds { get; set; }
+
+    /// <summary>
     /// Processes a single job with full resilience logic.
     /// </summary>
     /// <param name="jobId">Unique Job ID.</param>

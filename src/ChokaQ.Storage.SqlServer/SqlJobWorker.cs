@@ -7,6 +7,13 @@ using Microsoft.Extensions.Logging;
 
 namespace ChokaQ.Storage.SqlServer;
 
+/// <summary>
+/// The main background service for SQL Server storage.
+/// Implements a "Polling Consumer" pattern:
+/// 1. Spawns multiple worker tasks (threads).
+/// 2. Each worker independently polls the DB for the next available job.
+/// 3. Locks the job (atomic fetch) and passes it to the Processor.
+/// </summary>
 public class SqlJobWorker : BackgroundService, IWorkerManager
 {
     private readonly IJobStorage _storage;
@@ -14,11 +21,12 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
     private readonly IJobStateManager _stateManager;
     private readonly ILogger<SqlJobWorker> _logger;
     private readonly SqlJobStorageOptions _options;
+
+    // Manages the lifecycle of individual worker threads
     private readonly List<(Task Task, CancellationTokenSource Cts)> _workers = new();
     private readonly object _lock = new();
-    private readonly TimeSpan _pollingInterval = TimeSpan.FromSeconds(1);
 
-    // Configuration delegated to Processor
+    // --- Configuration delegated to the Processor (Single Source of Truth) ---
     public int MaxRetries
     {
         get => _processor.MaxRetries;
@@ -49,36 +57,48 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("SQL Job Worker started.");
+        _logger.LogInformation("SQL Job Worker started. Polling Interval: {Poll}ms, Empty Sleep: {Sleep}ms",
+            _options.PollingInterval.TotalMilliseconds,
+            _options.NoQueuesSleepInterval.TotalMilliseconds);
+
+        // Start with 1 worker by default, or restore from saved config if we had one
         UpdateWorkerCount(1);
+
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Dynamically scales the number of active polling threads.
+    /// Thread-safe.
+    /// </summary>
     public void UpdateWorkerCount(int targetCount)
     {
         if (targetCount < 0) targetCount = 0;
-        if (targetCount > 100) targetCount = 100;
+        if (targetCount > 100) targetCount = 100; // Hard cap for safety
 
         lock (_lock)
         {
             int current = _workers.Count;
             if (targetCount > current)
             {
+                // Scale Up
                 int toAdd = targetCount - current;
                 for (int i = 0; i < toAdd; i++)
                 {
                     var cts = new CancellationTokenSource();
+                    // We don't await the task here; it runs in the background
                     var task = Task.Run(() => WorkerLoopAsync(cts.Token), cts.Token);
                     _workers.Add((task, cts));
                 }
             }
             else if (targetCount < current)
             {
+                // Scale Down (Remove from the end)
                 int toRemove = current - targetCount;
                 for (int i = 0; i < toRemove; i++)
                 {
                     var worker = _workers.Last();
-                    worker.Cts.Cancel();
+                    worker.Cts.Cancel(); // Signal the loop to stop
                     _workers.RemoveAt(_workers.Count - 1);
                 }
             }
@@ -88,10 +108,13 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
         }
     }
 
+    /// <summary>
+    /// The main loop for a single worker thread.
+    /// Continously polls the database for new jobs.
+    /// </summary>
     private async Task WorkerLoopAsync(CancellationToken workerCt)
     {
-        var workerId = Guid.NewGuid().ToString()[..8];
-
+        var workerId = Guid.NewGuid().ToString()[..8]; // Short ID for logs
         try
         {
             while (!workerCt.IsCancellationRequested)
@@ -99,25 +122,30 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                 bool jobProcessed = false;
                 try
                 {
-                    // [STEP 1] Traffic Control & Queue Discovery
+                    // [STEP 1] Queue Discovery (Traffic Control)
+                    // We only want to fetch jobs from queues that are NOT paused.
                     var allQueues = await _storage.GetQueuesAsync(workerCt);
                     var activeQueues = allQueues
                         .Where(q => !q.IsPaused)
                         .Select(q => q.Name)
                         .ToArray();
 
-                    // [STEP 2] The Red Light Check 🔴
+                    // [STEP 2] The Red Light Check
+                    // If all queues are paused or empty, don't hammer the DB.
                     if (activeQueues.Length == 0)
                     {
                         if (_logger.IsEnabled(LogLevel.Debug))
                         {
                             _logger.LogDebug("[Worker {ID}] No active queues found. Sleeping...", workerId);
                         }
-                        await Task.Delay(5000, workerCt);
+                        // Sleep for a longer interval (configurable) to save resources
+                        await Task.Delay(_options.NoQueuesSleepInterval, workerCt);
                         continue;
                     }
 
                     // [STEP 3] Fetch & Lock
+                    // This calls the stored procedure (or query) with ROWLOCK/READPAST.
+                    // It ensures that even with 50 workers, only ONE gets this specific job.
                     var batch = await _storage.FetchAndLockNextBatchAsync(workerId, 1, activeQueues, workerCt);
                     var jobDto = batch.FirstOrDefault();
 
@@ -125,10 +153,9 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                     {
                         jobProcessed = true;
 
-                        // [STEP 4] Processing
-                        // IMPORTANT: We no longer deserialize here. 
-                        // We pass the raw Type string and Payload JSON directly to the Processor.
-                        // The Processor delegates to the Dispatcher (Pipe or Bus), which decides what to do.
+                        // [STEP 4] Handover to Processor
+                        // The worker's job is done (fetching). Now the Processor handles execution logic.
+                        // We pass the raw Type string and Payload JSON.
                         await _processor.ProcessJobAsync(
                             jobDto.Id,
                             jobDto.Type,
@@ -140,18 +167,20 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                 }
                 catch (OperationCanceledException)
                 {
-                    break;
+                    break; // Graceful shutdown
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "[Worker {ID}] Error in polling loop.", workerId);
+                    _logger.LogError(ex, "[Worker {ID}] Unexpected error in polling loop.", workerId);
+                    // Prevent tight loop in case of database outage
                     await Task.Delay(5000, workerCt);
                 }
 
-                // 6. Backoff Strategy
+                // [STEP 5] Backoff Strategy
                 if (!jobProcessed)
                 {
-                    await Task.Delay(_pollingInterval, workerCt);
+                    // If no job was found, wait for the short polling interval (e.g., 1s)
+                    await Task.Delay(_options.PollingInterval, workerCt);
                 }
             }
         }
@@ -161,8 +190,11 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
         }
     }
 
+    // --- Management Methods (Called by Dashboard/API) ---
+
     public async Task CancelJobAsync(string jobId)
     {
+        // 1. Try to cancel in-memory if it's currently running on THIS instance
         if (_processor is JobProcessor concreteProcessor)
         {
             concreteProcessor.CancelJob(jobId);
@@ -170,6 +202,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
 
         _logger.LogInformation("Marking job {JobId} as Cancelled.", jobId);
 
+        // 2. Update DB state (in case it was pending or running on another node)
         var job = await _storage.GetJobAsync(jobId);
         if (job == null) return;
 
@@ -191,6 +224,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
         var storageDto = await _storage.GetJobAsync(jobId);
         if (storageDto == null) return;
 
+        // Prevent restarting a job that is already running
         if (storageDto.Status == JobStatus.Processing)
         {
             _logger.LogWarning("Cannot restart job {JobId} because it is currently Processing.", jobId);
@@ -201,6 +235,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
         {
             _logger.LogInformation("Restarting job {JobId}...", jobId);
 
+            // Reset state to Pending and Attempts to 0
             await _stateManager.UpdateStateAsync(
                 jobId,
                 storageDto.Type,
@@ -223,7 +258,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
 
     public async Task SetJobPriorityAsync(string jobId, int priority)
     {
-        _logger.LogInformation("Updating priority for Job {JobId} to {Priority}.", jobId, priority);
+        // Optimistic update. The UI will reflect this, and the Poller will respect it on next fetch.
         await _storage.UpdateJobPriorityAsync(jobId, priority);
     }
 }
