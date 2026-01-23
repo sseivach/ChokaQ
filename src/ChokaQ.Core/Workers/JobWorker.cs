@@ -9,6 +9,10 @@ using System.Text.Json;
 
 namespace ChokaQ.Core.Workers;
 
+/// <summary>
+/// In-Memory Worker implementation used for development or non-persistent scenarios.
+/// Consumes jobs from System.Threading.Channels.
+/// </summary>
 public class JobWorker : BackgroundService, IWorkerManager
 {
     private readonly InMemoryQueue _queue;
@@ -59,14 +63,16 @@ public class JobWorker : BackgroundService, IWorkerManager
         // Also ensure state is updated if it was pending
         _logger.LogInformation("Marking job {JobId} as Cancelled (if not already).", jobId);
 
-        // UPDATE STATE: Cancelled
+        // Fetch metadata to keep state consistent
+        var job = await _storage.GetJobAsync(jobId);
+
         await _stateManager.UpdateStateAsync(
             jobId,
-            "Job",
+            job?.Type ?? "Unknown",
             JobStatus.Cancelled,
-            0,
+            job?.AttemptCount ?? 0,
             executionDurationMs: null,
-            createdBy: null,
+            createdBy: job?.CreatedBy,
             startedAtUtc: null);
     }
 
@@ -83,28 +89,44 @@ public class JobWorker : BackgroundService, IWorkerManager
 
         try
         {
-            var jobType = Type.GetType(storageDto.Type);
-            if (jobType == null) throw new InvalidOperationException($"Cannot load type '{storageDto.Type}'.");
-
-            var jobObject = JsonSerializer.Deserialize(storageDto.Payload, jobType) as IChokaQJob;
-            if (jobObject == null) throw new InvalidOperationException("Failed to deserialize payload.");
-
             _logger.LogInformation("Restarting job {JobId}...", jobId);
 
+            // 1. Reset State
             await _storage.UpdateJobStateAsync(jobId, JobStatus.Pending);
             await _storage.IncrementJobAttemptAsync(jobId, 0);
 
-            // UPDATE STATE: Pending
             await _stateManager.UpdateStateAsync(
                 jobId,
-                jobObject.GetType().Name,
+                storageDto.Type,
                 JobStatus.Pending,
                 0,
                 executionDurationMs: null,
                 createdBy: storageDto.CreatedBy,
                 startedAtUtc: null);
 
-            await _queue.RequeueAsync(jobObject);
+            // 2. Re-queue logic depends on strategy
+            var jobType = Type.GetType(storageDto.Type);
+
+            // Fallback: try to find type in current AppDomain assemblies if Type.GetType fails (often needed for simple names)
+            if (jobType == null)
+            {
+                jobType = AppDomain.CurrentDomain.GetAssemblies()
+                    .SelectMany(a => a.GetTypes())
+                    .FirstOrDefault(t => t.Name == storageDto.Type);
+            }
+
+            if (jobType != null)
+            {
+                var jobObject = JsonSerializer.Deserialize(storageDto.Payload, jobType) as IChokaQJob;
+                if (jobObject != null)
+                {
+                    await _queue.RequeueAsync(jobObject);
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Could not resolve type {Type} for In-Memory restart. Job is reset in DB but not in Channel.", storageDto.Type);
+            }
         }
         catch (Exception ex)
         {
@@ -126,7 +148,6 @@ public class JobWorker : BackgroundService, IWorkerManager
         lock (_lock)
         {
             int current = _workers.Count;
-
             if (targetCount > current)
             {
                 int toAdd = targetCount - current;
@@ -163,8 +184,37 @@ public class JobWorker : BackgroundService, IWorkerManager
                 {
                     while (_queue.Reader.TryRead(out var job))
                     {
-                        // All complex logic is now delegated to the processor
-                        await _processor.ProcessJobAsync(job, workerId, workerCt);
+                        // Since IChokaQJob doesn't know its queue, we look it up in storage.
+                        var storageJob = await _storage.GetJobAsync(job.Id, workerCt);
+
+                        // If job vanished or invalid, skip
+                        if (storageJob == null) continue;
+
+                        var queues = await _storage.GetQueuesAsync(workerCt);
+                        var targetQueue = queues.FirstOrDefault(q => q.Name == storageJob.Queue);
+
+                        if (targetQueue != null && targetQueue.IsPaused)
+                        {
+                            // Queue is paused! Put it back at the end of the line.
+                            await _queue.RequeueAsync(job, workerCt);
+
+                            // Sleep briefly to avoid hot-looping (consuming CPU while requeuing same job)
+                            await Task.Delay(1000, workerCt);
+                            continue;
+                        }
+
+                        var typeKey = job.GetType().Name;
+
+                        var payload = JsonSerializer.Serialize(job, job.GetType());
+
+                        await _processor.ProcessJobAsync(
+                            job.Id,
+                            typeKey,
+                            payload,
+                            workerId,
+                            workerCt
+                        );
+
                         if (workerCt.IsCancellationRequested) break;
                     }
                 }

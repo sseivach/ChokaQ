@@ -1,0 +1,47 @@
+﻿@page "/"
+@rendermode InteractiveServer
+
+<PageTitle>Pipe Launcher</PageTitle>
+
+<div class="container">
+    <div class="title-group">
+        <h1>🚀 Pipe Mode</h1>
+        <p class="subtitle">Raw objects -> Global Handler</p>
+    </div>
+
+    <div class="card">
+        <div class="form-group">
+            <label>Select Event Type</label>
+            <select class="input-control" @bind="_selectedType">
+                <option value="log">Fast Log (Text)</option>
+                <option value="metric">Metric (Sensor Data)</option>
+                <option value="heavy">Heavy Operation (Delay)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Count</label>
+            <input type="number" class="input-control" @bind="_count" min="1" max="1000" />
+        </div>
+
+        <button class="btn btn-primary" @onclick="Fire" disabled="@_isBusy">
+            @if (_isBusy)
+            {
+                <span>Sending...</span>
+            }
+            else
+            {
+                <span>🔥 Fire Into Pipe</span>
+            }
+        </button>
+
+        @if (_message != null)
+        {
+            <div class="alert alert-success">@_message</div>
+        }
+    </div>
+
+    <a href="/chokaq" target="_blank" class="btn btn-outline">
+        📊 Open Dashboard
+    </a>
+</div>

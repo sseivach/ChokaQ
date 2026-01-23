@@ -1,5 +1,6 @@
 ﻿using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Core.Execution;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Threading.Channels;
@@ -15,33 +16,30 @@ public class InMemoryQueue : IChokaQQueue
     private readonly Channel<IChokaQJob> _queue;
     private readonly IJobStorage _storage;
     private readonly IChokaQNotifier _notifier;
+    private readonly JobTypeRegistry _registry;
     private readonly ILogger<InMemoryQueue> _logger;
 
     public InMemoryQueue(
         IJobStorage storage,
         IChokaQNotifier notifier,
+        JobTypeRegistry registry,
         ILogger<InMemoryQueue> logger)
     {
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _notifier = notifier ?? throw new ArgumentNullException(nameof(notifier));
+        _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _logger = logger;
 
-        // Unbounded channel: Can accept any number of items.
-        // Good for high throughput, but watch out for memory usage in production.
         var options = new UnboundedChannelOptions
         {
-            SingleReader = false, // Multiple workers can read (Scalability ready)
-            SingleWriter = false  // Multiple threads can write (API ready)
+            SingleReader = false,
+            SingleWriter = false
         };
         _queue = Channel.CreateUnbounded<IChokaQJob>(options);
     }
 
-    /// <summary>
-    /// Exposes the reader side of the channel for consumers (Workers).
-    /// </summary>
     public ChannelReader<IChokaQJob> Reader => _queue.Reader;
 
-    /// <inheritdoc />
     public async Task EnqueueAsync<TJob>(
         TJob job,
         int priority = 10,
@@ -51,24 +49,26 @@ public class InMemoryQueue : IChokaQQueue
         CancellationToken ct = default) where TJob : IChokaQJob
     {
         // 1. Serialize payload for persistence
-        var payload = JsonSerializer.Serialize(job);
-        var jobTypeName = job.GetType().Name; // Get simple class name for UI
+        var payload = JsonSerializer.Serialize(job, job.GetType());
+
+        // [FIX] Resolve Key from Registry first. 
+        // If the user mapped this DTO in a Profile, use that Key.
+        // Otherwise, fall back to the Type Name.
+        var jobTypeName = _registry.GetKeyByType(job.GetType()) ?? job.GetType().Name;
 
         // 2. Persist to Storage (Status: Pending)
-        // We save BEFORE enqueueing to ensure data safety.
         await _storage.CreateJobAsync(
              id: job.Id,
              queue: queue,
-             jobType: job.GetType().AssemblyQualifiedName!,
+             jobType: jobTypeName, // <--- Correct mapped key (e.g. "system_test")
              payload: payload,
-             priority: priority,   // Pass priority
-             createdBy: createdBy, // Pass user
-             tags: tags,           // Pass tags
+             priority: priority,
+             createdBy: createdBy,
+             tags: tags,
              ct: ct
         );
 
         // 3. Real-time Notification
-        // We notify the UI immediately so the user sees the job in the "Pending" state.
         try
         {
             await _notifier.NotifyJobUpdatedAsync(
@@ -85,23 +85,15 @@ public class InMemoryQueue : IChokaQQueue
         }
         catch (Exception ex)
         {
-            // Logging warning only; we don't want to fail the job just because SignalR failed.
             _logger.LogWarning("Failed to notify UI about new job: {Message}", ex.Message);
         }
 
         // 4. Push to Channel
-        // This makes the job available for the Background Worker.
         await _queue.Writer.WriteAsync(job, ct);
     }
 
-    /// <summary>
-    /// Pushes a job back to the channel WITHOUT creating a new storage record.
-    /// Used for Retries.
-    /// </summary>
     public async ValueTask RequeueAsync(IChokaQJob job, CancellationToken ct = default)
     {
-        // Simply write to the channel.
-        // Storage already knows about this job.
         await _queue.Writer.WriteAsync(job, ct);
     }
 }

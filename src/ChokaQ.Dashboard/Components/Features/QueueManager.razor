@@ -1,9 +1,4 @@
-﻿@using ChokaQ.Abstractions
-@using ChokaQ.Abstractions.DTOs
-@using Microsoft.AspNetCore.SignalR.Client
-@inject IJobStorage Storage
-
-<div class="card cq-card shadow-sm mb-4">
+﻿<div class="card cq-card shadow-sm mb-4">
     <div class="card-header py-2 d-flex justify-content-between align-items-center"
          style="background-color: var(--cq-panel-bg); border-bottom: 1px solid var(--cq-border);">
         <div class="d-flex align-items-center gap-2">
@@ -18,7 +13,8 @@
 
         @if (_hiddenQueues.Any())
         {
-            <button class="btn btn-sm btn-link text-decoration-none small p-0" style="font-size: 0.75rem;" @onclick="ShowAllQueues">
+            <button class="btn btn-sm btn-link text-decoration-none small p-0"
+                    style="font-size: 0.75rem;" @onclick="ShowAllQueues">
                 Show Hidden (@_hiddenQueues.Count)
             </button>
         }
@@ -149,74 +145,3 @@
             background-color: var(--cq-panel-bg);
         }
 </style>
-
-@code {
-    [Parameter] public HubConnection? HubConnection { get; set; }
-    private List<QueueDto> _queues = new();
-    private HashSet<string> _hiddenQueues = new();
-    private IEnumerable<QueueDto> _visibleQueues => _queues.Where(q => !_hiddenQueues.Contains(q.Name));
-    private System.Threading.Timer? _timer;
-    private bool _isLoading = true;
-
-    protected override void OnInitialized()
-    {
-        _timer = new System.Threading.Timer(async _ => await Refresh(), null, 0, 2000);
-    }
-
-    private async Task Refresh()
-    {
-        try
-        {
-            _queues = (await Storage.GetQueuesAsync()).ToList();
-            _isLoading = false;
-
-            // Auto-unhide active queues
-            foreach (var q in _queues)
-            {
-                if ((q.PendingCount > 0 || q.ProcessingCount > 0) && _hiddenQueues.Contains(q.Name))
-                {
-                    _hiddenQueues.Remove(q.Name);
-                }
-            }
-
-            await InvokeAsync(StateHasChanged);
-        }
-        catch (Exception ex)
-        {
-            _isLoading = false;
-            // Silent catch is better for UI polling, errors are logged on backend
-        }
-    }
-
-    private async Task ToggleQueue(string name, bool isRunning)
-    {
-        var pause = !isRunning;
-        // Optimistic UI update
-        var q = _queues.FirstOrDefault(x => x.Name == name);
-        if (q != null) q = q with { IsPaused = pause };
-
-        if (HubConnection is not null)
-        {
-            await HubConnection.InvokeAsync("ToggleQueue", name, pause);
-            await Refresh();
-        }
-    }
-
-    private void HideQueue(string name) => _hiddenQueues.Add(name);
-    private void ShowAllQueues() => _hiddenQueues.Clear();
-
-    private string GetDuration(QueueDto q)
-    {
-        if (!q.FirstJobAtUtc.HasValue) return "-";
-
-        var end = q.LastJobAtUtc ?? DateTime.UtcNow;
-        if (q.PendingCount > 0 || q.ProcessingCount > 0) end = DateTime.UtcNow;
-
-        var span = end - q.FirstJobAtUtc.Value;
-
-        if (span.TotalHours >= 1) return span.ToString(@"hh\:mm\:ss");
-        return span.ToString(@"mm\:ss");
-    }
-
-    public void Dispose() => _timer?.Dispose();
-}

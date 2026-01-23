@@ -20,4 +20,16 @@ public class SqlJobStorageOptions
     /// Default: false.
     /// </summary>
     public bool AutoCreateSqlTable { get; set; } = false;
+
+    /// <summary>
+    /// The interval at which the worker polls the database for new jobs when queues are active.
+    /// Default: 1 second.
+    /// </summary>
+    public TimeSpan PollingInterval { get; set; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// The interval to sleep when no active queues are found.
+    /// Default: 5 seconds.
+    /// </summary>
+    public TimeSpan NoQueuesSleepInterval { get; set; } = TimeSpan.FromSeconds(5);
 }

@@ -1,7 +1,5 @@
-﻿@using ChokaQ.Dashboard.Models
-@using ChokaQ.Abstractions.Enums
-@using Microsoft.AspNetCore.SignalR.Client
-@using ChokaQ.Dashboard.Components
+﻿@using ChokaQ.Dashboard.Components.Shared
+@using ChokaQ.Dashboard.Models
 @using Microsoft.AspNetCore.Components.Web.Virtualization
 
 <StatsCard Jobs="Jobs" OnStatusSelected="SetStatusFilter" SelectedStatus="_activeStatusFilter" />
@@ -15,10 +13,10 @@
                 <span class="input-group-text" style="background-color: var(--cq-bg); border-color: var(--cq-border); color: var(--cq-text-muted);">
                     🔍
                 </span>
-                <input type="text" 
-                       class="form-control cq-input" 
-                       placeholder="Search by ID, Type or Content..." 
-                       @bind="_searchQuery" 
+                <input type="text"
+                       class="form-control cq-input"
+                       placeholder="Search by ID, Type or Content..."
+                       @bind="_searchQuery"
                        @bind:event="oninput" />
                 @if (!string.IsNullOrEmpty(_searchQuery))
                 {
@@ -28,7 +26,7 @@
         </div>
 
         <div class="d-flex gap-3 align-items-center ms-auto">
-             @if (SelectedCount > 0)
+            @if (SelectedCount > 0)
             {
                 <span class="badge bg-primary fade-in">
                     @SelectedCount selected
@@ -52,25 +50,26 @@
 
     @if (SelectedCount > 0)
     {
-        <div class="d-flex align-items-center gap-3 px-3 py-2 border-bottom" 
+        <div class="d-flex align-items-center gap-3 px-3 py-2 border-bottom"
              style="background-color: var(--cq-bg); border-color: var(--cq-border) !important; animation: slideDown 0.2s;">
             <span class="small fw-bold text-muted">BULK ACTIONS:</span>
-            
+
             <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-2" @onclick="RestartSelected">
                 🔄 Restart
             </button>
-            
+
             <button class="btn btn-sm btn-outline-danger d-flex align-items-center gap-2" @onclick="CancelSelected">
                 🛑 Cancel
             </button>
 
             <div class="d-flex align-items-center gap-1 ms-2 border-start ps-3" style="border-color: var(--cq-border) !important;">
                 <span class="small fw-bold text-muted">SET PRIORITY:</span>
-                <input type="number" class="form-control form-control-sm cq-input" style="width: 60px;" @bind="_bulkPriorityValue" />
+                <input type="number"
+                       class="form-control form-control-sm cq-input" style="width: 60px;" @bind="_bulkPriorityValue" />
                 <button class="btn btn-sm btn-outline-info" @onclick="SetPrioritySelected">Apply</button>
             </div>
 
-             <button class="btn btn-sm btn-link text-decoration-none text-muted ms-auto" @onclick="ClearSelection">
+            <button class="btn btn-sm btn-link text-decoration-none text-muted ms-auto" @onclick="ClearSelection">
                 Deselect All
             </button>
         </div>
@@ -81,8 +80,8 @@
             <thead style="position: sticky; top: 0; background-color: var(--cq-panel-bg); z-index: 10;">
                 <tr>
                     <th style="width: 40px;" class="text-center">
-                        <input type="checkbox" 
-                               class="form-check-input darker-border-checkbox" 
+                        <input type="checkbox"
+                               class="form-check-input darker-border-checkbox"
                                checked="@IsAllVisibleSelected"
                                @onchange="ToggleSelectAll" />
                     </th>
@@ -134,144 +133,3 @@
     @("@keyframes slideDown { from { transform: translateY(-10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }")
     .fade-in { animation: fadeIn 0.3s; }
 </style>
-
-@code {
-    [Parameter] public List<JobViewModel> Jobs { get; set; } = new();
-    [Parameter] public bool IsConnected { get; set; }
-    [Parameter] public EventCallback OnClearHistory { get; set; }
-    [Parameter] public HubConnection? HubConnection { get; set; }
-
-    private bool _isInspectorVisible;
-    private string? _selectedInspectorJobId;
-    
-    // Filtering State
-    private string _searchQuery = "";
-    private JobStatus? _activeStatusFilter = null; 
-
-    // Selection State
-    private HashSet<string> _selectedJobIds = new();
-    private int SelectedCount => _selectedJobIds.Count;
-    private int _bulkPriorityValue = 10; // Default bulk value
-
-    // Computed Filter Logic
-    private ICollection<JobViewModel> FilteredJobs
-    {
-        get
-        {
-            IEnumerable<JobViewModel> query = Jobs;
-
-            if (_activeStatusFilter.HasValue)
-            {
-                query = query.Where(x => x.Status == _activeStatusFilter.Value);
-            }
-
-            if (!string.IsNullOrWhiteSpace(_searchQuery))
-            {
-                var term = _searchQuery.Trim();
-                query = query.Where(x => 
-                    x.Id.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                    x.Type.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                    x.Queue.Contains(term, StringComparison.OrdinalIgnoreCase) || // Search queue
-                    (x.CreatedBy != null && x.CreatedBy.Contains(term, StringComparison.OrdinalIgnoreCase))
-                );
-            }
-
-            return query.ToList();
-        }
-    }
-
-    private void SetStatusFilter(JobStatus? status)
-    {
-        if (_activeStatusFilter == status)
-            _activeStatusFilter = null;
-        else
-            _activeStatusFilter = status;
-            
-        _selectedJobIds.Clear();
-    }
-
-    private void ToggleSelection(string jobId, bool isSelected)
-    {
-        if (isSelected) _selectedJobIds.Add(jobId);
-        else _selectedJobIds.Remove(jobId);
-    }
-
-    private bool IsAllVisibleSelected => FilteredJobs.Any() && FilteredJobs.All(j => _selectedJobIds.Contains(j.Id));
-
-    private void ToggleSelectAll(ChangeEventArgs e)
-    {
-        var isChecked = (bool)(e.Value ?? false);
-        if (isChecked)
-        {
-            foreach (var job in FilteredJobs) _selectedJobIds.Add(job.Id);
-        }
-        else
-        {
-            _selectedJobIds.Clear();
-        }
-    }
-
-    private void ClearSelection() => _selectedJobIds.Clear();
-
-    // --- ACTIONS ---
-
-    private async Task RestartSelected()
-    {
-        if (HubConnection is not null && IsConnected)
-        {
-            var toProcess = _selectedJobIds.ToList();
-            foreach (var id in toProcess) await HubConnection.InvokeAsync("RestartJob", id);
-            _selectedJobIds.Clear();
-        }
-    }
-
-    private async Task CancelSelected()
-    {
-        if (HubConnection is not null && IsConnected)
-        {
-            var toProcess = _selectedJobIds.ToList();
-            foreach (var id in toProcess) await HubConnection.InvokeAsync("CancelJob", id);
-            _selectedJobIds.Clear();
-        }
-    }
-
-    // [NEW] Bulk Priority Logic
-    private async Task SetPrioritySelected()
-    {
-        if (HubConnection is not null && IsConnected)
-        {
-            var toProcess = _selectedJobIds.ToList();
-            foreach (var id in toProcess) 
-            {
-                await HubConnection.InvokeAsync("SetPriority", id, _bulkPriorityValue);
-            }
-            _selectedJobIds.Clear();
-        }
-    }
-
-    // --- SINGLE ACTIONS ---
-    
-    private async Task HandleCancelRequest(string jobId)
-    {
-        if (HubConnection is not null && IsConnected)
-             await HubConnection.InvokeAsync("CancelJob", jobId);
-    }
-
-    private async Task HandleRestartRequest(string jobId)
-    {
-        if (HubConnection is not null && IsConnected)
-             await HubConnection.InvokeAsync("RestartJob", jobId);
-    }
-
-    private void OpenInspector(string jobId)
-    {
-        _selectedInspectorJobId = jobId;
-        _isInspectorVisible = true;
-    }
-
-    private Task HandleDeleteRequest(string jobId)
-    {
-        _isInspectorVisible = false;
-        return Task.CompletedTask;
-    }
-}
