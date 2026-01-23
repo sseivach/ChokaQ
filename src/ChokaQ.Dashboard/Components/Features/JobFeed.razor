@@ -1,131 +1,135 @@
-﻿@if (IsVisible && _job != null)
-{
-    <div class="inspector-backdrop" @onclick="Close"></div>
+﻿@using ChokaQ.Dashboard.Components.Shared
+@using ChokaQ.Dashboard.Models
+@using Microsoft.AspNetCore.Components.Web.Virtualization
 
-    <div class="inspector-panel">
+<StatsCard Jobs="Jobs" OnStatusSelected="SetStatusFilter" SelectedStatus="_activeStatusFilter" />
 
-        <div class="inspector-header">
-            <div class="inspector-title">
-                <h3>Job Inspector</h3>
-                <div class="inspector-subtitle">
-                    <span style="color: var(--cq-info); font-weight: bold; margin-right: 8px;">GUID:</span>
-                    <span style="user-select: all;">@_job.Id</span>
-                </div>
+<div class="card cq-card shadow-sm h-100 d-flex flex-column mt-4">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center"
+         style="background-color: var(--cq-panel-bg); border-bottom: 1px solid var(--cq-border);">
+
+        <div class="d-flex align-items-center gap-2" style="flex: 1; max-width: 400px;">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text" style="background-color: var(--cq-bg); border-color: var(--cq-border); color: var(--cq-text-muted);">
+                    🔍
+                </span>
+                <input type="text"
+                       class="form-control cq-input"
+                       placeholder="Search by ID, Type or Content..."
+                       @bind="_searchQuery"
+                       @bind:event="oninput" />
+                @if (!string.IsNullOrEmpty(_searchQuery))
+                {
+                    <button class="btn btn-outline-secondary" type="button" @onclick="() => _searchQuery = string.Empty">✖</button>
+                }
             </div>
-
-            <button class="btn-icon" @onclick="Close" title="Close Panel">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
-                    <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z" />
-                </svg>
-            </button>
         </div>
 
-        <div class="inspector-body">
-
-            <div class="inspector-section">
-                <div class="d-flex align-items-center justify-content-between p-3 rounded border"
-                     style="background-color: var(--cq-bg); border-color: var(--cq-border) !important;">
-                    <div>
-                        <div class="section-title" style="margin-bottom: 0;">Current Status</div>
-                        <div class="fs-5 fw-bold mt-1" style="color: @GetStatusColor()">
-                            @_job.Status.ToString().ToUpper()
-                        </div>
-                    </div>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="@GetStatusColor()" viewBox="0 0 16 16" style="opacity: 0.8;">
-                        <path fill-rule="evenodd" d="M6 2a.5.5 0 0 1 .47.33L10 12.036l1.53-4.208A.5.5 0 0 1 12 7.5h3.5a.5.5 0 0 1 0 1h-3.15l-1.88 5.17a.5.5 0 0 1-.94 0L6 3.964 4.47 8.171A.5.5 0 0 1 4 8.5H.5a.5.5 0 0 1 0-1h3.15l1.88-5.17A.5.5 0 0 1 6 2Z" />
-                    </svg>
-                </div>
-            </div>
-
-            <div class="inspector-section">
-                <div class="section-title">Job Metadata</div>
-                <ul class="meta-list">
-                    <li>
-                        <span class="meta-label">Job Type</span>
-                        <span class="meta-value text-break" style="max-width: 60%; text-align: right;">@_job.Type</span>
-                    </li>
-                    <li>
-                        <span class="meta-label">Target Queue</span>
-                        <span class="meta-value">@_job.Queue</span>
-                    </li>
-                    <li>
-                        <span class="meta-label">Priority</span>
-                        <span class="meta-value">@_job.Priority</span>
-                    </li>
-                    <li>
-                        <span class="meta-label">Created By</span>
-                        <span class="meta-value">@(_job.CreatedBy ?? "-")</span>
-                    </li>
-                </ul>
-            </div>
-
-            <div class="inspector-section">
-                <div class="section-title">Execution Timeline</div>
-                <ul class="meta-list">
-                    <li>
-                        <span class="meta-label">Created At</span>
-                        <span class="meta-value">@_job.CreatedAtUtc.ToLocalTime().ToString("G")</span>
-                    </li>
-                    @if (_job.StartedAtUtc.HasValue)
-                    {
-                        <li>
-                            <span class="meta-label">Started At</span>
-                            <span class="meta-value">@_job.StartedAtUtc.Value.ToLocalTime().ToString("G")</span>
-                        </li>
-                    }
-                    @if (_job.FinishedAtUtc.HasValue)
-                    {
-                        <li>
-                            <span class="meta-label">Finished At</span>
-                            <span class="meta-value">@_job.FinishedAtUtc.Value.ToLocalTime().ToString("G")</span>
-                        </li>
-                    }
-                    <li>
-                        <span class="meta-label">Retry Attempts</span>
-                        <span class="meta-value">@_job.AttemptCount</span>
-                    </li>
-                </ul>
-            </div>
-
-            @if (!string.IsNullOrEmpty(_job.ErrorDetails))
+        <div class="d-flex gap-3 align-items-center ms-auto">
+            @if (SelectedCount > 0)
             {
-                <div class="inspector-section">
-                    <div class="section-title text-danger">Exception Stack Trace</div>
-                    <div class="code-block error">
-                        @_job.ErrorDetails
-                    </div>
-                </div>
+                <span class="badge bg-primary fade-in">
+                    @SelectedCount selected
+                </span>
             }
 
-            <div class="inspector-section">
-                <div class="section-title">Payload Data</div>
-                <div class="code-block">
-                    @PrettyPrintJson(_job.Payload)
-                </div>
-            </div>
-
-        </div>
-
-        <div class="inspector-footer">
-            @if (CanRequeue)
+            @if (IsConnected)
             {
-                <button class="btn-action btn-primary-action" @onclick="() => OnRestart.InvokeAsync(_job.Id)">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                        <path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z" />
-                        <path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3M3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9z" />
-                    </svg>
-                    Requeue Job
-                </button>
+                <span class="small fw-bold" style="color: var(--cq-success)">ONLINE</span>
+            }
+            else
+            {
+                <span class="small fw-bold" style="color: var(--cq-danger)">OFFLINE</span>
             }
 
-            <button class="btn-action btn-danger-action" @onclick="() => OnDelete.InvokeAsync(_job.Id)">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                    <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z" />
-                    <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z" />
-                </svg>
-                Delete
+            <button class="btn btn-sm btn-outline-secondary" @onclick="OnClearHistory">
+                Clear
             </button>
         </div>
-
     </div>
-}
+
+    @if (SelectedCount > 0)
+    {
+        <div class="d-flex align-items-center gap-3 px-3 py-2 border-bottom"
+             style="background-color: var(--cq-bg); border-color: var(--cq-border) !important; animation: slideDown 0.2s;">
+            <span class="small fw-bold text-muted">BULK ACTIONS:</span>
+
+            <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-2" @onclick="RestartSelected">
+                🔄 Restart
+            </button>
+
+            <button class="btn btn-sm btn-outline-danger d-flex align-items-center gap-2" @onclick="CancelSelected">
+                🛑 Cancel
+            </button>
+
+            <div class="d-flex align-items-center gap-1 ms-2 border-start ps-3" style="border-color: var(--cq-border) !important;">
+                <span class="small fw-bold text-muted">SET PRIORITY:</span>
+                <input type="number"
+                       class="form-control form-control-sm cq-input" style="width: 60px;" @bind="_bulkPriorityValue" />
+                <button class="btn btn-sm btn-outline-info" @onclick="SetPrioritySelected">Apply</button>
+            </div>
+
+            <button class="btn btn-sm btn-link text-decoration-none text-muted ms-auto" @onclick="ClearSelection">
+                Deselect All
+            </button>
+        </div>
+    }
+
+    <div class="table-responsive flex-grow-1" style="min-height: 400px; height: 600px; overflow-y: auto;">
+        <table class="cq-table">
+            <thead style="position: sticky; top: 0; background-color: var(--cq-panel-bg); z-index: 10;">
+                <tr>
+                    <th style="width: 40px;" class="text-center">
+                        <input type="checkbox"
+                               class="form-check-input darker-border-checkbox"
+                               checked="@IsAllVisibleSelected"
+                               @onchange="ToggleSelectAll" />
+                    </th>
+                    <th style="width: 15%">ID</th>
+                    <th style="width: 10%">Queue</th>
+                    <th style="width: 15%">Type</th>
+                    <th style="width: 5%" class="text-center">Pri</th>
+                    <th style="width: 10%">User</th>
+                    <th style="width: 10%">Status</th>
+                    <th style="width: 15%">Progress</th>
+                    <th style="width: 5%">Att.</th>
+                    <th style="width: 5%">Duration</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <Virtualize Items="@FilteredJobs" Context="job" OverscanCount="10" ItemSize="42">
+                    <ItemContent>
+                        <JobRow @key="job.Id"
+                                Job="job"
+                                IsSelected="@_selectedJobIds.Contains(job.Id)"
+                                OnSelectionChanged="@(isSelected => ToggleSelection(job.Id, isSelected))"
+                                OnCancelRequested="HandleCancelRequest"
+                                OnRestartRequested="HandleRestartRequest"
+                                OnSelected="OpenInspector" />
+                    </ItemContent>
+                    <Placeholder>
+                        <tr><td colspan="12" class="text-center py-2 text-muted">Loading...</td></tr>
+                    </Placeholder>
+                    <EmptyContent>
+                        <tr>
+                            <td colspan="12" class="text-center py-5" style="color: var(--cq-text-muted)">
+                                <span>No jobs found.</span>
+                            </td>
+                        </tr>
+                    </EmptyContent>
+                </Virtualize>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<JobInspector @bind-IsVisible="_isInspectorVisible"
+              JobId="@_selectedInspectorJobId"
+              OnRestart="HandleRestartRequest"
+              OnDelete="HandleDeleteRequest" />
+
+<style>
+    @("@keyframes slideDown { from { transform: translateY(-10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }")
+    .fade-in { animation: fadeIn 0.3s; }
+</style>

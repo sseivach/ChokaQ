@@ -1,9 +1,3 @@
-@using ChokaQ.Abstractions
-@using ChokaQ.Abstractions.DTOs
-@using ChokaQ.Abstractions.Enums
-@using System.Text.Json
-@inject IJobStorage JobStorage
-
 @if (IsVisible && _job != null)
 {
     <div class="inspector-backdrop" @onclick="Close"></div>
@@ -29,7 +23,8 @@
         <div class="inspector-body">
 
             <div class="inspector-section">
-                <div class="d-flex align-items-center justify-content-between p-3 rounded border" style="background-color: var(--cq-bg); border-color: var(--cq-border) !important;">
+                <div class="d-flex align-items-center justify-content-between p-3 rounded border"
+                     style="background-color: var(--cq-bg); border-color: var(--cq-border) !important;">
                     <div>
                         <div class="section-title" style="margin-bottom: 0;">Current Status</div>
                         <div class="fs-5 fw-bold mt-1" style="color: @GetStatusColor()">
@@ -43,9 +38,7 @@
             </div>
 
             <div class="inspector-section">
-                <div class="section-title">
-                    Job Metadata
-                </div>
+                <div class="section-title">Job Metadata</div>
                 <ul class="meta-list">
                     <li>
                         <span class="meta-label">Job Type</span>
@@ -67,9 +60,7 @@
             </div>
 
             <div class="inspector-section">
-                <div class="section-title">
-                    Execution Timeline
-                </div>
+                <div class="section-title">Execution Timeline</div>
                 <ul class="meta-list">
                     <li>
                         <span class="meta-label">Created At</span>
@@ -99,9 +90,7 @@
             @if (!string.IsNullOrEmpty(_job.ErrorDetails))
             {
                 <div class="inspector-section">
-                    <div class="section-title text-danger">
-                        Exception Stack Trace
-                    </div>
+                    <div class="section-title text-danger">Exception Stack Trace</div>
                     <div class="code-block error">
                         @_job.ErrorDetails
                     </div>
@@ -109,9 +98,7 @@
             }
 
             <div class="inspector-section">
-                <div class="section-title">
-                    Payload Data
-                </div>
+                <div class="section-title">Payload Data</div>
                 <div class="code-block">
                     @PrettyPrintJson(_job.Payload)
                 </div>
@@ -139,65 +126,6 @@
                 Delete
             </button>
         </div>
+
     </div>
-}
-
-@code {
-    [Parameter] public bool IsVisible { get; set; }
-    [Parameter] public string? JobId { get; set; }
-    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
-    [Parameter] public EventCallback<string> OnRestart { get; set; }
-    [Parameter] public EventCallback<string> OnDelete { get; set; }
-
-    private JobStorageDto? _job;
-
-    private bool CanRequeue => _job?.Status == JobStatus.Failed ||
-                               _job?.Status == JobStatus.Cancelled ||
-                               _job?.Status == JobStatus.Succeeded;
-
-    protected override async Task OnParametersSetAsync()
-    {
-        if (IsVisible && !string.IsNullOrEmpty(JobId))
-        {
-            // Simple caching: only fetch if ID changed
-            if (_job?.Id != JobId)
-            {
-                _job = await JobStorage.GetJobAsync(JobId);
-                StateHasChanged();
-            }
-        }
-    }
-
-    private async Task Close()
-    {
-        IsVisible = false;
-        _job = null;
-        await IsVisibleChanged.InvokeAsync(false);
-    }
-
-    private string GetStatusColor()
-    {
-        return _job?.Status switch
-        {
-            JobStatus.Failed => "var(--cq-danger)",
-            JobStatus.Succeeded => "var(--cq-success)",
-            JobStatus.Processing => "var(--cq-warning)",
-            JobStatus.Cancelled => "var(--cq-text-muted)",
-            _ => "var(--cq-info)"
-        };
-    }
-
-    private string PrettyPrintJson(string json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return "{}";
-        try
-        {
-            var doc = JsonDocument.Parse(json);
-            return JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
-        }
-        catch
-        {
-            return json;
-        }
-    }
 }

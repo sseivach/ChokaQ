@@ -1,70 +1,147 @@
-﻿using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.DTOs;
-using ChokaQ.Abstractions.Enums;
+﻿using ChokaQ.Abstractions.Enums;
+using ChokaQ.Dashboard.Models;
 using Microsoft.AspNetCore.Components;
-using System.Text.Json;
+using Microsoft.AspNetCore.SignalR.Client;
 
 namespace ChokaQ.Dashboard.Components.Features;
 
-public partial class JobInspector
+public partial class JobFeed
 {
-    [Inject] public IJobStorage JobStorage { get; set; } = default!;
+    [Parameter] public List<JobViewModel> Jobs { get; set; } = new();
+    [Parameter] public bool IsConnected { get; set; }
+    [Parameter] public EventCallback OnClearHistory { get; set; }
+    [Parameter] public HubConnection? HubConnection { get; set; }
 
-    [Parameter] public bool IsVisible { get; set; }
-    [Parameter] public string? JobId { get; set; }
-    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
-    [Parameter] public EventCallback<string> OnRestart { get; set; }
-    [Parameter] public EventCallback<string> OnDelete { get; set; }
+    private bool _isInspectorVisible;
+    private string? _selectedInspectorJobId;
 
-    private JobStorageDto? _job;
+    // Filtering State
+    private string _searchQuery = "";
+    private JobStatus? _activeStatusFilter = null;
 
-    private bool CanRequeue => _job?.Status == JobStatus.Failed ||
-                               _job?.Status == JobStatus.Cancelled ||
-                               _job?.Status == JobStatus.Succeeded;
+    // Selection State
+    private HashSet<string> _selectedJobIds = new();
+    private int SelectedCount => _selectedJobIds.Count;
+    private int _bulkPriorityValue = 10;
 
-    protected override async Task OnParametersSetAsync()
+    // Computed Filter Logic
+    private ICollection<JobViewModel> FilteredJobs
     {
-        if (IsVisible && !string.IsNullOrEmpty(JobId))
+        get
         {
-            // Simple caching: only fetch if ID changed
-            if (_job?.Id != JobId)
+            IEnumerable<JobViewModel> query = Jobs;
+
+            if (_activeStatusFilter.HasValue)
             {
-                _job = await JobStorage.GetJobAsync(JobId);
-                StateHasChanged();
+                query = query.Where(x => x.Status == _activeStatusFilter.Value);
             }
+
+            if (!string.IsNullOrWhiteSpace(_searchQuery))
+            {
+                var term = _searchQuery.Trim();
+                query = query.Where(x =>
+                    x.Id.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    x.Type.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    x.Queue.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    (x.CreatedBy != null && x.CreatedBy.Contains(term, StringComparison.OrdinalIgnoreCase))
+                );
+            }
+
+            return query.ToList();
         }
     }
 
-    private async Task Close()
+    private void SetStatusFilter(JobStatus? status)
     {
-        IsVisible = false;
-        _job = null;
-        await IsVisibleChanged.InvokeAsync(false);
+        if (_activeStatusFilter == status)
+            _activeStatusFilter = null;
+        else
+            _activeStatusFilter = status;
+
+        _selectedJobIds.Clear();
     }
 
-    private string GetStatusColor()
+    private void ToggleSelection(string jobId, bool isSelected)
     {
-        return _job?.Status switch
-        {
-            JobStatus.Failed => "var(--cq-danger)",
-            JobStatus.Succeeded => "var(--cq-success)",
-            JobStatus.Processing => "var(--cq-warning)",
-            JobStatus.Cancelled => "var(--cq-text-muted)",
-            _ => "var(--cq-info)"
-        };
+        if (isSelected) _selectedJobIds.Add(jobId);
+        else _selectedJobIds.Remove(jobId);
     }
 
-    private string PrettyPrintJson(string json)
+    private bool IsAllVisibleSelected => FilteredJobs.Any() && FilteredJobs.All(j => _selectedJobIds.Contains(j.Id));
+
+    private void ToggleSelectAll(ChangeEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(json)) return "{}";
-        try
+        var isChecked = (bool)(e.Value ?? false);
+        if (isChecked)
         {
-            var doc = JsonDocument.Parse(json);
-            return JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
+            foreach (var job in FilteredJobs) _selectedJobIds.Add(job.Id);
         }
-        catch
+        else
         {
-            return json;
+            _selectedJobIds.Clear();
         }
+    }
+
+    private void ClearSelection() => _selectedJobIds.Clear();
+
+    // --- ACTIONS ---
+
+    private async Task RestartSelected()
+    {
+        if (HubConnection is not null && IsConnected)
+        {
+            var toProcess = _selectedJobIds.ToList();
+            foreach (var id in toProcess) await HubConnection.InvokeAsync("RestartJob", id);
+            _selectedJobIds.Clear();
+        }
+    }
+
+    private async Task CancelSelected()
+    {
+        if (HubConnection is not null && IsConnected)
+        {
+            var toProcess = _selectedJobIds.ToList();
+            foreach (var id in toProcess) await HubConnection.InvokeAsync("CancelJob", id);
+            _selectedJobIds.Clear();
+        }
+    }
+
+    private async Task SetPrioritySelected()
+    {
+        if (HubConnection is not null && IsConnected)
+        {
+            var toProcess = _selectedJobIds.ToList();
+            foreach (var id in toProcess)
+            {
+                await HubConnection.InvokeAsync("SetPriority", id, _bulkPriorityValue);
+            }
+            _selectedJobIds.Clear();
+        }
+    }
+
+    // --- SINGLE ACTIONS ---
+
+    private async Task HandleCancelRequest(string jobId)
+    {
+        if (HubConnection is not null && IsConnected)
+            await HubConnection.InvokeAsync("CancelJob", jobId);
+    }
+
+    private async Task HandleRestartRequest(string jobId)
+    {
+        if (HubConnection is not null && IsConnected)
+            await HubConnection.InvokeAsync("RestartJob", jobId);
+    }
+
+    private void OpenInspector(string jobId)
+    {
+        _selectedInspectorJobId = jobId;
+        _isInspectorVisible = true;
+    }
+
+    private Task HandleDeleteRequest(string jobId)
+    {
+        _isInspectorVisible = false;
+        return Task.CompletedTask;
     }
 }
