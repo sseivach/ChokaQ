@@ -1,36 +1,34 @@
 ﻿using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
-using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 
 namespace ChokaQ.Core.Defaults;
 
-/// <summary>
-/// In-memory implementation of IJobStorage.
-/// Useful for testing and development, but not recommended for production
-/// as data is lost when the application restarts.
-/// </summary>
 public class InMemoryJobStorage : IJobStorage
 {
+    private readonly int _maxCapacity;
+
+    // Using ConcurrentDictionary for thread safety
     private readonly ConcurrentDictionary<string, JobStorageDto> _jobs = new();
 
-    // Stores the paused state of queues: Key = QueueName, Value = IsPaused
-    private readonly ConcurrentDictionary<string, bool> _queueStates = new();
+    // Internal state for queues (Pause status etc)
+    private readonly ConcurrentDictionary<string, QueueInfo> _queues = new();
 
-    private readonly ILogger<InMemoryJobStorage> _logger;
-    private readonly TimeProvider _timeProvider;
-
-    public InMemoryJobStorage(ILogger<InMemoryJobStorage> logger, TimeProvider timeProvider)
+    public InMemoryJobStorage(InMemoryStorageOptions options)
     {
-        _logger = logger;
-        _timeProvider = timeProvider;
+        _maxCapacity = options.MaxCapacity;
 
-        // Ensure default queue exists and is running
-        _queueStates.TryAdd("default", false);
+        // Initialize default queue
+        _queues.TryAdd("default", new QueueInfo("default"));
     }
 
-    /// <inheritdoc />
+    public ValueTask<JobStorageDto?> GetJobAsync(string jobId, CancellationToken ct = default)
+    {
+        _jobs.TryGetValue(jobId, out var job);
+        return new ValueTask<JobStorageDto?>(job);
+    }
+
     public ValueTask<string> CreateJobAsync(
         string id,
         string queue,
@@ -43,10 +41,8 @@ public class InMemoryJobStorage : IJobStorage
         string? idempotencyKey = null,
         CancellationToken ct = default)
     {
-        var now = _timeProvider.GetUtcNow().UtcDateTime;
-        DateTime? scheduledAt = delay.HasValue ? now.Add(delay.Value) : null;
-
-        var job = new JobStorageDto(
+        // 1. Create DTO using positional record constructor
+        var jobDto = new JobStorageDto(
             Id: id,
             Queue: queue,
             Type: jobType,
@@ -54,199 +50,196 @@ public class InMemoryJobStorage : IJobStorage
             Status: JobStatus.Pending,
             AttemptCount: 0,
             Priority: priority,
-            ScheduledAtUtc: scheduledAt,
+            ScheduledAtUtc: delay.HasValue ? DateTime.UtcNow.Add(delay.Value) : null,
             Tags: tags,
             IdempotencyKey: idempotencyKey,
             WorkerId: null,
             ErrorDetails: null,
             CreatedBy: createdBy,
-            CreatedAtUtc: now,
+            CreatedAtUtc: DateTime.UtcNow,
             StartedAtUtc: null,
             FinishedAtUtc: null,
-            LastUpdatedUtc: now
+            LastUpdatedUtc: DateTime.UtcNow
         );
 
-        if (_jobs.TryAdd(id, job))
+        // 2. Save with eviction policy
+        SaveJobInternal(jobDto);
+
+        return new ValueTask<string>(id);
+    }
+
+    private void SaveJobInternal(JobStorageDto job)
+    {
+        // SMART EVICTION POLICY
+        if (_jobs.Count >= _maxCapacity)
         {
-            // Ensure queue is tracked
-            _queueStates.TryAdd(queue, false);
-            return new ValueTask<string>(id);
+            // A. Remove finished jobs first
+            var jobsToRemove = _jobs.Values
+                .Where(x => x.Status == JobStatus.Succeeded || x.Status == JobStatus.Failed || x.Status == JobStatus.Cancelled)
+                .OrderBy(x => x.CreatedAtUtc)
+                .Take(1000)
+                .Select(x => x.Id)
+                .ToList();
+
+            foreach (var id in jobsToRemove) _jobs.TryRemove(id, out _);
+
+            // B. If still full, remove oldest ANY jobs
+            if (_jobs.Count >= _maxCapacity)
+            {
+                var oldest = _jobs.Values
+                    .OrderBy(x => x.CreatedAtUtc)
+                    .Take(100)
+                    .Select(x => x.Id);
+
+                foreach (var id in oldest) _jobs.TryRemove(id, out _);
+            }
         }
 
-        var ex = new InvalidOperationException($"Job ID collision detected: {id}");
-        _logger.LogError(ex, "Failed to create job in memory.");
-        throw ex;
-    }
+        _jobs[job.Id] = job;
 
-    /// <inheritdoc />
-    public ValueTask<JobStorageDto?> GetJobAsync(string id, CancellationToken ct = default)
-    {
-        _jobs.TryGetValue(id, out var job);
-        return new ValueTask<JobStorageDto?>(job);
-    }
-
-    /// <inheritdoc />
-    public ValueTask<bool> UpdateJobStateAsync(string id, JobStatus status, CancellationToken ct = default)
-    {
-        if (!_jobs.TryGetValue(id, out var existing)) return new ValueTask<bool>(false);
-
-        var now = _timeProvider.GetUtcNow().UtcDateTime;
-
-        var updated = existing with
+        // Ensure queue is registered
+        if (!_queues.ContainsKey(job.Queue))
         {
-            Status = status,
-            LastUpdatedUtc = now,
-            FinishedAtUtc = (status == JobStatus.Succeeded || status == JobStatus.Failed || status == JobStatus.Cancelled)
-                ? now
-                : existing.FinishedAtUtc
-        };
-
-        return new ValueTask<bool>(_jobs.TryUpdate(id, updated, existing));
+            _queues.TryAdd(job.Queue, new QueueInfo(job.Queue));
+        }
     }
 
-    /// <inheritdoc />
-    public ValueTask<bool> IncrementJobAttemptAsync(string id, int newAttemptCount, CancellationToken ct = default)
+    public ValueTask<bool> UpdateJobStateAsync(string jobId, JobStatus status, CancellationToken ct = default)
     {
-        if (!_jobs.TryGetValue(id, out var existing)) return new ValueTask<bool>(false);
-
-        var updated = existing with
+        if (_jobs.TryGetValue(jobId, out var job))
         {
-            AttemptCount = newAttemptCount,
-            LastUpdatedUtc = _timeProvider.GetUtcNow().UtcDateTime
-        };
+            // Records are immutable, use 'with' to create a copy
+            var updatedJob = job with
+            {
+                Status = status,
+                StartedAtUtc = status == JobStatus.Processing ? DateTime.UtcNow : job.StartedAtUtc,
+                FinishedAtUtc = (status == JobStatus.Succeeded || status == JobStatus.Failed || status == JobStatus.Cancelled) ? DateTime.UtcNow : job.FinishedAtUtc,
+                LastUpdatedUtc = DateTime.UtcNow
+            };
 
-        return new ValueTask<bool>(_jobs.TryUpdate(id, updated, existing));
+            _jobs[jobId] = updatedJob;
+            return new ValueTask<bool>(true);
+        }
+        return new ValueTask<bool>(false);
     }
 
-    /// <inheritdoc />
-    public ValueTask<IEnumerable<JobStorageDto>> GetJobsAsync(int limit = 50, CancellationToken ct = default)
+    public ValueTask UpdateJobPriorityAsync(string jobId, int priority, CancellationToken ct = default)
     {
-        var items = _jobs.Values.OrderByDescending(x => x.CreatedAtUtc).Take(limit);
-        return new ValueTask<IEnumerable<JobStorageDto>>(items);
+        if (_jobs.TryGetValue(jobId, out var job))
+        {
+            var updatedJob = job with { Priority = priority, LastUpdatedUtc = DateTime.UtcNow };
+            _jobs[jobId] = updatedJob;
+        }
+        return ValueTask.CompletedTask;
     }
 
-    /// <inheritdoc />
-    public ValueTask<IEnumerable<JobStorageDto>> FetchAndLockNextBatchAsync(
-        string workerId,
-        int limit,
-        string[]? allowedQueues,
-        CancellationToken ct = default)
+    public ValueTask<bool> IncrementJobAttemptAsync(string jobId, int attemptCount, CancellationToken ct = default)
     {
-        var now = _timeProvider.GetUtcNow().UtcDateTime;
-        var lockedJobs = new List<JobStorageDto>();
+        if (_jobs.TryGetValue(jobId, out var job))
+        {
+            var updatedJob = job with { AttemptCount = attemptCount, LastUpdatedUtc = DateTime.UtcNow };
+            _jobs[jobId] = updatedJob;
+            return new ValueTask<bool>(true);
+        }
+        return new ValueTask<bool>(false);
+    }
 
-        // Convert array to HashSet for O(1) lookups
-        var allowedSet = allowedQueues != null
-            ? new HashSet<string>(allowedQueues)
-            : new HashSet<string>();
-
-        if (allowedSet.Count == 0) return new ValueTask<IEnumerable<JobStorageDto>>(lockedJobs);
-
-        var candidates = _jobs.Values
+    public ValueTask<IEnumerable<JobStorageDto>> FetchAndLockNextBatchAsync(string workerId, int limit, string[]? allowedQueues, CancellationToken ct = default)
+    {
+        // Filter jobs
+        var batch = _jobs.Values
             .Where(j => j.Status == JobStatus.Pending &&
-                        (!j.ScheduledAtUtc.HasValue || j.ScheduledAtUtc <= now) &&
-                        allowedSet.Contains(j.Queue))
+                        (allowedQueues == null || allowedQueues.Contains(j.Queue)) &&
+                        (!j.ScheduledAtUtc.HasValue || j.ScheduledAtUtc <= DateTime.UtcNow))
             .OrderByDescending(j => j.Priority)
-            .ThenBy(j => j.ScheduledAtUtc)
             .ThenBy(j => j.CreatedAtUtc)
             .Take(limit)
             .ToList();
 
-        foreach (var job in candidates)
+        var lockedJobs = new List<JobStorageDto>();
+
+        foreach (var job in batch)
         {
-            var updated = job with
+            // Lock logic (simulate transaction)
+            var processingJob = job with
             {
                 Status = JobStatus.Processing,
                 WorkerId = workerId,
-                StartedAtUtc = now,
-                LastUpdatedUtc = now,
+                StartedAtUtc = DateTime.UtcNow,
+                LastUpdatedUtc = DateTime.UtcNow,
                 AttemptCount = job.AttemptCount + 1
             };
 
-            if (_jobs.TryUpdate(job.Id, updated, job))
+            if (_jobs.TryUpdate(job.Id, processingJob, job))
             {
-                lockedJobs.Add(updated);
+                lockedJobs.Add(processingJob);
             }
         }
 
         return new ValueTask<IEnumerable<JobStorageDto>>(lockedJobs);
     }
 
-    /// <summary>
-    /// In-Memory implementation of Queue Management with full statistics.
-    /// Calculates stats on the fly from the dictionary.
-    /// </summary>
+    public ValueTask<IEnumerable<JobStorageDto>> GetJobsAsync(int limit, CancellationToken ct = default)
+    {
+        var result = _jobs.Values
+            .OrderByDescending(j => j.CreatedAtUtc)
+            .Take(limit);
+
+        return new ValueTask<IEnumerable<JobStorageDto>>(result);
+    }
+
     public ValueTask<IEnumerable<QueueDto>> GetQueuesAsync(CancellationToken ct = default)
     {
-        // 1. Identify all known queues (from jobs + explicitly tracked)
-        var queueNames = _jobs.Values.Select(j => j.Queue)
-            .Union(_queueStates.Keys)
-            .Distinct()
+        // Aggregate stats
+        var stats = _jobs.Values
+            .GroupBy(j => j.Queue)
+            .Select(g => new QueueDto(
+                Name: g.Key,
+                IsPaused: _queues.TryGetValue(g.Key, out var q) && q.IsPaused,
+                PendingCount: g.Count(j => j.Status == JobStatus.Pending),
+                ProcessingCount: g.Count(j => j.Status == JobStatus.Processing),
+                FailedCount: g.Count(j => j.Status == JobStatus.Failed),
+                SucceededCount: g.Count(j => j.Status == JobStatus.Succeeded),
+                FirstJobAtUtc: g.Min(j => j.StartedAtUtc),
+                LastJobAtUtc: g.Max(j => j.FinishedAtUtc)
+            ))
             .ToList();
 
-        var result = new List<QueueDto>();
-
-        foreach (var qName in queueNames)
+        // Add empty queues
+        foreach (var q in _queues.Values)
         {
-            // Ensure state is tracked
-            _queueStates.TryGetValue(qName, out bool isPaused);
-
-            // Filter jobs for this queue once
-            var queueJobs = _jobs.Values.Where(j => j.Queue == qName).ToList();
-
-            // Calculate aggregates
-            var pending = queueJobs.Count(j => j.Status == JobStatus.Pending);
-            var processing = queueJobs.Count(j => j.Status == JobStatus.Processing);
-            var failed = queueJobs.Count(j => j.Status == JobStatus.Failed);
-            var succeeded = queueJobs.Count(j => j.Status == JobStatus.Succeeded); // <--- NEW
-
-            // Calculate timestamps
-            var firstJob = queueJobs
-                .Where(j => j.StartedAtUtc.HasValue)
-                .OrderBy(j => j.StartedAtUtc)
-                .Select(j => j.StartedAtUtc)
-                .FirstOrDefault();
-
-            var lastJob = queueJobs
-                .Where(j => j.FinishedAtUtc.HasValue)
-                .OrderByDescending(j => j.FinishedAtUtc)
-                .Select(j => j.FinishedAtUtc)
-                .FirstOrDefault();
-
-            result.Add(new QueueDto(
-                qName,
-                isPaused,
-                pending,
-                processing,
-                failed,
-                succeeded,
-                firstJob,
-                lastJob
-            ));
+            if (!stats.Any(s => s.Name == q.Name))
+            {
+                stats.Add(new QueueDto(q.Name, q.IsPaused, 0, 0, 0, 0, null, null));
+            }
         }
 
-        return new ValueTask<IEnumerable<QueueDto>>(result);
+        return new ValueTask<IEnumerable<QueueDto>>(stats);
     }
 
-    /// <inheritdoc />
+    // Implements IJobStorage.SetQueueStateAsync
     public ValueTask SetQueueStateAsync(string queueName, bool isPaused, CancellationToken ct = default)
     {
-        _queueStates.AddOrUpdate(queueName, isPaused, (key, oldValue) => isPaused);
+        _queues.AddOrUpdate(queueName,
+            new QueueInfo(queueName) { IsPaused = isPaused, LastUpdatedUtc = DateTime.UtcNow },
+            (key, old) => { old.IsPaused = isPaused; old.LastUpdatedUtc = DateTime.UtcNow; return old; });
+
         return ValueTask.CompletedTask;
     }
 
-    /// <inheritdoc />
-    public ValueTask UpdateJobPriorityAsync(string id, int newPriority, CancellationToken ct = default)
+    // ==========================================
+    // Internal Helper Class (Fixes "QueueInfo not found")
+    // ==========================================
+    private class QueueInfo
     {
-        if (_jobs.TryGetValue(id, out var existing))
+        public string Name { get; }
+        public bool IsPaused { get; set; }
+        public DateTime LastUpdatedUtc { get; set; }
+
+        public QueueInfo(string name)
         {
-            var updated = existing with
-            {
-                Priority = newPriority,
-                LastUpdatedUtc = _timeProvider.GetUtcNow().UtcDateTime
-            };
-            _jobs.TryUpdate(id, updated, existing);
+            Name = name;
+            LastUpdatedUtc = DateTime.UtcNow;
         }
-        return ValueTask.CompletedTask;
     }
 }

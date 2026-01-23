@@ -1,40 +1,59 @@
 ﻿using ChokaQ.Abstractions;
-using System;
-using System.Collections.Generic;
+using ChokaQ.Core.Defaults;
 
 namespace ChokaQ.Core;
 
 /// <summary>
-/// Configuration options for the ChokaQ engine.
-/// Supports "Pipe" mode (raw) or "Bus" mode (via explicit Profiles).
+/// Configuration options for the ChokaQ library.
+/// Allows selecting the processing strategy (Bus vs Pipe) and configuring storage defaults.
 /// </summary>
 public class ChokaQOptions
 {
-    internal bool IsPipeMode { get; private set; } = false;
-    internal Type? PipeHandlerType { get; private set; }
+    // --- Strategy State (Internal use) ---
 
-    // List of profile types to instantiate and register
-    internal List<Type> ProfileTypes { get; private set; } = new();
+    internal bool IsPipeMode { get; private set; }
+    internal Type? PipeHandlerType { get; private set; }
+    internal List<Type> ProfileTypes { get; } = new();
+
+    // --- Storage Configuration ---
 
     /// <summary>
-    /// Enables "Bus" mode and registers a mapping profile.
+    /// Holds configuration for the default In-Memory storage.
+    /// Access via ConfigureInMemory() method.
     /// </summary>
-    /// <typeparam name="TProfile">The profile class inheriting from ChokaQJobProfile.</typeparam>
+    public InMemoryStorageOptions InMemoryOptions { get; } = new();
+
+    // --- Public API ---
+
+    /// <summary>
+    /// Activates "Pipe Mode". 
+    /// In this mode, all jobs are treated as raw data and routed to a single Global Handler.
+    /// Ideal for high-throughput scenarios or simple event streams.
+    /// </summary>
+    /// <typeparam name="THandler">The global handler that will process all incoming messages.</typeparam>
+    public void UsePipe<THandler>() where THandler : IChokaQPipeHandler
+    {
+        IsPipeMode = true;
+        PipeHandlerType = typeof(THandler);
+    }
+
+    /// <summary>
+    /// Adds a Job Profile (Bus Mode).
+    /// Registers a set of Job Types and their specific Handlers.
+    /// </summary>
+    /// <typeparam name="TProfile">The profile class containing job registrations.</typeparam>
     public void AddProfile<TProfile>() where TProfile : ChokaQJobProfile
     {
-        IsPipeMode = false; // Adding a profile implies Bus mode
         ProfileTypes.Add(typeof(TProfile));
     }
 
     /// <summary>
-    /// Enables "Pipe" mode.
-    /// All jobs are routed to the specified global handler as raw JSON.
+    /// Configures the default In-Memory storage behavior.
+    /// Useful for Pipe Mode where no persistent database is used.
     /// </summary>
-    /// <typeparam name="THandler">The implementation of the global pipe handler.</typeparam>
-    public void UsePipe<THandler>() where THandler : class, IChokaQPipeHandler
+    /// <param name="configure">Action to configure options (e.g., MaxCapacity).</param>
+    public void ConfigureInMemory(Action<InMemoryStorageOptions> configure)
     {
-        IsPipeMode = true;
-        PipeHandlerType = typeof(THandler);
-        ProfileTypes.Clear(); // Pipe mode excludes Profiles
+        configure(InMemoryOptions);
     }
 }

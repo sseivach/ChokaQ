@@ -105,11 +105,16 @@ public class JobWorker : BackgroundService, IWorkerManager
                 startedAtUtc: null);
 
             // 2. Re-queue logic depends on strategy
-            // Since this is the In-Memory worker, we need to reconstruct the object to push it back to the channel.
-            // This relies on the payload being deserializable in Bus Mode.
-            // In Pipe Mode with In-Memory Queue, this might be limited if we can't deserialize to IChokaQJob.
-
             var jobType = Type.GetType(storageDto.Type);
+
+            // Fallback: try to find type in current AppDomain assemblies if Type.GetType fails (often needed for simple names)
+            if (jobType == null)
+            {
+                jobType = AppDomain.CurrentDomain.GetAssemblies()
+                    .SelectMany(a => a.GetTypes())
+                    .FirstOrDefault(t => t.Name == storageDto.Type);
+            }
+
             if (jobType != null)
             {
                 var jobObject = JsonSerializer.Deserialize(storageDto.Payload, jobType) as IChokaQJob;
@@ -179,12 +184,27 @@ public class JobWorker : BackgroundService, IWorkerManager
                 {
                     while (_queue.Reader.TryRead(out var job))
                     {
-                        // ADAPTER LOGIC:
-                        // The In-Memory queue holds IChokaQJob objects (Bus Mode artifacts).
-                        // The Processor now expects raw strings (Pipe Mode compatible).
-                        // We must serialize the object back to payload string to satisfy the unified contract.
+                        // Since IChokaQJob doesn't know its queue, we look it up in storage.
+                        var storageJob = await _storage.GetJobAsync(job.Id, workerCt);
 
-                        var typeKey = job.GetType().AssemblyQualifiedName ?? job.GetType().Name;
+                        // If job vanished or invalid, skip
+                        if (storageJob == null) continue;
+
+                        var queues = await _storage.GetQueuesAsync(workerCt);
+                        var targetQueue = queues.FirstOrDefault(q => q.Name == storageJob.Queue);
+
+                        if (targetQueue != null && targetQueue.IsPaused)
+                        {
+                            // Queue is paused! Put it back at the end of the line.
+                            await _queue.RequeueAsync(job, workerCt);
+
+                            // Sleep briefly to avoid hot-looping (consuming CPU while requeuing same job)
+                            await Task.Delay(1000, workerCt);
+                            continue;
+                        }
+
+                        var typeKey = job.GetType().Name;
+
                         var payload = JsonSerializer.Serialize(job, job.GetType());
 
                         await _processor.ProcessJobAsync(
