@@ -1,12 +1,13 @@
-﻿using ChokaQ.Abstractions.Enums;
-using ChokaQ.Dashboard.Models;
+﻿using ChokaQ.Abstractions.DTOs;
+using ChokaQ.Abstractions.Enums;
 using Microsoft.AspNetCore.Components;
 
 namespace ChokaQ.Dashboard.Components.Shared;
 
 public partial class StatsCard
 {
-    [Parameter] public ICollection<JobViewModel> Jobs { get; set; } = new List<JobViewModel>();
+    [Parameter] public JobCountsDto Counts { get; set; } = new(0, 0, 0, 0, 0, 0);
+
     [Parameter] public JobStatus? SelectedStatus { get; set; }
     [Parameter] public EventCallback<JobStatus?> OnStatusSelected { get; set; }
 
@@ -17,5 +18,13 @@ public partial class StatsCard
         await OnStatusSelected.InvokeAsync(status);
     }
 
-    private int GetCount(JobStatus status) => Jobs.Count(x => x.Status == status);
+    private int GetCount(JobStatus status) => status switch
+    {
+        JobStatus.Pending => Counts.Pending,
+        JobStatus.Processing => Counts.Processing,
+        JobStatus.Succeeded => Counts.Succeeded,
+        JobStatus.Failed => Counts.Failed,
+        JobStatus.Cancelled => Counts.Cancelled,
+        _ => 0
+    };
 }

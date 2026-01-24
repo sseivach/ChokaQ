@@ -1,9 +1,11 @@
-﻿using ChokaQ.Abstractions;
+﻿using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Dashboard.Components.Features;
 using ChokaQ.Dashboard.Models;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
+using System.Timers;
 
 namespace ChokaQ.Dashboard.Components.Pages;
 
@@ -15,12 +17,16 @@ public partial class DashboardPage : IAsyncDisposable
 
     private HubConnection? _hubConnection;
     private List<JobViewModel> _jobs = new();
+    private JobCountsDto _counts = new(0, 0, 0, 0, 0, 0); // Holds global stats
+
     private System.Timers.Timer? _uiRefreshTimer;
     private string _currentTheme = "office";
     private CircuitMonitor? _circuitMonitor;
+
+    private const int MaxHistoryCount = 1000; // Load recent 1000 for UI list
+
     private bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
 
-    // --- Theme Logic ---
     private string CurrentThemeClass => _currentTheme switch
     {
         "nightshift" => "cq-theme-nightshift",
@@ -40,16 +46,13 @@ public partial class DashboardPage : IAsyncDisposable
 
     protected override async Task OnInitializedAsync()
     {
-        // 1. Initial Data Load
-        await LoadJobsAsync();
+        await LoadDataAsync();
 
-        // 2. Setup Polling
         _uiRefreshTimer = new System.Timers.Timer(2000);
         _uiRefreshTimer.AutoReset = true;
-        _uiRefreshTimer.Elapsed += async (sender, e) => await LoadJobsAsync();
+        _uiRefreshTimer.Elapsed += async (sender, e) => await LoadDataAsync();
         _uiRefreshTimer.Start();
 
-        // 3. SignalR Setup
         var hubPath = Options.RoutePrefix.TrimEnd('/') + "/hub";
         var hubUrl = Navigation.ToAbsoluteUri(hubPath);
 
@@ -58,31 +61,24 @@ public partial class DashboardPage : IAsyncDisposable
             .WithAutomaticReconnect()
             .Build();
 
-        // [FULL SIGNALR PIPELINE via DTO]
-        // We now receive a single DTO object, fixing the "9 arguments" error.
         _hubConnection.On<JobUpdateDto>("JobUpdated", (dto) =>
         {
             InvokeAsync(() =>
             {
                 var existing = _jobs.FirstOrDefault(j => j.Id == dto.JobId);
-
                 if (existing != null)
                 {
-                    // Update existing row
                     existing.Status = dto.Status;
                     existing.Attempts = dto.AttemptCount;
                     existing.Duration = dto.ExecutionDurationMs.HasValue
                         ? TimeSpan.FromMilliseconds(dto.ExecutionDurationMs.Value)
                         : null;
                     existing.StartedAtUtc = dto.StartedAtUtc?.ToLocalTime();
-
-                    // Update metadata
                     existing.Queue = dto.Queue;
                     existing.Priority = dto.Priority;
                 }
                 else
                 {
-                    // New Job
                     _jobs.Insert(0, new JobViewModel
                     {
                         Id = dto.JobId,
@@ -96,7 +92,8 @@ public partial class DashboardPage : IAsyncDisposable
                         StartedAtUtc = dto.StartedAtUtc?.ToLocalTime()
                     });
 
-                    if (_jobs.Count > 1000) _jobs.RemoveAt(_jobs.Count - 1);
+                    if (_jobs.Count > MaxHistoryCount)
+                        _jobs.RemoveAt(_jobs.Count - 1);
                 }
 
                 _circuitMonitor?.Refresh();
@@ -120,12 +117,15 @@ public partial class DashboardPage : IAsyncDisposable
         await _hubConnection.StartAsync();
     }
 
-    private async Task LoadJobsAsync()
+    private async Task LoadDataAsync()
     {
         try
         {
-            var storageJobs = await JobStorage.GetJobsAsync(1000);
+            // 1. Fetch Counts (Fast)
+            var counts = await JobStorage.GetJobCountsAsync();
 
+            // 2. Fetch Recent Jobs (Limited)
+            var storageJobs = await JobStorage.GetJobsAsync(MaxHistoryCount);
             var viewModels = storageJobs.Select(dto => new JobViewModel
             {
                 Id = dto.Id,
@@ -146,6 +146,7 @@ public partial class DashboardPage : IAsyncDisposable
 
             await InvokeAsync(() =>
             {
+                _counts = counts;
                 _jobs = viewModels;
                 StateHasChanged();
             });

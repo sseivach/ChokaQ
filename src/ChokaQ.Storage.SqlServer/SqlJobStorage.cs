@@ -8,10 +8,6 @@ using System.Text.RegularExpressions;
 
 namespace ChokaQ.Storage.SqlServer;
 
-/// <summary>
-/// Production-grade storage implementation using SQL Server and Dapper.
-/// Supports Idempotency, Priority Queues, and Atomic Locking via specific T-SQL hints.
-/// </summary>
 public class SqlJobStorage : IJobStorage
 {
     private readonly string _connectionString;
@@ -105,6 +101,40 @@ public class SqlJobStorage : IJobStorage
 
         using var connection = new SqlConnection(_connectionString);
         return await connection.QueryFirstOrDefaultAsync<JobStorageDto>(new CommandDefinition(sql, new { Id = id }, cancellationToken: ct));
+    }
+
+    public async ValueTask<JobCountsDto> GetJobCountsAsync(CancellationToken ct = default)
+    {
+        var sql = $@"
+            SELECT Status, COUNT(*) as Count 
+            FROM {_tableName} 
+            GROUP BY Status";
+
+        using var connection = new SqlConnection(_connectionString);
+        var rows = await connection.QueryAsync<(int Status, int Count)>(new CommandDefinition(sql, cancellationToken: ct));
+
+        int pending = 0, processing = 0, succeeded = 0, failed = 0, cancelled = 0;
+
+        foreach (var row in rows)
+        {
+            switch ((JobStatus)row.Status)
+            {
+                case JobStatus.Pending: pending = row.Count; break;
+                case JobStatus.Processing: processing = row.Count; break;
+                case JobStatus.Succeeded: succeeded = row.Count; break;
+                case JobStatus.Failed: failed = row.Count; break;
+                case JobStatus.Cancelled: cancelled = row.Count; break;
+            }
+        }
+
+        return new JobCountsDto(
+            Pending: pending,
+            Processing: processing,
+            Succeeded: succeeded,
+            Failed: failed,
+            Cancelled: cancelled,
+            Total: pending + processing + succeeded + failed + cancelled
+        );
     }
 
     /// <inheritdoc />
