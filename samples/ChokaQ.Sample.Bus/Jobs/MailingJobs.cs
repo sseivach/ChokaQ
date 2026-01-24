@@ -1,6 +1,6 @@
 ﻿using ChokaQ.Abstractions;
 
-namespace ChokaQ.SampleRun.Jobs;
+namespace ChokaQ.Sample.Bus.Jobs;
 
 // --- DTOs ---
 public record EmailJob(string To, string Subject) : ChokaQBaseJob;

@@ -1,7 +1,7 @@
 ﻿using ChokaQ.Abstractions;
-using ChokaQ.SampleRun.Jobs;
+using ChokaQ.Sample.Bus.Jobs;
 
-namespace ChokaQ.SampleRun.Profiles;
+namespace ChokaQ.Sample.Bus.Profiles;
 
 public class SystemProfile : ChokaQJobProfile
 {
