@@ -11,22 +11,32 @@ public enum JobStatus
     Pending = 0,
 
     /// <summary>
+    /// Job was retrieved from the database, is currently in RAM, and is waiting for a semaphore.
+    /// </summary>
+    Fetched = 1,
+
+    /// <summary>
     /// Job is currently being executed by a worker.
     /// </summary>
-    Processing = 1,
+    Processing = 2,
 
     /// <summary>
     /// Job has finished execution successfully.
     /// </summary>
-    Succeeded = 2,
+    Succeeded = 3,
 
     /// <summary>
     /// Job execution failed due to an unhandled exception.
     /// </summary>
-    Failed = 3,
+    Failed = 4,
 
     /// <summary>
     /// Job was cancelled before completion.
     /// </summary>
-    Cancelled = 4
+    Cancelled = 5,
+
+    /// <summary>
+    /// Zombie.
+    /// </summary>
+    Zombie = 6
 }

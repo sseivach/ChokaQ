@@ -6,8 +6,7 @@ namespace ChokaQ.Dashboard.Components.Shared;
 
 public partial class StatsCard
 {
-    [Parameter] public JobCountsDto Counts { get; set; } = new(0, 0, 0, 0, 0, 0);
-
+    [Parameter] public JobCountsDto Counts { get; set; } = new(0, 0, 0, 0, 0, 0, 0);
     [Parameter] public JobStatus? SelectedStatus { get; set; }
     [Parameter] public EventCallback<JobStatus?> OnStatusSelected { get; set; }
 
@@ -21,6 +20,7 @@ public partial class StatsCard
     private int GetCount(JobStatus status) => status switch
     {
         JobStatus.Pending => Counts.Pending,
+        JobStatus.Fetched => Counts.Fetched,
         JobStatus.Processing => Counts.Processing,
         JobStatus.Succeeded => Counts.Succeeded,
         JobStatus.Failed => Counts.Failed,

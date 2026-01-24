@@ -9,7 +9,7 @@ namespace ChokaQ.Dashboard.Components.Features;
 public partial class JobFeed
 {
     [Parameter] public List<JobViewModel> Jobs { get; set; } = new();
-    [Parameter] public JobCountsDto Counts { get; set; } = new(0, 0, 0, 0, 0, 0);
+    [Parameter] public JobCountsDto Counts { get; set; } = new(0, 0, 0, 0, 0, 0, 0);
     [Parameter] public bool IsConnected { get; set; }
     [Parameter] public EventCallback OnClearHistory { get; set; }
     [Parameter] public HubConnection? HubConnection { get; set; }

@@ -17,7 +17,7 @@ public partial class DashboardPage : IAsyncDisposable
 
     private HubConnection? _hubConnection;
     private List<JobViewModel> _jobs = new();
-    private JobCountsDto _counts = new(0, 0, 0, 0, 0, 0); // Holds global stats
+    private JobCountsDto _counts = new(0, 0, 0, 0, 0, 0, 0);
 
     private System.Timers.Timer? _uiRefreshTimer;
     private string _currentTheme = "office";

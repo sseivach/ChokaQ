@@ -37,6 +37,7 @@ public partial class JobRow
     private string GetStatusBadgeClass() => Job.Status switch
     {
         JobStatus.Processing => "bg-warning text-dark",
+        JobStatus.Fetched => "text-white", // Custom style below
         JobStatus.Succeeded => "bg-success text-white",
         JobStatus.Failed => "bg-danger text-white",
         JobStatus.Cancelled => "bg-secondary text-white",

@@ -14,7 +14,8 @@
         @if (_hiddenQueues.Any())
         {
             <button class="btn btn-sm btn-link text-decoration-none small p-0"
-                    style="font-size: 0.75rem;" @onclick="ShowAllQueues">
+                    style="font-size: 0.75rem;"
+                    @onclick="ShowAllQueues">
                 Show Hidden (@_hiddenQueues.Count)
             </button>
         }
@@ -52,7 +53,8 @@
                 <tbody>
                     @foreach (var q in _visibleQueues)
                     {
-                        var isActive = q.PendingCount > 0 || q.ProcessingCount > 0;
+                        // Active if Pending, Processing OR Fetched (Buffered)
+                        var isActive = q.PendingCount > 0 || q.ProcessingCount > 0 || q.FetchedCount > 0;
                         var rowClass = isActive ? "" : "inactive-queue";
 
                         <tr class="@rowClass" style="border-bottom: 1px solid var(--cq-border); transition: background-color 0.3s;">
@@ -77,6 +79,10 @@
                                 else if (q.ProcessingCount > 0)
                                 {
                                     <span class="badge bg-warning text-dark">PROCESSING (@q.ProcessingCount)</span>
+                                }
+                                else if (q.FetchedCount > 0)
+                                {
+                                    <span class="badge" style="background-color: #6f42c1; color: white;">BUFFERED (@q.FetchedCount)</span>
                                 }
                                 else if (q.PendingCount > 0)
                                 {

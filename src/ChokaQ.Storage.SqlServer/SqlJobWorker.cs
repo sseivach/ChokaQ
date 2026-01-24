@@ -174,24 +174,28 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
     /// The "Consumer". Orchestrates parallel execution limited by the ElasticSemaphore.
     /// Does NOT poll the DB. Only eats from the Channel.
     /// </summary>
+    /// <summary>
+    /// The "Consumer". Orchestrates parallel execution limited by the ElasticSemaphore.
+    /// Does NOT poll the DB. Only eats from the Channel.
+    /// </summary>
     private async Task ProcessorLoopAsync(CancellationToken ct)
     {
         try
         {
-            // Continuously read from the in-memory buffer
             await foreach (var job in _prefetchBuffer.Reader.ReadAllAsync(ct))
             {
-                // Throttling point.
-                // Waits for a permit from our ElasticSemaphore.
+                // Ждем слот
                 await _concurrencyLimiter.WaitAsync(ct);
 
-                // Fire and forget (but tracked via Semaphore).
-                // We don't await the job itself here, otherwise execution would be serial.
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        // Handover to Business Logic
+                        // 1. PING DB: "I am really starting now!"
+                        // Status: Fetched (1) -> Processing (2)
+                        await _storage.MarkAsProcessingAsync(job.Id, ct);
+
+                        // 2. Process
                         await _processor.ProcessJobAsync(
                             job.Id,
                             job.Type,
@@ -205,20 +209,12 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                     }
                     finally
                     {
-                        // Always release the slot so the next job can start.
                         _concurrencyLimiter.Release();
                     }
                 }, ct);
             }
         }
-        catch (OperationCanceledException)
-        {
-            // Graceful shutdown
-        }
-        finally
-        {
-            _logger.LogInformation("Processor Loop Stopped.");
-        }
+        catch (OperationCanceledException) { }
     }
 
     // --- Management Interface Implementation ---

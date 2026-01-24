@@ -8,7 +8,6 @@ namespace ChokaQ.Core.Defaults;
 public class InMemoryJobStorage : IJobStorage
 {
     private readonly int _maxCapacity;
-
     // Using ConcurrentDictionary for thread safety
     private readonly ConcurrentDictionary<string, JobStorageDto> _jobs = new();
     private readonly ConcurrentDictionary<string, QueueInfo> _queues = new();
@@ -87,6 +86,7 @@ public class InMemoryJobStorage : IJobStorage
         }
 
         _jobs[job.Id] = job;
+
         if (!_queues.ContainsKey(job.Queue))
             _queues.TryAdd(job.Queue, new QueueInfo(job.Queue));
     }
@@ -106,6 +106,25 @@ public class InMemoryJobStorage : IJobStorage
             return new ValueTask<bool>(true);
         }
         return new ValueTask<bool>(false);
+    }
+
+    // 👇 IMPLEMNTED MISSING METHOD 👇
+    public Task MarkAsProcessingAsync(string jobId, CancellationToken ct)
+    {
+        if (_jobs.TryGetValue(jobId, out var job))
+        {
+            // Transition from Fetched (1) -> Processing (2)
+            // And set the real Start Time
+            var updatedJob = job with
+            {
+                Status = JobStatus.Processing,
+                StartedAtUtc = DateTime.UtcNow,
+                LastUpdatedUtc = DateTime.UtcNow
+            };
+
+            _jobs[jobId] = updatedJob;
+        }
+        return Task.CompletedTask;
     }
 
     public ValueTask UpdateJobPriorityAsync(string jobId, int priority, CancellationToken ct = default)
@@ -143,18 +162,19 @@ public class InMemoryJobStorage : IJobStorage
         var lockedJobs = new List<JobStorageDto>();
         foreach (var job in batch)
         {
-            var processingJob = job with
+            // This mimics the SQL logic: Worker buffer holds "Fetched" jobs.
+            var fetchedJob = job with
             {
-                Status = JobStatus.Processing,
+                Status = JobStatus.Fetched,
                 WorkerId = workerId,
-                StartedAtUtc = DateTime.UtcNow,
                 LastUpdatedUtc = DateTime.UtcNow,
                 AttemptCount = job.AttemptCount + 1
             };
 
-            if (_jobs.TryUpdate(job.Id, processingJob, job))
+            // Optimistic concurrency check (TryUpdate)
+            if (_jobs.TryUpdate(job.Id, fetchedJob, job))
             {
-                lockedJobs.Add(processingJob);
+                lockedJobs.Add(fetchedJob);
             }
         }
         return new ValueTask<IEnumerable<JobStorageDto>>(lockedJobs);
@@ -168,18 +188,16 @@ public class InMemoryJobStorage : IJobStorage
 
     public ValueTask<JobCountsDto> GetJobCountsAsync(CancellationToken ct = default)
     {
-        // Snapshot the values to avoid mutation errors during enumeration
         var values = _jobs.Values;
-
         var counts = new JobCountsDto(
             Pending: values.Count(x => x.Status == JobStatus.Pending),
+            Fetched: values.Count(x => x.Status == JobStatus.Fetched),       // <--- Count Fetched
             Processing: values.Count(x => x.Status == JobStatus.Processing),
             Succeeded: values.Count(x => x.Status == JobStatus.Succeeded),
             Failed: values.Count(x => x.Status == JobStatus.Failed),
             Cancelled: values.Count(x => x.Status == JobStatus.Cancelled),
             Total: values.Count
         );
-
         return new ValueTask<JobCountsDto>(counts);
     }
 
@@ -191,6 +209,7 @@ public class InMemoryJobStorage : IJobStorage
                 Name: g.Key,
                 IsPaused: _queues.TryGetValue(g.Key, out var q) && q.IsPaused,
                 PendingCount: g.Count(j => j.Status == JobStatus.Pending),
+                FetchedCount: g.Count(j => j.Status == JobStatus.Fetched),       // <--- NEW
                 ProcessingCount: g.Count(j => j.Status == JobStatus.Processing),
                 FailedCount: g.Count(j => j.Status == JobStatus.Failed),
                 SucceededCount: g.Count(j => j.Status == JobStatus.Succeeded),
@@ -202,9 +221,8 @@ public class InMemoryJobStorage : IJobStorage
         foreach (var q in _queues.Values)
         {
             if (!stats.Any(s => s.Name == q.Name))
-                stats.Add(new QueueDto(q.Name, q.IsPaused, 0, 0, 0, 0, null, null));
+                stats.Add(new QueueDto(q.Name, q.IsPaused, 0, 0, 0, 0, 0, null, null));
         }
-
         return new ValueTask<IEnumerable<QueueDto>>(stats);
     }
 
@@ -213,7 +231,6 @@ public class InMemoryJobStorage : IJobStorage
         _queues.AddOrUpdate(queueName,
             new QueueInfo(queueName) { IsPaused = isPaused, LastUpdatedUtc = DateTime.UtcNow },
             (key, old) => { old.IsPaused = isPaused; old.LastUpdatedUtc = DateTime.UtcNow; return old; });
-
         return ValueTask.CompletedTask;
     }
 
@@ -222,6 +239,7 @@ public class InMemoryJobStorage : IJobStorage
         public string Name { get; }
         public bool IsPaused { get; set; }
         public DateTime LastUpdatedUtc { get; set; }
+
         public QueueInfo(string name)
         {
             Name = name;

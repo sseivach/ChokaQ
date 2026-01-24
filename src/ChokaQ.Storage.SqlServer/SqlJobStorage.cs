@@ -24,16 +24,12 @@ public class SqlJobStorage : IJobStorage
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         if (string.IsNullOrWhiteSpace(schemaName))
-        {
             throw new ArgumentException("Schema name cannot be empty.", nameof(schemaName));
-        }
 
         if (!Regex.IsMatch(schemaName, "^[a-zA-Z0-9_]+$"))
-        {
             throw new ArgumentException($"Invalid schema name: '{schemaName}'. Only alphanumeric characters and underscores are allowed.");
-        }
 
-        _schemaName = schemaName; // <--- Сохраняем схему
+        _schemaName = schemaName;
         _tableName = $"[{schemaName}].[Jobs]";
     }
 
@@ -113,28 +109,23 @@ public class SqlJobStorage : IJobStorage
         using var connection = new SqlConnection(_connectionString);
         var rows = await connection.QueryAsync<(int Status, int Count)>(new CommandDefinition(sql, cancellationToken: ct));
 
-        int pending = 0, processing = 0, succeeded = 0, failed = 0, cancelled = 0;
+        int pending = 0, fetched = 0, processing = 0, succeeded = 0, failed = 0, cancelled = 0;
 
         foreach (var row in rows)
         {
             switch ((JobStatus)row.Status)
             {
-                case JobStatus.Pending: pending = row.Count; break;
-                case JobStatus.Processing: processing = row.Count; break;
-                case JobStatus.Succeeded: succeeded = row.Count; break;
-                case JobStatus.Failed: failed = row.Count; break;
-                case JobStatus.Cancelled: cancelled = row.Count; break;
+                case JobStatus.Pending: pending += row.Count; break;
+                case JobStatus.Fetched: fetched += row.Count; break;
+                case JobStatus.Processing: processing += row.Count; break;
+                case JobStatus.Succeeded: succeeded += row.Count; break;
+                case JobStatus.Failed: failed += row.Count; break;
+                case JobStatus.Cancelled: cancelled += row.Count; break;
             }
         }
 
-        return new JobCountsDto(
-            Pending: pending,
-            Processing: processing,
-            Succeeded: succeeded,
-            Failed: failed,
-            Cancelled: cancelled,
-            Total: pending + processing + succeeded + failed + cancelled
-        );
+        return new JobCountsDto(pending, fetched, processing, succeeded, failed, cancelled,
+            pending + fetched + processing + succeeded + failed + cancelled);
     }
 
     /// <inheritdoc />
@@ -194,29 +185,28 @@ public class SqlJobStorage : IJobStorage
     public async ValueTask<IEnumerable<JobStorageDto>> FetchAndLockNextBatchAsync(
         string workerId,
         int limit,
-        string[]? allowedQueues, // <--- Accepted here
+        string[]? allowedQueues,
         CancellationToken ct = default)
     {
-        // Guard clause: If allowedQueues is empty, we shouldn't fetch anything.
         if (allowedQueues == null || allowedQueues.Length == 0)
-        {
             return Enumerable.Empty<JobStorageDto>();
-        }
 
+        // Logic:
+        // 1. Find Pending (0)
+        // 2. Set to FETCHED (1) -> Not Processing (2) yet!
         var sql = $@"
             WITH SortedJobs AS (
                 SELECT TOP (@Limit) Id
                 FROM {_tableName} WITH (ROWLOCK, READPAST, UPDLOCK)
-                WHERE Status = 0 -- Pending
+                WHERE Status = @PendingStatus
                   AND (ScheduledAtUtc IS NULL OR ScheduledAtUtc <= @Now)
-                  AND Queue IN @AllowedQueues  -- <--- THE MAGIC FILTER
+                  AND Queue IN @AllowedQueues
                 ORDER BY Priority DESC, ScheduledAtUtc ASC, CreatedAtUtc ASC
             )
             UPDATE J
             SET 
-                Status = 1, -- Processing
+                Status = @FetchedStatus, -- <--- SET TO 1
                 WorkerId = @WorkerId,
-                StartedAtUtc = @Now,
                 LastUpdatedUtc = @Now,
                 AttemptCount = AttemptCount + 1
             OUTPUT 
@@ -234,15 +224,31 @@ public class SqlJobStorage : IJobStorage
             Limit = limit,
             WorkerId = workerId,
             Now = DateTime.UtcNow,
-            AllowedQueues = allowedQueues // Dapper expands this to: ('queue1', 'queue2')
+            AllowedQueues = allowedQueues,
+            PendingStatus = JobStatus.Pending,
+            FetchedStatus = JobStatus.Fetched
         }, cancellationToken: ct));
     }
 
-    // =========================================================================
-    // NEW METHODS: Queue Management
-    // =========================================================================
+    public async Task MarkAsProcessingAsync(string jobId, CancellationToken ct)
+    {
+        // Transition from Fetched (1) to Processing (2) + Set Start Time
+        var sql = $@"
+            UPDATE {_tableName}
+            SET 
+                Status = @ProcessingStatus,
+                StartedAtUtc = SYSUTCDATETIME(),
+                LastUpdatedUtc = SYSUTCDATETIME()
+            WHERE Id = @Id";
 
-    /// <inheritdoc />
+        using var connection = new SqlConnection(_connectionString);
+        await connection.ExecuteAsync(new CommandDefinition(sql, new
+        {
+            Id = jobId,
+            ProcessingStatus = JobStatus.Processing // 2
+        }, cancellationToken: ct));
+    }
+
     /// <inheritdoc />
     public async ValueTask<IEnumerable<QueueDto>> GetQueuesAsync(CancellationToken ct = default)
     {
@@ -254,9 +260,10 @@ public class SqlJobStorage : IJobStorage
                 SELECT 
                     Queue,
                     COUNT(CASE WHEN Status = 0 THEN 1 END) as PendingCount,
-                    COUNT(CASE WHEN Status = 1 THEN 1 END) as ProcessingCount,
-                    COUNT(CASE WHEN Status = 2 THEN 1 END) as SucceededCount,
-                    COUNT(CASE WHEN Status = 3 THEN 1 END) as FailedCount,
+                    COUNT(CASE WHEN Status = 1 THEN 1 END) as FetchedCount,    -- <--- NEW COLUMN
+                    COUNT(CASE WHEN Status = 2 THEN 1 END) as ProcessingCount,
+                    COUNT(CASE WHEN Status = 3 THEN 1 END) as SucceededCount,
+                    COUNT(CASE WHEN Status = 4 THEN 1 END) as FailedCount,
                     MIN(StartedAtUtc) as FirstJobAtUtc,
                     MAX(FinishedAtUtc) as LastJobAtUtc
                 FROM {jobsTable}
@@ -264,11 +271,12 @@ public class SqlJobStorage : IJobStorage
             )
             SELECT 
                 COALESCE(Q.Name, JS.Queue) as Name,
-                CAST(COALESCE(Q.IsPaused, 0) AS BIT) as IsPaused, -- FIX: Cast to BIT for boolean mapping
+                CAST(COALESCE(Q.IsPaused, 0) AS BIT) as IsPaused,
                 ISNULL(JS.PendingCount, 0) as PendingCount,
+                ISNULL(JS.FetchedCount, 0) as FetchedCount,       -- <--- Mapped
                 ISNULL(JS.ProcessingCount, 0) as ProcessingCount,
-                ISNULL(JS.FailedCount, 0) as FailedCount,         -- FIX: Reordered to match DTO
-                ISNULL(JS.SucceededCount, 0) as SucceededCount,   -- FIX: Reordered to match DTO
+                ISNULL(JS.FailedCount, 0) as FailedCount,
+                ISNULL(JS.SucceededCount, 0) as SucceededCount,
                 JS.FirstJobAtUtc,
                 JS.LastJobAtUtc
             FROM {queuesTable} Q
@@ -284,13 +292,25 @@ public class SqlJobStorage : IJobStorage
     {
         var queuesTable = $"[{_schemaName}].[Queues]";
 
+        // FIX: Use MERGE (Upsert). 
+        // If the queue doesn't exist in the [Queues] table (it was dynamically created by a job),
+        // UPDATE would fail to find it. MERGE creates it.
         var sql = $@"
-            UPDATE {queuesTable}
-            SET IsPaused = @IsPaused, LastUpdatedUtc = SYSUTCDATETIME()
-            WHERE Name = @Name";
+            MERGE {queuesTable} AS target
+            USING (SELECT @Name AS Name) AS source
+            ON (target.Name = source.Name)
+            WHEN MATCHED THEN
+                UPDATE SET IsPaused = @IsPaused, LastUpdatedUtc = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN
+                INSERT (Name, IsPaused, LastUpdatedUtc)
+                VALUES (@Name, @IsPaused, SYSUTCDATETIME());";
 
         using var connection = new SqlConnection(_connectionString);
-        await connection.ExecuteAsync(new CommandDefinition(sql, new { Name = queueName, IsPaused = isPaused }, cancellationToken: ct));
+        await connection.ExecuteAsync(new CommandDefinition(sql, new
+        {
+            Name = queueName,
+            IsPaused = isPaused
+        }, cancellationToken: ct));
     }
 
     /// <inheritdoc />

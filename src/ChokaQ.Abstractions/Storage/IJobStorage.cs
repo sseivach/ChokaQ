@@ -61,6 +61,12 @@ public interface IJobStorage
         CancellationToken ct = default);
 
     /// <summary>
+    /// Transitions a job from 'Fetched' (In-Memory Buffer) to 'Processing' (CPU Execution).
+    /// Sets the actual start time.
+    /// </summary>
+    Task MarkAsProcessingAsync(string jobId, CancellationToken ct);
+
+    /// <summary>
     /// Retrieves the list of all active queues and their stats.
     /// </summary>
     ValueTask<IEnumerable<QueueDto>> GetQueuesAsync(CancellationToken ct = default);

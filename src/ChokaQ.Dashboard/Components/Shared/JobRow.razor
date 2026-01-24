@@ -9,7 +9,8 @@
                @onchange="HandleCheckboxChange" />
     </td>
 
-    <td class="font-monospace fw-bold" style="color: var(--cq-info); font-size: 0.85rem;" title="@Job.Id">
+    <td class="font-monospace fw-bold" style="color: var(--cq-info); font-size: 0.85rem;"
+        title="@Job.Id">
         @Job.Id.Substring(0, 8)...
     </td>
 
@@ -36,9 +37,16 @@
     </td>
 
     <td>
-        <span class="badge @GetStatusBadgeClass()">
-            @GetStatusLabel()
-        </span>
+        @if (Job.Status == JobStatus.Fetched)
+        {
+            <span class="badge" style="background-color: #6f42c1; color: white;">FETCHED</span>
+        }
+        else
+        {
+            <span class="badge @GetStatusBadgeClass()">
+                @GetStatusLabel()
+            </span>
+        }
     </td>
 
     <td>
@@ -46,7 +54,8 @@
         {
             <div class="progress" style="height: 4px; background-color: var(--cq-border);">
                 <div class="progress-bar" role="progressbar"
-                     style="width: @(Job.Progress)%; background-color: var(--cq-info); transition: width 0.3s ease;">
+                     style="width: @(Job.Progress)%; background-color: var(--cq-info);
+                         transition: width 0.3s ease;">
                 </div>
             </div>
             <div style="font-size: 0.7em; margin-top: 2px;">@Job.Progress%</div>
@@ -79,7 +88,7 @@
     </td>
 
     <td class="text-end">
-        @if (Job.Status == JobStatus.Processing || Job.Status == JobStatus.Pending)
+        @if (Job.Status == JobStatus.Processing || Job.Status == JobStatus.Pending || Job.Status == JobStatus.Fetched)
         {
             <button class="btn btn-sm btn-outline-danger me-2"
                     title="Stop Job"
