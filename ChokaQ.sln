@@ -15,7 +15,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChokaQ.Storage.SqlServer", 
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "samples", "samples", "{5D20AA90-6969-D8BD-9DCD-8634F4692FDA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChokaQ.SampleRun", "samples\ChokaQ.SampleRun\ChokaQ.SampleRun.csproj", "{AFB4A785-3598-45D2-93EA-D8E6CDBC0E0E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChokaQ.Sample.Bus", "samples\ChokaQ.Sample.Bus\ChokaQ.Sample.Bus.csproj", "{AFB4A785-3598-45D2-93EA-D8E6CDBC0E0E}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChokaQ.Sample.Pipe", "samples\ChokaQ.Sample.Pipe\ChokaQ.Sample.Pipe.csproj", "{0DB3D4E8-EB1A-44DC-A42D-BB18593583F7}"
 EndProject
