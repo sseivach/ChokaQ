@@ -18,8 +18,12 @@
                        placeholder="Search by ID, Type or Content..."
                        @bind="_searchQuery"
                        @bind:event="oninput" />
+                
                 @if (!string.IsNullOrEmpty(_searchQuery))
                 {
+                    <span class="input-group-text" style="background-color: var(--cq-bg); border-color: var(--cq-border); color: var(--cq-info); font-weight: bold; font-size: 0.8rem;">
+                        @FilteredJobs.Count
+                    </span>
                     <button class="btn btn-outline-secondary" type="button" @onclick="() => _searchQuery = string.Empty">✖</button>
                 }
             </div>
