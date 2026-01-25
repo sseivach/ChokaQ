@@ -35,15 +35,13 @@ public class ChokaQHub : Hub
         await _storage.SetQueueStateAsync(queueName, pause);
     }
 
-    // [NEW] Bulk Priority Change
     public async Task SetPriority(string jobId, int priority)
     {
-        // We broadcast update via Storage events usually, but since priority change 
-        // doesn't trigger a status change event automatically in current design,
-        // we assume the UI will optimistically update or next poll will catch it.
-        // Ideally, we should send a specific "JobMetadataUpdated" event, 
-        // but for now, we just execute the command.
-
         await _workerManager.SetJobPriorityAsync(jobId, priority);
+    }
+
+    public async Task UpdateQueueTimeout(string queueName, int? timeoutSeconds)
+    {
+        await _storage.UpdateQueueTimeoutAsync(queueName, timeoutSeconds);
     }
 }
