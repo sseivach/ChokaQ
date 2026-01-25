@@ -68,7 +68,8 @@ public partial class QueueManager : IDisposable
     private async Task ToggleQueue(string name, bool isRunning)
     {
         var pause = !isRunning;
-        // Optimistic UI update
+
+        // Optimistic UI update to prevent flickering
         var q = _queues.FirstOrDefault(x => x.Name == name);
         if (q != null) q = q with { IsPaused = pause };
 
@@ -76,6 +77,37 @@ public partial class QueueManager : IDisposable
         {
             await HubConnection.InvokeAsync("ToggleQueue", name, pause);
             await Refresh();
+        }
+    }
+
+    /// <summary>
+    /// Handles changes to the Zombie Timeout input field.
+    /// Values less than 60 seconds are clamped to 60 to prevent accidental immediate termination.
+    /// </summary>
+    private async Task UpdateTimeout(string name, object? value)
+    {
+        int? parsedValue = null;
+
+        // Attempt to parse the input
+        if (value is string strVal && int.TryParse(strVal, out int iVal))
+        {
+            // Enforce a minimum safety limit of 60 seconds
+            parsedValue = Math.Max(60, iVal);
+        }
+        else if (value is int intVal)
+        {
+            parsedValue = Math.Max(60, intVal);
+        }
+
+        // Optimistic local update
+        var q = _queues.FirstOrDefault(x => x.Name == name);
+        if (q != null) q = q with { ZombieTimeoutSeconds = parsedValue };
+
+        // Send to server
+        if (HubConnection is not null)
+        {
+            await HubConnection.InvokeAsync("UpdateQueueTimeout", name, parsedValue);
+            // We rely on the background polling timer to eventually refresh the state from the DB.
         }
     }
 

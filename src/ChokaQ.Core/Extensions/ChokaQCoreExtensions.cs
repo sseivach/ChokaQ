@@ -4,6 +4,7 @@ using ChokaQ.Core.Contexts;
 using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
 using ChokaQ.Core.Processing;
+using ChokaQ.Core.Resilience;
 using ChokaQ.Core.State;
 using ChokaQ.Core.Workers;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,7 +43,6 @@ public static class ChokaQCoreExtensions
 
         // Register InMemoryJobStorage with the configured options
         services.TryAddSingleton<IJobStorage>(sp => new InMemoryJobStorage(options.InMemoryOptions));
-
         services.TryAddSingleton<IChokaQNotifier, NullNotifier>();
         services.TryAddSingleton<InMemoryQueue>();
         services.TryAddSingleton<IChokaQQueue>(sp => sp.GetRequiredService<InMemoryQueue>());
@@ -50,7 +50,6 @@ public static class ChokaQCoreExtensions
         services.TryAddScoped<JobContext>();
         services.TryAddScoped<IJobContext>(sp => sp.GetRequiredService<JobContext>());
         services.TryAddSingleton<IJobStateManager, JobStateManager>();
-
         services.TryAddSingleton<IJobProcessor>(sp => new JobProcessor(
             sp.GetRequiredService<IJobStorage>(),
             sp.GetRequiredService<ILogger<JobProcessor>>(),
@@ -59,11 +58,13 @@ public static class ChokaQCoreExtensions
             sp.GetRequiredService<IJobStateManager>(),
             options
         ));
-
         services.TryAddSingleton<JobWorker>();
         services.TryAddSingleton<IWorkerManager>(sp => sp.GetRequiredService<JobWorker>());
 
         services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
+
+        // Register the Zombie Rescue Service
+        services.AddHostedService<ZombieRescueService>();
     }
 
     private static void AddPipeStrategy(IServiceCollection services, ChokaQOptions options)

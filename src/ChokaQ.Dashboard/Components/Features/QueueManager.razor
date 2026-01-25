@@ -3,7 +3,7 @@
          style="background-color: var(--cq-panel-bg); border-bottom: 1px solid var(--cq-border);">
         <div class="d-flex align-items-center gap-2">
             <h6 class="mb-0 fw-bold small text-uppercase" style="color: var(--cq-text-muted)">
-                🚦 Queue Traffic
+                Queue Traffic
             </h6>
             @if (_queues.Any())
             {
@@ -27,7 +27,7 @@
             <div class="p-4 text-center text-muted small">
                 @if (_isLoading)
                 {
-                    <span>⏳ Loading queues...</span>
+                    <span>Loading queues...</span>
                 }
                 else
                 {
@@ -40,9 +40,9 @@
             <table class="table mb-0 text-nowrap" style="color: var(--cq-text); font-size: 0.75rem;">
                 <thead style="background-color: rgba(0,0,0,0.02); text-transform: uppercase;">
                     <tr>
-                        <th class="ps-3" style="width: 20%">Queue</th>
+                        <th class="ps-3" style="width: 15%">Queue</th>
                         <th class="text-center" style="width: 5%">Pause</th>
-
+                        <th class="text-center" style="width: 10%">Timeout (s)</th>
                         <th class="text-end" style="width: 10%; color: var(--cq-info);">Pend</th>
                         <th class="text-end" style="width: 10%; color: #6f42c1;">Buff</th>
                         <th class="text-end" style="width: 10%; color: var(--cq-warning);">Proc</th>
@@ -50,7 +50,7 @@
                         <th class="text-end" style="width: 10%; color: var(--cq-danger);">Fail</th>
                         <th class="text-end" style="width: 10%; color: var(--cq-text-muted);">Canc</th>
 
-                        <th class="text-end" style="width: 10%">Active</th>
+                        <th class="text-end" style="width: 5%">Active</th>
                         <th class="text-end pe-3" style="width: 5%"></th>
                     </tr>
                 </thead>
@@ -77,6 +77,15 @@
                                            checked="@(!q.IsPaused)"
                                            @onchange="@(e => ToggleQueue(q.Name, (bool)e.Value!))">
                                 </div>
+                            </td>
+
+                            <td class="align-middle text-center">
+                                <input type="number"
+                                       class="form-control form-control-sm cq-input text-center"
+                                       style="height: 22px; font-size: 0.75rem; padding: 0;"
+                                       placeholder="Global (600)"
+                                       value="@q.ZombieTimeoutSeconds"
+                                       @onchange="@(e => UpdateTimeout(q.Name, e.Value))" />
                             </td>
 
                             <td class="align-middle text-end font-monospace @(q.PendingCount > 0 ? "fw-bold" : "text-muted")">

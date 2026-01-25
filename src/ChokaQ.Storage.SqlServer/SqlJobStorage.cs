@@ -301,6 +301,7 @@ public class SqlJobStorage : IJobStorage
                 ISNULL(JS.FailedCount, 0) as FailedCount,
                 ISNULL(JS.SucceededCount, 0) as SucceededCount,
                 ISNULL(JS.CancelledCount, 0) as CancelledCount,
+                Q.ZombieTimeoutSeconds,
                 JS.FirstJobAtUtc,
                 JS.LastJobAtUtc
             FROM {queuesTable} Q WITH (NOLOCK)
@@ -311,14 +312,55 @@ public class SqlJobStorage : IJobStorage
         return await connection.QueryAsync<QueueDto>(new CommandDefinition(sql, cancellationToken: ct));
     }
 
+    public async ValueTask KeepAliveAsync(string jobId, CancellationToken ct = default)
+    {
+        var sql = $"UPDATE {_tableName} SET LastUpdatedUtc = SYSUTCDATETIME() WHERE Id = @Id";
+        using var connection = new SqlConnection(_connectionString);
+        await connection.ExecuteAsync(new CommandDefinition(sql, new { Id = jobId }, cancellationToken: ct));
+    }
+
+    public async ValueTask<int> MarkZombiesAsync(int globalTimeoutSeconds, CancellationToken ct = default)
+    {
+        var queuesTable = $"[{_schemaName}].[Queues]";
+
+        var sql = $@"
+            UPDATE J
+            SET 
+                Status = {(int)JobStatus.Zombie},
+                ErrorDetails = 'Zombie: Detected dead worker (Heartbeat timeout)',
+                WorkerId = NULL,
+                LastUpdatedUtc = SYSUTCDATETIME()
+            FROM {_tableName} J
+            LEFT JOIN {queuesTable} Q WITH (NOLOCK) ON J.Queue = Q.Name
+            WHERE J.Status = {(int)JobStatus.Processing}
+              AND J.LastUpdatedUtc < DATEADD(second, -COALESCE(Q.ZombieTimeoutSeconds, @GlobalTimeout), SYSUTCDATETIME())";
+
+        using var connection = new SqlConnection(_connectionString);
+        return await connection.ExecuteAsync(new CommandDefinition(sql, new { GlobalTimeout = globalTimeoutSeconds }, cancellationToken: ct));
+    }
+
+    public async ValueTask UpdateQueueTimeoutAsync(string queueName, int? timeoutSeconds, CancellationToken ct = default)
+    {
+        var queuesTable = $"[{_schemaName}].[Queues]";
+        var sql = $@"
+            MERGE {queuesTable} AS target
+            USING (SELECT @Name AS Name) AS source
+            ON (target.Name = source.Name)
+            WHEN MATCHED THEN
+                UPDATE SET ZombieTimeoutSeconds = @Timeout, LastUpdatedUtc = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN
+                INSERT (Name, IsPaused, ZombieTimeoutSeconds, LastUpdatedUtc)
+                VALUES (@Name, 0, @Timeout, SYSUTCDATETIME());";
+
+        using var connection = new SqlConnection(_connectionString);
+        await connection.ExecuteAsync(new CommandDefinition(sql, new { Name = queueName, Timeout = timeoutSeconds }, cancellationToken: ct));
+    }
+
     /// <inheritdoc />
     public async ValueTask SetQueueStateAsync(string queueName, bool isPaused, CancellationToken ct = default)
     {
         var queuesTable = $"[{_schemaName}].[Queues]";
 
-        // FIX: Use MERGE (Upsert). 
-        // If the queue doesn't exist in the [Queues] table (it was dynamically created by a job),
-        // UPDATE would fail to find it. MERGE creates it.
         var sql = $@"
             MERGE {queuesTable} AS target
             USING (SELECT @Name AS Name) AS source

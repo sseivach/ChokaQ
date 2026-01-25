@@ -93,13 +93,13 @@ BEGIN
 END
 GO
 
--- 6. Queues Table (Traffic Control)
--- Stores the state (Paused/Active) of named queues.
+-- 6. Queues Table (Traffic Control & Configuration)
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[{SCHEMA}].[Queues]') AND type in (N'U'))
 BEGIN
     CREATE TABLE [{SCHEMA}].[Queues](
         [Name] [nvarchar](50) NOT NULL,
         [IsPaused] [bit] NOT NULL DEFAULT 0,
+        [ZombieTimeoutSeconds] [int] NULL,
         [LastUpdatedUtc] [datetime2](7) NOT NULL DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_{SCHEMA}_Queues] PRIMARY KEY CLUSTERED ([Name] ASC)
     )
