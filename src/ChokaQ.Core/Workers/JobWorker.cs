@@ -212,6 +212,8 @@ public class JobWorker : BackgroundService, IWorkerManager
                             typeKey,
                             payload,
                             workerId,
+                            storageJob.AttemptCount,
+                            storageJob.CreatedBy,
                             workerCt
                         );
 

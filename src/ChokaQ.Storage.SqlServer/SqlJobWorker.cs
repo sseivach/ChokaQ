@@ -201,6 +201,8 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                             job.Type,
                             job.Payload,
                             "prefetch-worker",
+                            job.AttemptCount,
+                            job.CreatedBy,
                             ct);
                     }
                     catch (Exception ex)
@@ -224,7 +226,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
         // This is where the magic happens.
         // We simply delegate the complexity to our ElasticSemaphore wrapper.
         // It handles scaling UP (releasing) and scaling DOWN (burning permits).
-        _logger.LogInformation("🔄 Updating worker count to {Count}", count);
+        _logger.LogInformation("Updating worker count to {Count}", count);
 
         _concurrencyLimiter.SetCapacity(count);
     }

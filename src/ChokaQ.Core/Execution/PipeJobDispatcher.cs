@@ -2,6 +2,7 @@
 using ChokaQ.Core.Contexts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using System.Text.Json.Nodes;
 
 namespace ChokaQ.Core.Execution;
 
@@ -40,5 +41,26 @@ public class PipeJobDispatcher : IJobDispatcher
         // 3. Execute
         // We pass the raw type string and payload directly to the user code.
         await handler.HandleAsync(jobType, payload, ct);
+    }
+
+    public JobMetadata ParseMetadata(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+            return new JobMetadata("default", 10);
+
+        try
+        {
+            var node = JsonNode.Parse(payload);
+            var metaNode = node?["Metadata"];
+
+            var queue = metaNode?["Queue"]?.ToString() ?? "default";
+            var priority = metaNode?["Priority"]?.GetValue<int>() ?? 10;
+
+            return new JobMetadata(queue, priority);
+        }
+        catch
+        {
+            return new JobMetadata("default", 10);
+        }
     }
 }

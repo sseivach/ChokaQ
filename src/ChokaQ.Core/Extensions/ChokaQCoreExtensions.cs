@@ -8,6 +8,7 @@ using ChokaQ.Core.State;
 using ChokaQ.Core.Workers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 
 namespace ChokaQ.Core.Extensions;
 
@@ -50,14 +51,21 @@ public static class ChokaQCoreExtensions
         services.TryAddScoped<IJobContext>(sp => sp.GetRequiredService<JobContext>());
         services.TryAddSingleton<IJobStateManager, JobStateManager>();
 
-        services.TryAddSingleton<IJobProcessor, JobProcessor>();
+        services.TryAddSingleton<IJobProcessor>(sp => new JobProcessor(
+            sp.GetRequiredService<IJobStorage>(),
+            sp.GetRequiredService<ILogger<JobProcessor>>(),
+            sp.GetRequiredService<ICircuitBreaker>(),
+            sp.GetRequiredService<IJobDispatcher>(),
+            sp.GetRequiredService<IJobStateManager>(),
+            options
+        ));
+
         services.TryAddSingleton<JobWorker>();
         services.TryAddSingleton<IWorkerManager>(sp => sp.GetRequiredService<JobWorker>());
 
         services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
     }
 
-    // ... (AddPipeStrategy and AddBusStrategy remain unchanged) ...
     private static void AddPipeStrategy(IServiceCollection services, ChokaQOptions options)
     {
         services.TryAddSingleton<IJobDispatcher, PipeJobDispatcher>();

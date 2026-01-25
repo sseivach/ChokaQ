@@ -143,11 +143,19 @@ public class SqlJobStorage : IJobStorage
     }
 
     /// <inheritdoc />
-    public async ValueTask<bool> UpdateJobStateAsync(string id, JobStatus status, CancellationToken ct = default)
+    public async ValueTask<bool> UpdateJobStateAsync(
+        string id,
+        JobStatus status,
+        string? errorDetails = null,
+        CancellationToken ct = default)
     {
+        // Добавили ErrorDetails в SQL
         var sql = $@"
             UPDATE {_tableName}
-            SET Status = @Status, LastUpdatedUtc = @Now
+            SET 
+                Status = @Status, 
+                ErrorDetails = @Error, 
+                LastUpdatedUtc = @Now
             WHERE Id = @Id";
 
         using var connection = new SqlConnection(_connectionString);
@@ -155,9 +163,9 @@ public class SqlJobStorage : IJobStorage
         {
             Id = id,
             Status = (int)status,
+            Error = errorDetails,
             Now = DateTime.UtcNow
         }, cancellationToken: ct));
-
         return rows > 0;
     }
 
@@ -274,26 +282,26 @@ public class SqlJobStorage : IJobStorage
                 SELECT 
                     Queue,
                     COUNT(CASE WHEN Status = 0 THEN 1 END) as PendingCount,
-                    COUNT(CASE WHEN Status = 1 THEN 1 END) as FetchedCount,    -- <--- NEW COLUMN
+                    COUNT(CASE WHEN Status = 1 THEN 1 END) as FetchedCount,
                     COUNT(CASE WHEN Status = 2 THEN 1 END) as ProcessingCount,
                     COUNT(CASE WHEN Status = 3 THEN 1 END) as SucceededCount,
                     COUNT(CASE WHEN Status = 4 THEN 1 END) as FailedCount,
                     MIN(StartedAtUtc) as FirstJobAtUtc,
                     MAX(FinishedAtUtc) as LastJobAtUtc
-                FROM {jobsTable}
+                FROM {jobsTable} WITH (NOLOCK)
                 GROUP BY Queue
             )
             SELECT 
                 COALESCE(Q.Name, JS.Queue) as Name,
                 CAST(COALESCE(Q.IsPaused, 0) AS BIT) as IsPaused,
                 ISNULL(JS.PendingCount, 0) as PendingCount,
-                ISNULL(JS.FetchedCount, 0) as FetchedCount,       -- <--- Mapped
+                ISNULL(JS.FetchedCount, 0) as FetchedCount,
                 ISNULL(JS.ProcessingCount, 0) as ProcessingCount,
                 ISNULL(JS.FailedCount, 0) as FailedCount,
                 ISNULL(JS.SucceededCount, 0) as SucceededCount,
                 JS.FirstJobAtUtc,
                 JS.LastJobAtUtc
-            FROM {queuesTable} Q
+            FROM {queuesTable} Q WITH (NOLOCK)
             FULL OUTER JOIN JobStats JS ON JS.Queue = Q.Name
             ORDER BY JS.LastJobAtUtc DESC";
 
@@ -337,5 +345,34 @@ public class SqlJobStorage : IJobStorage
 
         using var connection = new SqlConnection(_connectionString);
         await connection.ExecuteAsync(new CommandDefinition(sql, new { Id = id, Priority = newPriority }, cancellationToken: ct));
+    }
+
+    public async ValueTask RescheduleJobAsync(
+        string jobId,
+        DateTime scheduledAtUtc,
+        int attemptCount,
+        string errorDetails,
+        CancellationToken ct = default)
+    {
+        var sql = $@"
+            UPDATE {_tableName}
+            SET 
+                Status = @PendingStatus,
+                ScheduledAtUtc = @ScheduledAt,
+                AttemptCount = @AttemptCount,
+                ErrorDetails = @Error,
+                WorkerId = NULL,
+                LastUpdatedUtc = SYSUTCDATETIME()
+            WHERE Id = @Id";
+
+        using var connection = new SqlConnection(_connectionString);
+        await connection.ExecuteAsync(new CommandDefinition(sql, new
+        {
+            Id = jobId,
+            PendingStatus = (int)JobStatus.Pending,
+            ScheduledAt = scheduledAtUtc,
+            AttemptCount = attemptCount,
+            Error = errorDetails
+        }, cancellationToken: ct));
     }
 }

@@ -30,5 +30,12 @@ public interface IJobProcessor
     /// <param name="payload">JSON payload.</param>
     /// <param name="workerId">The ID of the worker thread.</param>
     /// <param name="workerCt">The worker's cancellation token.</param>
-    Task ProcessJobAsync(string jobId, string jobType, string payload, string workerId, CancellationToken workerCt);
+    Task ProcessJobAsync(
+        string jobId,
+        string jobType,
+        string payload,
+        string workerId,
+        int attemptCount,
+        string? createdBy,
+        CancellationToken workerCt);
 }

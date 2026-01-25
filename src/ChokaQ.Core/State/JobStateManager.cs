@@ -30,10 +30,11 @@ public class JobStateManager : IJobStateManager
         DateTime? startedAtUtc = null,
         string queue = "default",
         int priority = 10,
+        string? errorDetails = null,
         CancellationToken ct = default)
     {
         // 1. Persist to DB
-        await _storage.UpdateJobStateAsync(jobId, status, ct);
+        await _storage.UpdateJobStateAsync(jobId, status, errorDetails, ct);
 
         // 2. Notify UI with FULL context
         try
@@ -53,6 +54,38 @@ public class JobStateManager : IJobStateManager
         catch (Exception ex)
         {
             _logger.LogWarning("Failed to notify: {Message}", ex.Message);
+        }
+    }
+
+    public async Task RescheduleJobAsync(
+        string jobId,
+        string type,
+        DateTime scheduledAtUtc,
+        int attemptCount,
+        string errorDetails,
+        string queue,
+        int priority,
+        CancellationToken ct = default)
+    {
+        await _storage.RescheduleJobAsync(jobId, scheduledAtUtc, attemptCount, errorDetails, ct);
+
+        try
+        {
+            await _notifier.NotifyJobUpdatedAsync(
+                jobId,
+                type,
+                JobStatus.Pending,
+                attemptCount,
+                null,
+                null,
+                null,
+                queue,
+                priority
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Failed to notify UI about reschedule: {Message}", ex.Message);
         }
     }
 }

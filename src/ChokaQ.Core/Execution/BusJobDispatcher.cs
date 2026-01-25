@@ -4,13 +4,14 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace ChokaQ.Core.Execution;
 
 public class BusJobDispatcher : IJobDispatcher
 {
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly JobTypeRegistry _registry; // <--- INJECTED REGISTRY
+    private readonly JobTypeRegistry _registry;
     private readonly ILogger<BusJobDispatcher> _logger;
 
     public BusJobDispatcher(
@@ -78,6 +79,26 @@ public class BusJobDispatcher : IJobDispatcher
         {
             if (ex.InnerException != null) throw ex.InnerException;
             throw;
+        }
+    }
+
+    public JobMetadata ParseMetadata(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+            return new JobMetadata("default", 10);
+
+        try
+        {
+            var node = JsonNode.Parse(payload);
+            var metaNode = node?["Metadata"];
+            var queue = metaNode?["Queue"]?.ToString() ?? "default";
+            var priority = metaNode?["Priority"]?.GetValue<int>() ?? 10;
+
+            return new JobMetadata(queue, priority);
+        }
+        catch
+        {
+            return new JobMetadata("default", 10);
         }
     }
 }

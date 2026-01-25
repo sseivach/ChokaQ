@@ -91,13 +91,18 @@ public class InMemoryJobStorage : IJobStorage
             _queues.TryAdd(job.Queue, new QueueInfo(job.Queue));
     }
 
-    public ValueTask<bool> UpdateJobStateAsync(string jobId, JobStatus status, CancellationToken ct = default)
+    public ValueTask<bool> UpdateJobStateAsync(
+        string jobId,
+        JobStatus status,
+        string? errorDetails = null,
+        CancellationToken ct = default)
     {
         if (_jobs.TryGetValue(jobId, out var job))
         {
             var updatedJob = job with
             {
                 Status = status,
+                ErrorDetails = errorDetails,
                 StartedAtUtc = status == JobStatus.Processing ? DateTime.UtcNow : job.StartedAtUtc,
                 FinishedAtUtc = (status == JobStatus.Succeeded || status == JobStatus.Failed || status == JobStatus.Cancelled) ? DateTime.UtcNow : job.FinishedAtUtc,
                 LastUpdatedUtc = DateTime.UtcNow
@@ -108,7 +113,6 @@ public class InMemoryJobStorage : IJobStorage
         return new ValueTask<bool>(false);
     }
 
-    // 👇 IMPLEMNTED MISSING METHOD 👇
     public Task MarkAsProcessingAsync(string jobId, CancellationToken ct)
     {
         if (_jobs.TryGetValue(jobId, out var job))
@@ -231,6 +235,30 @@ public class InMemoryJobStorage : IJobStorage
         _queues.AddOrUpdate(queueName,
             new QueueInfo(queueName) { IsPaused = isPaused, LastUpdatedUtc = DateTime.UtcNow },
             (key, old) => { old.IsPaused = isPaused; old.LastUpdatedUtc = DateTime.UtcNow; return old; });
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask RescheduleJobAsync(
+        string jobId,
+        DateTime scheduledAtUtc,
+        int attemptCount,
+        string errorDetails,
+        CancellationToken ct = default)
+    {
+        if (_jobs.TryGetValue(jobId, out var job))
+        {
+            var updatedJob = job with
+            {
+                Status = JobStatus.Pending,
+                ScheduledAtUtc = scheduledAtUtc,
+                AttemptCount = attemptCount,
+                ErrorDetails = errorDetails,
+                WorkerId = null, // Освобождаем воркер
+                LastUpdatedUtc = DateTime.UtcNow
+            };
+
+            _jobs[jobId] = updatedJob;
+        }
         return ValueTask.CompletedTask;
     }
 

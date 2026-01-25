@@ -50,13 +50,21 @@ public class JobProcessor : IJobProcessor
         ILogger<JobProcessor> logger,
         ICircuitBreaker breaker,
         IJobDispatcher dispatcher,
-        IJobStateManager stateManager)
+        IJobStateManager stateManager,
+        ChokaQOptions? options = null)
     {
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _breaker = breaker ?? throw new ArgumentNullException(nameof(breaker));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _stateManager = stateManager ?? throw new ArgumentNullException(nameof(stateManager));
+
+        if (options != null)
+        {
+            MaxRetries = options.MaxRetries;
+            RetryDelaySeconds = options.RetryDelaySeconds;
+        }
+
     }
 
     /// <summary>
@@ -74,39 +82,42 @@ public class JobProcessor : IJobProcessor
     /// <summary>
     /// Processes a single job with full resilience logic.
     /// </summary>
-    public async Task ProcessJobAsync(string jobId, string jobType, string payload, string workerId, CancellationToken workerCt)
+    public async Task ProcessJobAsync(
+        string jobId,
+        string jobType,
+        string payload,
+        string workerId,
+        int attemptCount,
+        string? createdBy,
+        CancellationToken workerCt)
     {
-        // 1. Validate State (Double-check)
-        // Although the Poller fetched it, the status might have changed (e.g., cancelled by user).
-        var storageDto = await _storage.GetJobAsync(jobId);
-        if (storageDto?.Status == JobStatus.Cancelled)
-        {
-            _logger.LogInformation("[Worker {ID}] Skipping job {JobId} because it was cancelled.", workerId, jobId);
-            return;
-        }
+        var meta = _dispatcher.ParseMetadata(payload);
+        var context = new JobExecutionContext(createdBy, meta.Queue, meta.Priority, attemptCount);
 
-        // Prepare metadata for status updates
-        var meta = new JobMetadata(
-            storageDto?.CreatedBy,
-            storageDto?.Queue ?? "default",
-            storageDto?.Priority ?? 10,
-            storageDto?.AttemptCount ?? 1
-        );
-
-        // 2. Circuit Breaker Check
-        // Before executing, check if the "Fuse" for this job type is intact.
+        // 3. Circuit Breaker
         if (!_breaker.IsExecutionPermitted(jobType))
         {
             _logger.LogWarning("[CircuitBreaker] Job {JobId} skipped. Circuit for {Type} is OPEN.", jobId, jobType);
 
-            // Wait for a configured cooldown period to avoid hammering the CPU/DB in a tight loop.
-            await Task.Delay(TimeSpan.FromSeconds(CircuitBreakerDelaySeconds), workerCt);
+            var currentJob = await _storage.GetJobAsync(jobId);
+            if (currentJob != null)
+            {
+                await _stateManager.RescheduleJobAsync(
+                    jobId,
+                    jobType,
+                    DateTime.UtcNow.AddSeconds(5),
+                    currentJob.AttemptCount,
+                    "Circuit Breaker Open",
+                    meta.Queue,
+                    meta.Priority,
+                    workerCt);
+            }
             return;
         }
 
         // 3. Mark as Processing
         var startedAt = DateTime.UtcNow;
-        await UpdateStatusAsync(jobId, jobType, JobStatus.Processing, meta, startedAt: startedAt, ct: workerCt);
+        await UpdateStatusAsync(jobId, jobType, JobStatus.Processing, context, startedAt: startedAt, ct: workerCt);
 
         // 4. Execution Setup
         // Create a linked token so the job cancels if:
@@ -126,7 +137,7 @@ public class JobProcessor : IJobProcessor
             // 6. Success Path
             _breaker.ReportSuccess(jobType); // Tell breaker "Service is healthy"
 
-            await UpdateStatusAsync(jobId, jobType, JobStatus.Succeeded, meta,
+            await UpdateStatusAsync(jobId, jobType, JobStatus.Succeeded, context,
                 durationMs: sw.Elapsed.TotalMilliseconds, startedAt: startedAt, ct: workerCt);
 
             _logger.LogInformation("[Worker {ID}] Job {JobId} succeeded in {Duration}ms.", workerId, jobId, sw.Elapsed.TotalMilliseconds);
@@ -136,14 +147,14 @@ public class JobProcessor : IJobProcessor
             sw.Stop();
             _logger.LogInformation("[Worker {ID}] Job {JobId} was cancelled during execution.", workerId, jobId);
 
-            await UpdateStatusAsync(jobId, jobType, JobStatus.Cancelled, meta,
+            await UpdateStatusAsync(jobId, jobType, JobStatus.Cancelled, context,
                 durationMs: sw.Elapsed.TotalMilliseconds, startedAt: startedAt, ct: workerCt);
         }
         catch (Exception ex)
         {
             sw.Stop();
             // 7. Failure Path (Retry Logic)
-            await HandleErrorAsync(ex, jobId, jobType, meta, workerId, workerCt, sw.Elapsed.TotalMilliseconds, startedAt);
+            await HandleErrorAsync(ex, jobId, jobType, context, workerId, workerCt, sw.Elapsed.TotalMilliseconds, startedAt);
         }
         finally
         {
@@ -156,49 +167,57 @@ public class JobProcessor : IJobProcessor
         Exception ex,
         string jobId,
         string jobType,
-        JobMetadata meta,
+        JobExecutionContext context,
         string workerId,
         CancellationToken ct,
         double durationMs,
         DateTime startedAt)
     {
-        // A. Report to Circuit Breaker (May open the circuit if threshold reached)
+        // 1. Notify monitoring system (Circuit Breaker metrics)
         _breaker.ReportFailure(jobType);
 
-        // B. Re-fetch current state to ensure we are operating on fresh data
-        var currentJob = await _storage.GetJobAsync(jobId);
+        var currentAttempt = context.AttemptCount;
 
-        // Guard: If job was cancelled while failing, respect the cancellation.
-        if (currentJob == null || currentJob.Status == JobStatus.Cancelled) return;
-
-        var currentAttempt = currentJob.AttemptCount;
-
-        // C. Retry Logic
-        if (currentAttempt <= MaxRetries)
+        // 2. Decision: Retry or Fail Permanently?
+        if (currentAttempt < MaxRetries)
         {
             var nextAttempt = currentAttempt + 1;
-            var delayMs = CalculateBackoff(currentAttempt);
+            var delayMs = CalculateBackoff(nextAttempt);
+            var scheduledAt = DateTime.UtcNow.AddMilliseconds(delayMs);
 
-            _logger.LogWarning(ex, "[Worker {ID}] Job {JobId} failed after {Duration}ms. Retrying in {Delay}ms (Attempt {Next}).",
-                workerId, jobId, durationMs, delayMs, nextAttempt);
+            // Log warning (Ensure placeholders match arguments count to avoid FormatException)
+            _logger.LogWarning(ex,
+                "[Worker {WorkerId}] Job {JobId} failed. Smart Retry #{Attempt} scheduled in {Delay}ms.",
+                workerId, jobId, nextAttempt, delayMs);
 
-            // Increment attempt counter in DB
-            await _storage.IncrementJobAttemptAsync(jobId, nextAttempt);
-
-            // Move back to Pending so the Poller picks it up again later.
-            // TODO: In a future version, set ScheduledAtUtc = Now + delayMs to delay pickup.
-            await UpdateStatusAsync(jobId, jobType, JobStatus.Pending, meta with { AttemptCount = nextAttempt }, ct: ct);
-
-            // Short wait to prevent instant re-pickup if the DB poll is fast
-            await Task.Delay(delayMs, ct);
+            // Smart reschedule in storage (pushes execution to the future)
+            await _stateManager.RescheduleJobAsync(
+                jobId,
+                jobType,
+                scheduledAt,
+                nextAttempt,
+                ex.Message,
+                context.Queue,
+                context.Priority,
+                ct);
         }
         else
         {
-            // D. Permanent Failure
-            _logger.LogError(ex, "[Worker {ID}] Job {JobId} FAILED permanently after {Duration}ms.", workerId, durationMs);
+            // Log permanent failure
+            _logger.LogError(ex,
+                "[Worker {WorkerId}] Job {JobId} failed permanently after {Retries} attempts. Error: {Error}",
+                workerId, jobId, MaxRetries, ex.Message);
 
-            await UpdateStatusAsync(jobId, jobType, JobStatus.Failed, meta,
-                durationMs: durationMs, startedAt: startedAt, ct: ct);
+            // Mark job as Failed
+            await UpdateStatusAsync(
+                jobId,
+                jobType,
+                JobStatus.Failed,
+                context,
+                ex.Message,
+                durationMs,
+                startedAt,
+                ct);
         }
     }
 
@@ -220,20 +239,37 @@ public class JobProcessor : IJobProcessor
     /// <summary>
     /// Helper to update state in Storage + Notify Dashboard via SignalR.
     /// </summary>
-    private Task UpdateStatusAsync(string id, string type, JobStatus status, JobMetadata meta,
-        double? durationMs = null, DateTime? startedAt = null, CancellationToken ct = default)
+    private async Task UpdateStatusAsync(
+        string jobId,
+        string jobType,
+        JobStatus status,
+        JobExecutionContext context,
+        string? result = null,
+        double durationMs = 0,
+        DateTime? startedAt = null,
+        CancellationToken ct = default)
     {
-        return _stateManager.UpdateStateAsync(
-            id, type, status, meta.AttemptCount,
+        // 1. Notify State Manager
+        await _stateManager.UpdateStateAsync(
+            jobId: jobId,
+            type: jobType,
+            status: status,
+            attemptCount: context.AttemptCount,
             executionDurationMs: durationMs,
-            createdBy: meta.CreatedBy,
+            createdBy: context.CreatedBy,
             startedAtUtc: startedAt,
-            queue: meta.Queue,
-            priority: meta.Priority,
-            ct: ct
-        );
+            queue: context.Queue,
+            priority: context.Priority,
+            errorDetails: result,
+            ct: ct);
+
+        // 2. Notify Circuit Breaker (Success counts towards closing the circuit)
+        if (status == JobStatus.Succeeded)
+        {
+            _breaker.ReportSuccess(jobType);
+        }
     }
 
     // Lightweight record to pass immutable metadata through the pipeline
-    private record JobMetadata(string? CreatedBy, string Queue, int Priority, int AttemptCount);
+    private record JobExecutionContext(string? CreatedBy, string Queue, int Priority, int AttemptCount);
 }

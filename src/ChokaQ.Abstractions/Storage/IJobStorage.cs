@@ -32,7 +32,14 @@ public interface IJobStorage
     /// <summary>
     /// Updates the status of an existing job.
     /// </summary>
-    ValueTask<bool> UpdateJobStateAsync(string id, JobStatus status, CancellationToken ct = default);
+    /// <summary>
+    /// Updates the status of an existing job.
+    /// </summary>
+    ValueTask<bool> UpdateJobStateAsync(
+        string id,
+        JobStatus status,
+        string? errorDetails = null,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Updates the attempt counter for a job.
@@ -77,4 +84,15 @@ public interface IJobStorage
     ValueTask SetQueueStateAsync(string queueName, bool isPaused, CancellationToken ct = default);
 
     ValueTask UpdateJobPriorityAsync(string id, int newPriority, CancellationToken ct = default);
+
+    /// <summary>
+    /// Reschedules a job for future execution (Smart Retry).
+    /// Sets Status=Pending, Updates ScheduledAtUtc, Increments AttemptCount, Clears WorkerId.
+    /// </summary>
+    ValueTask RescheduleJobAsync(
+        string jobId,
+        DateTime scheduledAtUtc,
+        int attemptCount,
+        string errorDetails,
+        CancellationToken ct = default);
 }

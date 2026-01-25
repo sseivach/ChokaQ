@@ -18,6 +18,18 @@ public interface IJobStateManager
         DateTime? startedAtUtc = null,
         string queue = "default",
         int priority = 10,
+        string? errorDetails = null,
+        CancellationToken ct = default
+    );
+
+    Task RescheduleJobAsync(
+        string jobId,
+        string type,
+        DateTime scheduledAtUtc,
+        int attemptCount,
+        string errorDetails,
+        string queue,
+        int priority,
         CancellationToken ct = default
     );
 }

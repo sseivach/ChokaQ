@@ -56,4 +56,14 @@ public class ChokaQOptions
     {
         configure(InMemoryOptions);
     }
+
+    /// <summary>
+    /// Default maximum retries for failed jobs. Default: 3.
+    /// </summary>
+    public int MaxRetries { get; set; } = 3;
+
+    /// <summary>
+    /// Base retry delay in seconds (Exponential Backoff starts here). Default: 3.
+    /// </summary>
+    public int RetryDelaySeconds { get; set; } = 3;
 }

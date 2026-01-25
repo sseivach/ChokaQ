@@ -1,5 +1,7 @@
 ﻿namespace ChokaQ.Core.Execution;
 
+public record JobMetadata(string Queue, int Priority);
+
 /// <summary>
 /// Responsible for dispatching the job execution to the appropriate handler.
 /// This abstraction supports different processing strategies (Bus vs. Pipe).
@@ -14,4 +16,6 @@ public interface IJobDispatcher
     /// <param name="payload">The raw JSON payload.</param>
     /// <param name="ct">Cancellation token.</param>
     Task DispatchAsync(string jobId, string jobType, string payload, CancellationToken ct);
+
+    JobMetadata ParseMetadata(string payload);
 }
