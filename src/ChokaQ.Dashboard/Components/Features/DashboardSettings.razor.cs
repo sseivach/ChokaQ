@@ -15,7 +15,7 @@ public partial class DashboardSettings
 
     protected override void OnInitialized()
     {
-        DesiredWorkers = WorkerManager.ActiveWorkers;
+        DesiredWorkers = WorkerManager.TotalWorkers;
         MaxRetries = WorkerManager.MaxRetries;
         RetryDelaySeconds = WorkerManager.RetryDelaySeconds;
     }

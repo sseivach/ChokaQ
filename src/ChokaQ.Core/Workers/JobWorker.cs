@@ -37,6 +37,8 @@ public class JobWorker : BackgroundService, IWorkerManager
     }
 
     public int ActiveWorkers { get; private set; } = 0;
+    private int _targetWorkerCount = 1; // Default
+    public int TotalWorkers => _targetWorkerCount;
 
     public JobWorker(
         InMemoryQueue queue,
@@ -144,6 +146,8 @@ public class JobWorker : BackgroundService, IWorkerManager
     {
         if (targetCount < 0) targetCount = 0;
         if (targetCount > 100) targetCount = 100;
+
+        _targetWorkerCount = targetCount;
 
         lock (_lock)
         {

@@ -8,6 +8,11 @@ public interface IWorkerManager
     int ActiveWorkers { get; }
 
     /// <summary>
+    /// Gets the total configured capacity of workers (Pool Size).
+    /// </summary>
+    int TotalWorkers { get; }
+
+    /// <summary>
     /// Gets or sets the maximum number of retries allowed for a failed job.
     /// </summary>
     int MaxRetries { get; set; }

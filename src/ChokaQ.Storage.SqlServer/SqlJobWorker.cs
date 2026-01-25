@@ -34,6 +34,11 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
     /// </summary>
     public int ActiveWorkers => _concurrencyLimiter.RunningCount;
 
+    /// <summary>
+    /// Gets the maximum concurrency limit.
+    /// </summary>
+    public int TotalWorkers => _concurrencyLimiter.Capacity;
+
     // Delegate configuration to the central Processor
     public int MaxRetries
     {
