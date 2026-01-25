@@ -1,4 +1,5 @@
 ﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.Resilience;
 using ChokaQ.Core.Contexts;
 using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
@@ -35,6 +36,7 @@ public static class ChokaQCoreExtensions
     private static void AddInfrastructure(IServiceCollection services, ChokaQOptions options)
     {
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<IDeduplicator, InMemoryDeduplicator>();
         services.TryAddSingleton<ICircuitBreaker, InMemoryCircuitBreaker>();
 
         // Register InMemoryJobStorage with the configured options

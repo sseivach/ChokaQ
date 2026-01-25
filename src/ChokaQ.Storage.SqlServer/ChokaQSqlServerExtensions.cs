@@ -1,4 +1,5 @@
 ﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.Resilience;
 using ChokaQ.Core.Workers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -35,7 +36,8 @@ public static class ChokaQSqlServerExtensions
         services.AddSingleton<IJobStorage>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<SqlJobStorage>>();
-            return new SqlJobStorage(options.ConnectionString, options.SchemaName, logger);
+            var deduplicator = sp.GetRequiredService<IDeduplicator>();
+            return new SqlJobStorage(options.ConnectionString, options.SchemaName, logger, deduplicator);
         });
 
         // =========================================================

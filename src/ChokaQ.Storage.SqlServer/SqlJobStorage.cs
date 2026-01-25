@@ -2,6 +2,7 @@
 using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
 using Dapper;
+using ChokaQ.Abstractions.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
@@ -14,14 +15,17 @@ public class SqlJobStorage : IJobStorage
     private readonly string _schemaName;
     private readonly string _tableName;
     private readonly ILogger<SqlJobStorage> _logger;
+    private readonly IDeduplicator _deduplicator;
 
     public SqlJobStorage(
         string connectionString,
         string schemaName,
-        ILogger<SqlJobStorage> logger)
+        ILogger<SqlJobStorage> logger,
+        IDeduplicator deduplicator)
     {
         _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _deduplicator = deduplicator ?? throw new ArgumentNullException(nameof(deduplicator)); // <--- Сохраняем
 
         if (string.IsNullOrWhiteSpace(schemaName))
             throw new ArgumentException("Schema name cannot be empty.", nameof(schemaName));
@@ -46,6 +50,16 @@ public class SqlJobStorage : IJobStorage
         string? idempotencyKey = null,
         CancellationToken ct = default)
     {
+        if (!string.IsNullOrEmpty(idempotencyKey))
+        {
+            // Block duplicates for 10 minutes in memory
+            if (!await _deduplicator.TryAcquireAsync(idempotencyKey, TimeSpan.FromMinutes(10)))
+            {
+                _logger.LogInformation("🛡️ Deduplicator: Blocked duplicate job '{Key}' (RAM hit).", idempotencyKey);
+                return id;
+            }
+        }
+
         var sql = $@"
             INSERT INTO {_tableName} 
             (Id, Queue, Type, Payload, Status, AttemptCount, Priority, CreatedBy, Tags, IdempotencyKey, CreatedAtUtc, ScheduledAtUtc, LastUpdatedUtc)
