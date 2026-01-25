@@ -8,6 +8,7 @@ public record QueueDto(
     int ProcessingCount,
     int FailedCount,
     int SucceededCount,
+    int CancelledCount,
     DateTime? FirstJobAtUtc,
     DateTime? LastJobAtUtc
 );

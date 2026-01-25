@@ -217,6 +217,7 @@ public class InMemoryJobStorage : IJobStorage
                 ProcessingCount: g.Count(j => j.Status == JobStatus.Processing),
                 FailedCount: g.Count(j => j.Status == JobStatus.Failed),
                 SucceededCount: g.Count(j => j.Status == JobStatus.Succeeded),
+                CancelledCount: g.Count(j => j.Status == JobStatus.Cancelled),
                 FirstJobAtUtc: g.Min(j => j.StartedAtUtc),
                 LastJobAtUtc: g.Max(j => j.FinishedAtUtc)
             ))
@@ -226,7 +227,7 @@ public class InMemoryJobStorage : IJobStorage
         foreach (var q in _queues.Values)
         {
             if (!stats.Any(s => s.Name == q.Name))
-                stats.Add(new QueueDto(q.Name, q.IsPaused, 0, 0, 0, 0, 0, null, null));
+                stats.Add(new QueueDto(q.Name, q.IsPaused, 0, 0, 0, 0, 0, 0, null, null)); // Added extra 0 for Cancelled
         }
 
         // Sort by Date Ascending (Oldest top, Newest bottom)

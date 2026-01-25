@@ -286,6 +286,7 @@ public class SqlJobStorage : IJobStorage
                     COUNT(CASE WHEN Status = 2 THEN 1 END) as ProcessingCount,
                     COUNT(CASE WHEN Status = 3 THEN 1 END) as SucceededCount,
                     COUNT(CASE WHEN Status = 4 THEN 1 END) as FailedCount,
+                    COUNT(CASE WHEN Status = 5 THEN 1 END) as CancelledCount,
                     MIN(StartedAtUtc) as FirstJobAtUtc,
                     MAX(FinishedAtUtc) as LastJobAtUtc
                 FROM {jobsTable} WITH (NOLOCK)
@@ -299,6 +300,7 @@ public class SqlJobStorage : IJobStorage
                 ISNULL(JS.ProcessingCount, 0) as ProcessingCount,
                 ISNULL(JS.FailedCount, 0) as FailedCount,
                 ISNULL(JS.SucceededCount, 0) as SucceededCount,
+                ISNULL(JS.CancelledCount, 0) as CancelledCount,
                 JS.FirstJobAtUtc,
                 JS.LastJobAtUtc
             FROM {queuesTable} Q WITH (NOLOCK)
