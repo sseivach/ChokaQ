@@ -5,26 +5,24 @@ using System.Collections.Concurrent;
 
 namespace ChokaQ.Core.Defaults;
 
+/// <summary>
+/// Thread-safe in-memory implementation of the job storage.
+/// Suitable for "Pipe Mode" (Rocket Speed) or local development.
+/// </summary>
 public class InMemoryJobStorage : IJobStorage
 {
     private readonly int _maxCapacity;
-    // Using ConcurrentDictionary for thread safety
     private readonly ConcurrentDictionary<string, JobStorageDto> _jobs = new();
     private readonly ConcurrentDictionary<string, QueueInfo> _queues = new();
 
     public InMemoryJobStorage(InMemoryStorageOptions options)
     {
         _maxCapacity = options.MaxCapacity;
-        // Initialize default queue
+        // Initialize default queue to ensure it always exists
         _queues.TryAdd("default", new QueueInfo("default"));
     }
 
-    public ValueTask<JobStorageDto?> GetJobAsync(string jobId, CancellationToken ct = default)
-    {
-        _jobs.TryGetValue(jobId, out var job);
-        return new ValueTask<JobStorageDto?>(job);
-    }
-
+    /// <inheritdoc />
     public ValueTask<string> CreateJobAsync(
         string id,
         string queue,
@@ -37,6 +35,16 @@ public class InMemoryJobStorage : IJobStorage
         string? idempotencyKey = null,
         CancellationToken ct = default)
     {
+        // 1. Check Idempotency (Simple check for In-Memory)
+        if (!string.IsNullOrEmpty(idempotencyKey))
+        {
+            var existing = _jobs.Values.FirstOrDefault(j => j.IdempotencyKey == idempotencyKey);
+            if (existing != null)
+            {
+                return new ValueTask<string>(existing.Id);
+            }
+        }
+
         var jobDto = new JobStorageDto(
             Id: id,
             Queue: queue,
@@ -61,36 +69,14 @@ public class InMemoryJobStorage : IJobStorage
         return new ValueTask<string>(id);
     }
 
-    private void SaveJobInternal(JobStorageDto job)
+    /// <inheritdoc />
+    public ValueTask<JobStorageDto?> GetJobAsync(string jobId, CancellationToken ct = default)
     {
-        // Simple eviction to prevent OOM
-        if (_jobs.Count >= _maxCapacity)
-        {
-            var jobsToRemove = _jobs.Values
-                .Where(x => x.Status == JobStatus.Succeeded || x.Status == JobStatus.Failed || x.Status == JobStatus.Cancelled)
-                .OrderBy(x => x.CreatedAtUtc)
-                .Take(1000)
-                .Select(x => x.Id)
-                .ToList();
-
-            foreach (var id in jobsToRemove) _jobs.TryRemove(id, out _);
-
-            if (_jobs.Count >= _maxCapacity)
-            {
-                var oldest = _jobs.Values
-                    .OrderBy(x => x.CreatedAtUtc)
-                    .Take(100)
-                    .Select(x => x.Id);
-                foreach (var id in oldest) _jobs.TryRemove(id, out _);
-            }
-        }
-
-        _jobs[job.Id] = job;
-
-        if (!_queues.ContainsKey(job.Queue))
-            _queues.TryAdd(job.Queue, new QueueInfo(job.Queue));
+        _jobs.TryGetValue(jobId, out var job);
+        return new ValueTask<JobStorageDto?>(job);
     }
 
+    /// <inheritdoc />
     public ValueTask<bool> UpdateJobStateAsync(
         string jobId,
         JobStatus status,
@@ -113,6 +99,7 @@ public class InMemoryJobStorage : IJobStorage
         return new ValueTask<bool>(false);
     }
 
+    /// <inheritdoc />
     public Task MarkAsProcessingAsync(string jobId, CancellationToken ct)
     {
         if (_jobs.TryGetValue(jobId, out var job))
@@ -125,12 +112,24 @@ public class InMemoryJobStorage : IJobStorage
                 StartedAtUtc = DateTime.UtcNow,
                 LastUpdatedUtc = DateTime.UtcNow
             };
-
             _jobs[jobId] = updatedJob;
         }
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
+    public ValueTask KeepAliveAsync(string jobId, CancellationToken ct = default)
+    {
+        // Light update to confirm worker is alive
+        if (_jobs.TryGetValue(jobId, out var job))
+        {
+            var updated = job with { LastUpdatedUtc = DateTime.UtcNow };
+            _jobs[jobId] = updated;
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
     public ValueTask UpdateJobPriorityAsync(string jobId, int priority, CancellationToken ct = default)
     {
         if (_jobs.TryGetValue(jobId, out var job))
@@ -141,6 +140,7 @@ public class InMemoryJobStorage : IJobStorage
         return ValueTask.CompletedTask;
     }
 
+    /// <inheritdoc />
     public ValueTask<bool> IncrementJobAttemptAsync(string jobId, int attemptCount, CancellationToken ct = default)
     {
         if (_jobs.TryGetValue(jobId, out var job))
@@ -152,8 +152,34 @@ public class InMemoryJobStorage : IJobStorage
         return new ValueTask<bool>(false);
     }
 
+    /// <inheritdoc />
+    public ValueTask RescheduleJobAsync(
+        string jobId,
+        DateTime scheduledAtUtc,
+        int attemptCount,
+        string errorDetails,
+        CancellationToken ct = default)
+    {
+        if (_jobs.TryGetValue(jobId, out var job))
+        {
+            var updatedJob = job with
+            {
+                Status = JobStatus.Pending,
+                ScheduledAtUtc = scheduledAtUtc,
+                AttemptCount = attemptCount,
+                ErrorDetails = errorDetails,
+                WorkerId = null, // Release worker
+                LastUpdatedUtc = DateTime.UtcNow
+            };
+            _jobs[jobId] = updatedJob;
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
     public ValueTask<IEnumerable<JobStorageDto>> FetchAndLockNextBatchAsync(string workerId, int limit, string[]? allowedQueues, CancellationToken ct = default)
     {
+        // 1. Identify jobs ready to be processed
         var batch = _jobs.Values
             .Where(j => j.Status == JobStatus.Pending &&
                         (allowedQueues == null || allowedQueues.Contains(j.Queue)) &&
@@ -164,9 +190,10 @@ public class InMemoryJobStorage : IJobStorage
             .ToList();
 
         var lockedJobs = new List<JobStorageDto>();
+
         foreach (var job in batch)
         {
-            // This mimics the SQL logic: Worker buffer holds "Fetched" jobs.
+            // 2. Lock them (Pending -> Fetched)
             var fetchedJob = job with
             {
                 Status = JobStatus.Fetched,
@@ -184,18 +211,20 @@ public class InMemoryJobStorage : IJobStorage
         return new ValueTask<IEnumerable<JobStorageDto>>(lockedJobs);
     }
 
+    /// <inheritdoc />
     public ValueTask<IEnumerable<JobStorageDto>> GetJobsAsync(int limit, CancellationToken ct = default)
     {
         var result = _jobs.Values.OrderByDescending(j => j.CreatedAtUtc).Take(limit);
         return new ValueTask<IEnumerable<JobStorageDto>>(result);
     }
 
+    /// <inheritdoc />
     public ValueTask<JobCountsDto> GetJobCountsAsync(CancellationToken ct = default)
     {
         var values = _jobs.Values;
         var counts = new JobCountsDto(
             Pending: values.Count(x => x.Status == JobStatus.Pending),
-            Fetched: values.Count(x => x.Status == JobStatus.Fetched),       // <--- Count Fetched
+            Fetched: values.Count(x => x.Status == JobStatus.Fetched),
             Processing: values.Count(x => x.Status == JobStatus.Processing),
             Succeeded: values.Count(x => x.Status == JobStatus.Succeeded),
             Failed: values.Count(x => x.Status == JobStatus.Failed),
@@ -205,6 +234,7 @@ public class InMemoryJobStorage : IJobStorage
         return new ValueTask<JobCountsDto>(counts);
     }
 
+    /// <inheritdoc />
     public ValueTask<IEnumerable<QueueDto>> GetQueuesAsync(CancellationToken ct = default)
     {
         var stats = _jobs.Values
@@ -218,6 +248,7 @@ public class InMemoryJobStorage : IJobStorage
                 FailedCount: g.Count(j => j.Status == JobStatus.Failed),
                 SucceededCount: g.Count(j => j.Status == JobStatus.Succeeded),
                 CancelledCount: g.Count(j => j.Status == JobStatus.Cancelled),
+                ZombieTimeoutSeconds: _queues.TryGetValue(g.Key, out var qi) ? qi.ZombieTimeoutSeconds : null, // <--- Map Timeout
                 FirstJobAtUtc: g.Min(j => j.StartedAtUtc),
                 LastJobAtUtc: g.Max(j => j.FinishedAtUtc)
             ))
@@ -227,10 +258,10 @@ public class InMemoryJobStorage : IJobStorage
         foreach (var q in _queues.Values)
         {
             if (!stats.Any(s => s.Name == q.Name))
-                stats.Add(new QueueDto(q.Name, q.IsPaused, 0, 0, 0, 0, 0, 0, null, null)); // Added extra 0 for Cancelled
+                stats.Add(new QueueDto(q.Name, q.IsPaused, 0, 0, 0, 0, 0, 0, q.ZombieTimeoutSeconds, null, null));
         }
 
-        // Sort by Date Ascending (Oldest top, Newest bottom)
+        // Sort: Oldest/Inactive first, Newest activity last
         var sortedStats = stats
             .OrderBy(x => x.LastJobAtUtc)
             .ThenBy(x => x.Name);
@@ -238,6 +269,7 @@ public class InMemoryJobStorage : IJobStorage
         return new ValueTask<IEnumerable<QueueDto>>(sortedStats);
     }
 
+    /// <inheritdoc />
     public ValueTask SetQueueStateAsync(string queueName, bool isPaused, CancellationToken ct = default)
     {
         _queues.AddOrUpdate(queueName,
@@ -246,34 +278,95 @@ public class InMemoryJobStorage : IJobStorage
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask RescheduleJobAsync(
-        string jobId,
-        DateTime scheduledAtUtc,
-        int attemptCount,
-        string errorDetails,
-        CancellationToken ct = default)
+    /// <inheritdoc />
+    public ValueTask UpdateQueueTimeoutAsync(string queueName, int? timeoutSeconds, CancellationToken ct = default)
     {
-        if (_jobs.TryGetValue(jobId, out var job))
-        {
-            var updatedJob = job with
-            {
-                Status = JobStatus.Pending,
-                ScheduledAtUtc = scheduledAtUtc,
-                AttemptCount = attemptCount,
-                ErrorDetails = errorDetails,
-                WorkerId = null, // Освобождаем воркер
-                LastUpdatedUtc = DateTime.UtcNow
-            };
-
-            _jobs[jobId] = updatedJob;
-        }
+        _queues.AddOrUpdate(queueName,
+            new QueueInfo(queueName) { ZombieTimeoutSeconds = timeoutSeconds, LastUpdatedUtc = DateTime.UtcNow },
+            (key, old) => { old.ZombieTimeoutSeconds = timeoutSeconds; old.LastUpdatedUtc = DateTime.UtcNow; return old; });
         return ValueTask.CompletedTask;
     }
 
+    /// <inheritdoc />
+    public ValueTask<int> MarkZombiesAsync(int globalTimeoutSeconds, CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+        int count = 0;
+
+        foreach (var job in _jobs.Values)
+        {
+            // Only check Processing jobs
+            if (job.Status == JobStatus.Processing)
+            {
+                // Determine effective timeout (Queue-specific OR Global)
+                int timeout = globalTimeoutSeconds;
+                if (_queues.TryGetValue(job.Queue, out var q) && q.ZombieTimeoutSeconds.HasValue)
+                {
+                    timeout = q.ZombieTimeoutSeconds.Value;
+                }
+
+                // Check heartbeat expiration
+                if (job.LastUpdatedUtc < now.AddSeconds(-timeout))
+                {
+                    var zombie = job with
+                    {
+                        Status = JobStatus.Zombie,
+                        ErrorDetails = "Zombie: Detected dead worker (In-Memory Heartbeat Expired)",
+                        WorkerId = null, // Release worker lock
+                        LastUpdatedUtc = now
+                    };
+
+                    // Optimistic update
+                    if (_jobs.TryUpdate(job.Id, zombie, job))
+                    {
+                        count++;
+                    }
+                }
+            }
+        }
+        return new ValueTask<int>(count);
+    }
+
+    private void SaveJobInternal(JobStorageDto job)
+    {
+        // Simple eviction mechanism to prevent OOM
+        if (_jobs.Count >= _maxCapacity)
+        {
+            var jobsToRemove = _jobs.Values
+                .Where(x => x.Status == JobStatus.Succeeded || x.Status == JobStatus.Failed || x.Status == JobStatus.Cancelled)
+                .OrderBy(x => x.CreatedAtUtc)
+                .Take(1000)
+                .Select(x => x.Id)
+                .ToList();
+
+            foreach (var id in jobsToRemove) _jobs.TryRemove(id, out _);
+
+            // Hard limit fallback
+            if (_jobs.Count >= _maxCapacity)
+            {
+                var oldest = _jobs.Values
+                    .OrderBy(x => x.CreatedAtUtc)
+                    .Take(100)
+                    .Select(x => x.Id);
+                foreach (var id in oldest) _jobs.TryRemove(id, out _);
+            }
+        }
+
+        _jobs[job.Id] = job;
+
+        // Register queue if new
+        if (!_queues.ContainsKey(job.Queue))
+            _queues.TryAdd(job.Queue, new QueueInfo(job.Queue));
+    }
+
+    /// <summary>
+    /// Internal DTO to track queue settings in memory.
+    /// </summary>
     private class QueueInfo
     {
         public string Name { get; }
         public bool IsPaused { get; set; }
+        public int? ZombieTimeoutSeconds { get; set; }
         public DateTime LastUpdatedUtc { get; set; }
 
         public QueueInfo(string name)

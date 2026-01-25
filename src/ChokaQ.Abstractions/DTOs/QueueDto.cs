@@ -9,6 +9,7 @@ public record QueueDto(
     int FailedCount,
     int SucceededCount,
     int CancelledCount,
+    int? ZombieTimeoutSeconds,
     DateTime? FirstJobAtUtc,
     DateTime? LastJobAtUtc
 );
