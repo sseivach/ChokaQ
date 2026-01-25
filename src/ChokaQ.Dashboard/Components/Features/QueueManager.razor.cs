@@ -15,6 +15,7 @@ public partial class QueueManager : IDisposable
     private IEnumerable<QueueDto> _visibleQueues => _queues.Where(q => !_hiddenQueues.Contains(q.Name));
     private System.Threading.Timer? _timer;
     private bool _isLoading = true;
+    private bool _isFirstLoad = true;
 
     protected override void OnInitialized()
     {
@@ -25,13 +26,31 @@ public partial class QueueManager : IDisposable
     {
         try
         {
+            // 1. Fetch data (already sorted by DB)
             _queues = (await Storage.GetQueuesAsync()).ToList();
             _isLoading = false;
 
-            // Auto-unhide active queues
+            // 2. STARTUP LOGIC: Hide inactive queues initially
+            if (_isFirstLoad)
+            {
+                foreach (var q in _queues)
+                {
+                    // If queue is empty and idle -> hide it
+                    bool isActive = q.PendingCount > 0 || q.FetchedCount > 0 || q.ProcessingCount > 0;
+                    if (!isActive)
+                    {
+                        _hiddenQueues.Add(q.Name);
+                    }
+                }
+                _isFirstLoad = false; // Disable flag after first run
+            }
+
+            // 3. Auto-unhide (if an inactive queue suddenly wakes up)
             foreach (var q in _queues)
             {
-                if ((q.PendingCount > 0 || q.ProcessingCount > 0) && _hiddenQueues.Contains(q.Name))
+                bool isActive = q.PendingCount > 0 || q.FetchedCount > 0 || q.ProcessingCount > 0;
+
+                if (isActive && _hiddenQueues.Contains(q.Name))
                 {
                     _hiddenQueues.Remove(q.Name);
                 }
@@ -42,7 +61,7 @@ public partial class QueueManager : IDisposable
         catch
         {
             _isLoading = false;
-            // Silent catch is better for UI polling
+            // Silent catch for polling
         }
     }
 

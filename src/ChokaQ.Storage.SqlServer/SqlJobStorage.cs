@@ -303,7 +303,7 @@ public class SqlJobStorage : IJobStorage
                 JS.LastJobAtUtc
             FROM {queuesTable} Q WITH (NOLOCK)
             FULL OUTER JOIN JobStats JS ON JS.Queue = Q.Name
-            ORDER BY JS.LastJobAtUtc DESC";
+            ORDER BY JS.LastJobAtUtc ASC, Name ASC";
 
         using var connection = new SqlConnection(_connectionString);
         return await connection.QueryAsync<QueueDto>(new CommandDefinition(sql, cancellationToken: ct));

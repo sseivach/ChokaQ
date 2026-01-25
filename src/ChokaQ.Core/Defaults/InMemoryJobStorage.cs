@@ -213,7 +213,7 @@ public class InMemoryJobStorage : IJobStorage
                 Name: g.Key,
                 IsPaused: _queues.TryGetValue(g.Key, out var q) && q.IsPaused,
                 PendingCount: g.Count(j => j.Status == JobStatus.Pending),
-                FetchedCount: g.Count(j => j.Status == JobStatus.Fetched),       // <--- NEW
+                FetchedCount: g.Count(j => j.Status == JobStatus.Fetched),
                 ProcessingCount: g.Count(j => j.Status == JobStatus.Processing),
                 FailedCount: g.Count(j => j.Status == JobStatus.Failed),
                 SucceededCount: g.Count(j => j.Status == JobStatus.Succeeded),
@@ -222,12 +222,19 @@ public class InMemoryJobStorage : IJobStorage
             ))
             .ToList();
 
+        // Add empty queues from registry that have no jobs yet
         foreach (var q in _queues.Values)
         {
             if (!stats.Any(s => s.Name == q.Name))
                 stats.Add(new QueueDto(q.Name, q.IsPaused, 0, 0, 0, 0, 0, null, null));
         }
-        return new ValueTask<IEnumerable<QueueDto>>(stats);
+
+        // Sort by Date Ascending (Oldest top, Newest bottom)
+        var sortedStats = stats
+            .OrderBy(x => x.LastJobAtUtc)
+            .ThenBy(x => x.Name);
+
+        return new ValueTask<IEnumerable<QueueDto>>(sortedStats);
     }
 
     public ValueTask SetQueueStateAsync(string queueName, bool isPaused, CancellationToken ct = default)
