@@ -83,7 +83,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation(
-            "🚀 Worker Starting. Strategy: Prefetch + ElasticSemaphore. Initial Capacity: {Capacity}",
+            "Worker Starting. Strategy: Prefetch + ElasticSemaphore. Initial Capacity: {Capacity}",
             _concurrencyLimiter.Capacity);
 
         // Spawning TWO independent long-running loops:
