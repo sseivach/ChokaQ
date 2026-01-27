@@ -1,422 +1,307 @@
-﻿using ChokaQ.Abstractions;
+﻿using System.Data;
 using ChokaQ.Abstractions.DTOs;
+using ChokaQ.Abstractions.Entities;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Storage;
 using Dapper;
-using ChokaQ.Abstractions.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
-using System.Text.RegularExpressions;
+using Microsoft.Extensions.Options;
 
 namespace ChokaQ.Storage.SqlServer;
 
 public class SqlJobStorage : IJobStorage
 {
-    private readonly string _connectionString;
-    private readonly string _schemaName;
-    private readonly string _tableName;
+    private readonly SqlJobStorageOptions _options;
     private readonly ILogger<SqlJobStorage> _logger;
-    private readonly IDeduplicator _deduplicator;
+    private readonly string _schema;
 
     public SqlJobStorage(
-        string connectionString,
-        string schemaName,
-        ILogger<SqlJobStorage> logger,
-        IDeduplicator deduplicator)
+        IOptions<SqlJobStorageOptions> options,
+        ILogger<SqlJobStorage> logger)
     {
-        _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _deduplicator = deduplicator ?? throw new ArgumentNullException(nameof(deduplicator));
-
-        if (string.IsNullOrWhiteSpace(schemaName))
-            throw new ArgumentException("Schema name cannot be empty.", nameof(schemaName));
-
-        if (!Regex.IsMatch(schemaName, "^[a-zA-Z0-9_]+$"))
-            throw new ArgumentException($"Invalid schema name: '{schemaName}'. Only alphanumeric characters and underscores are allowed.");
-
-        _schemaName = schemaName;
-        _tableName = $"[{schemaName}].[Jobs]";
+        _options = options.Value;
+        _logger = logger;
+        _schema = _options.SchemaName;
     }
 
-    /// <inheritdoc />
-    public async ValueTask<string> CreateJobAsync(
-        string id,
-        string queue,
-        string jobType,
-        string payload,
-        int priority = 10,
-        string? createdBy = null,
-        string? tags = null,
-        TimeSpan? delay = null,
-        string? idempotencyKey = null,
-        CancellationToken ct = default)
+    private SqlConnection CreateConnection() => new(_options.ConnectionString);
+
+    // ========================================================================
+    // 1. CORE
+    // ========================================================================
+
+    public async ValueTask<string> EnqueueAsync(string queue, string jobType, string payload, int priority = 10, string? createdBy = null, string? tags = null, TimeSpan? delay = null, string? idempotencyKey = null, CancellationToken ct = default)
     {
-        if (!string.IsNullOrEmpty(idempotencyKey))
-        {
-            // Block duplicates for 10 minutes in memory
-            if (!await _deduplicator.TryAcquireAsync(idempotencyKey, TimeSpan.FromMinutes(10)))
-            {
-                _logger.LogInformation("🛡️ Deduplicator: Blocked duplicate job '{Key}' (RAM hit).", idempotencyKey);
-                return id;
-            }
-        }
+        using var db = CreateConnection();
+        var id = Guid.NewGuid().ToString("N");
+        var now = DateTime.UtcNow;
+        var scheduledAt = delay.HasValue ? now.Add(delay.Value) : (DateTime?)null;
 
         var sql = $@"
-            INSERT INTO {_tableName} 
-            (Id, Queue, Type, Payload, Status, AttemptCount, Priority, CreatedBy, Tags, IdempotencyKey, CreatedAtUtc, ScheduledAtUtc, LastUpdatedUtc)
+            INSERT INTO [{_schema}].[Jobs] 
+            ([Id], [Queue], [Type], [Payload], [Tags], [Priority], [Status], [AttemptCount], [CreatedAtUtc], [LastUpdatedUtc], [ScheduledAtUtc], [CreatedBy])
             VALUES 
-            (@Id, @Queue, @Type, @Payload, @Status, @AttemptCount, @Priority, @CreatedBy, @Tags, @IdempotencyKey, @CreatedAtUtc, @ScheduledAtUtc, @LastUpdatedUtc)";
+            (@Id, @Queue, @Type, @Payload, @Tags, @Priority, @Status, 0, @Now, @Now, @ScheduledAt, @CreatedBy);";
 
-        var now = DateTime.UtcNow;
-        DateTime? scheduledAt = delay.HasValue ? now.Add(delay.Value) : null;
-
-        var parameters = new
+        await db.ExecuteAsync(new CommandDefinition(sql, new
         {
             Id = id,
             Queue = queue,
             Type = jobType,
             Payload = payload,
-            Status = (int)JobStatus.Pending,
-            AttemptCount = 0,
-            Priority = priority,
-            CreatedBy = createdBy,
             Tags = tags,
-            IdempotencyKey = idempotencyKey,
-            CreatedAtUtc = now,
-            ScheduledAtUtc = scheduledAt,
-            LastUpdatedUtc = now
-        };
-
-        try
-        {
-            using var connection = new SqlConnection(_connectionString);
-            await connection.ExecuteAsync(new CommandDefinition(sql, parameters, cancellationToken: ct));
-            return id;
-        }
-        catch (SqlException ex) when (ex.Number == 2601 || ex.Number == 2627)
-        {
-            _logger.LogInformation("Job ID collision or Idempotency hit for ID: {JobId}. Returning existing ID.", id);
-            return id;
-        }
-    }
-
-    /// <inheritdoc />
-    public async ValueTask<JobStorageDto?> GetJobAsync(string id, CancellationToken ct = default)
-    {
-        var sql = $@"
-            SELECT Id, Queue, Type, Payload, Status, AttemptCount, 
-                   Priority, ScheduledAtUtc, Tags, IdempotencyKey, WorkerId, ErrorDetails, CreatedBy,
-                   CreatedAtUtc, StartedAtUtc, FinishedAtUtc, LastUpdatedUtc
-            FROM {_tableName}
-            WHERE Id = @Id";
-
-        using var connection = new SqlConnection(_connectionString);
-        return await connection.QueryFirstOrDefaultAsync<JobStorageDto>(new CommandDefinition(sql, new { Id = id }, cancellationToken: ct));
-    }
-
-    public async ValueTask<JobCountsDto> GetJobCountsAsync(CancellationToken ct = default)
-    {
-        var sql = $@"
-            SELECT Status, COUNT(*) as Count 
-            FROM {_tableName} 
-            GROUP BY Status";
-
-        using var connection = new SqlConnection(_connectionString);
-        var rows = await connection.QueryAsync<(int Status, int Count)>(new CommandDefinition(sql, cancellationToken: ct));
-
-        int pending = 0, fetched = 0, processing = 0, succeeded = 0, failed = 0, cancelled = 0;
-
-        foreach (var row in rows)
-        {
-            switch ((JobStatus)row.Status)
-            {
-                case JobStatus.Pending: pending += row.Count; break;
-                case JobStatus.Fetched: fetched += row.Count; break;
-                case JobStatus.Processing: processing += row.Count; break;
-                case JobStatus.Succeeded: succeeded += row.Count; break;
-                case JobStatus.Failed: failed += row.Count; break;
-                case JobStatus.Cancelled: cancelled += row.Count; break;
-            }
-        }
-
-        return new JobCountsDto(pending, fetched, processing, succeeded, failed, cancelled,
-            pending + fetched + processing + succeeded + failed + cancelled);
-    }
-
-    /// <inheritdoc />
-    public async ValueTask<bool> UpdateJobStateAsync(
-        string id,
-        JobStatus status,
-        string? errorDetails = null,
-        CancellationToken ct = default)
-    {
-        // Добавили ErrorDetails в SQL
-        var sql = $@"
-            UPDATE {_tableName}
-            SET 
-                Status = @Status, 
-                ErrorDetails = @Error, 
-                LastUpdatedUtc = @Now
-            WHERE Id = @Id";
-
-        using var connection = new SqlConnection(_connectionString);
-        var rows = await connection.ExecuteAsync(new CommandDefinition(sql, new
-        {
-            Id = id,
-            Status = (int)status,
-            Error = errorDetails,
-            Now = DateTime.UtcNow
-        }, cancellationToken: ct));
-        return rows > 0;
-    }
-
-    /// <inheritdoc />
-    public async ValueTask<bool> IncrementJobAttemptAsync(string id, int newAttemptCount, CancellationToken ct = default)
-    {
-        var sql = $@"
-            UPDATE {_tableName}
-            SET AttemptCount = @Count, LastUpdatedUtc = @Now
-            WHERE Id = @Id";
-
-        using var connection = new SqlConnection(_connectionString);
-        var rows = await connection.ExecuteAsync(new CommandDefinition(sql, new
-        {
-            Id = id,
-            Count = newAttemptCount,
-            Now = DateTime.UtcNow
+            Priority = priority,
+            Status = (int)JobStatus.Pending,
+            Now = now,
+            ScheduledAt = scheduledAt,
+            CreatedBy = createdBy
         }, cancellationToken: ct));
 
-        return rows > 0;
+        return id;
     }
 
-    /// <inheritdoc />
-    public async ValueTask<IEnumerable<JobStorageDto>> GetJobsAsync(int limit = 50, CancellationToken ct = default)
+    public async ValueTask<IEnumerable<JobEntity>> FetchNextBatchAsync(string workerId, int limit, string[]? allowedQueues, CancellationToken ct = default)
     {
+        using var db = CreateConnection();
+        var now = DateTime.UtcNow;
+
+        var queueFilter = allowedQueues != null && allowedQueues.Any()
+            ? "AND [Queue] IN @AllowedQueues"
+            : "";
+
         var sql = $@"
-            SELECT TOP (@Limit) 
-                   Id, Queue, Type, Payload, Status, AttemptCount, 
-                   Priority, ScheduledAtUtc, Tags, IdempotencyKey, WorkerId, ErrorDetails, CreatedBy,
-                   CreatedAtUtc, StartedAtUtc, FinishedAtUtc, LastUpdatedUtc
-            FROM {_tableName}
-            ORDER BY CreatedAtUtc DESC";
-
-        using var connection = new SqlConnection(_connectionString);
-        return await connection.QueryAsync<JobStorageDto>(new CommandDefinition(sql, new { Limit = limit }, cancellationToken: ct));
-    }
-
-    /// <inheritdoc />
-    public async ValueTask<IEnumerable<JobStorageDto>> FetchAndLockNextBatchAsync(
-        string workerId,
-        int limit,
-        string[]? allowedQueues,
-        CancellationToken ct = default)
-    {
-        if (allowedQueues == null || allowedQueues.Length == 0)
-            return Enumerable.Empty<JobStorageDto>();
-
-        // Logic:
-        // 1. Find Pending (0)
-        // 2. Set to FETCHED (1) -> Not Processing (2) yet!
-        var sql = $@"
-            WITH SortedJobs AS (
-                SELECT TOP (@Limit) Id
-                FROM {_tableName} WITH (ROWLOCK, READPAST, UPDLOCK)
-                WHERE Status = @PendingStatus
-                  AND (ScheduledAtUtc IS NULL OR ScheduledAtUtc <= @Now)
-                  AND Queue IN @AllowedQueues
-                ORDER BY Priority DESC, ScheduledAtUtc ASC, CreatedAtUtc ASC
+            WITH CTE AS (
+                SELECT TOP (@Limit) *
+                FROM [{_schema}].[Jobs] WITH (UPDLOCK, READPAST)
+                WHERE [Status] = 0 -- Pending
+                  AND ([ScheduledAtUtc] IS NULL OR [ScheduledAtUtc] <= @Now)
+                  {queueFilter}
+                ORDER BY [Priority] DESC, [CreatedAtUtc] ASC
             )
-            UPDATE J
+            UPDATE CTE
             SET 
-                Status = @FetchedStatus, -- <--- SET TO 1
-                WorkerId = @WorkerId,
-                LastUpdatedUtc = @Now,
-                AttemptCount = AttemptCount + 1
+                [Status] = 1, -- Fetched
+                [WorkerId] = @WorkerId,
+                [HeartbeatUtc] = @Now,
+                [LastUpdatedUtc] = @Now
             OUTPUT 
-                INSERTED.Id, INSERTED.Queue, INSERTED.Type, INSERTED.Payload, 
-                INSERTED.Status, INSERTED.AttemptCount, 
-                INSERTED.Priority, INSERTED.ScheduledAtUtc, INSERTED.Tags, 
-                INSERTED.IdempotencyKey, INSERTED.WorkerId, INSERTED.ErrorDetails, INSERTED.CreatedBy,
-                INSERTED.CreatedAtUtc, INSERTED.StartedAtUtc, INSERTED.FinishedAtUtc, INSERTED.LastUpdatedUtc
-            FROM {_tableName} J
-            INNER JOIN SortedJobs SJ ON J.Id = SJ.Id";
+                INSERTED.*";
 
-        using var connection = new SqlConnection(_connectionString);
-        return await connection.QueryAsync<JobStorageDto>(new CommandDefinition(sql, new
+        return await db.QueryAsync<JobEntity>(new CommandDefinition(sql, new
         {
             Limit = limit,
+            Now = now,
             WorkerId = workerId,
-            Now = DateTime.UtcNow,
-            AllowedQueues = allowedQueues,
-            PendingStatus = JobStatus.Pending,
-            FetchedStatus = JobStatus.Fetched
+            AllowedQueues = allowedQueues
         }, cancellationToken: ct));
-    }
-
-    public async Task MarkAsProcessingAsync(string jobId, CancellationToken ct)
-    {
-        // Transition from Fetched (1) to Processing (2) + Set Start Time
-        var sql = $@"
-            UPDATE {_tableName}
-            SET 
-                Status = @ProcessingStatus,
-                StartedAtUtc = SYSUTCDATETIME(),
-                LastUpdatedUtc = SYSUTCDATETIME()
-            WHERE Id = @Id";
-
-        using var connection = new SqlConnection(_connectionString);
-        await connection.ExecuteAsync(new CommandDefinition(sql, new
-        {
-            Id = jobId,
-            ProcessingStatus = JobStatus.Processing // 2
-        }, cancellationToken: ct));
-    }
-
-    /// <inheritdoc />
-    public async ValueTask<IEnumerable<QueueDto>> GetQueuesAsync(CancellationToken ct = default)
-    {
-        var queuesTable = $"[{_schemaName}].[Queues]";
-        var jobsTable = $"[{_schemaName}].[Jobs]";
-
-        var sql = $@"
-            WITH JobStats AS (
-                SELECT 
-                    Queue,
-                    COUNT(CASE WHEN Status = 0 THEN 1 END) as PendingCount,
-                    COUNT(CASE WHEN Status = 1 THEN 1 END) as FetchedCount,
-                    COUNT(CASE WHEN Status = 2 THEN 1 END) as ProcessingCount,
-                    COUNT(CASE WHEN Status = 3 THEN 1 END) as SucceededCount,
-                    COUNT(CASE WHEN Status = 4 THEN 1 END) as FailedCount,
-                    COUNT(CASE WHEN Status = 5 THEN 1 END) as CancelledCount,
-                    MIN(StartedAtUtc) as FirstJobAtUtc,
-                    MAX(FinishedAtUtc) as LastJobAtUtc
-                FROM {jobsTable} WITH (NOLOCK)
-                GROUP BY Queue
-            )
-            SELECT 
-                COALESCE(Q.Name, JS.Queue) as Name,
-                CAST(COALESCE(Q.IsPaused, 0) AS BIT) as IsPaused,
-                ISNULL(JS.PendingCount, 0) as PendingCount,
-                ISNULL(JS.FetchedCount, 0) as FetchedCount,
-                ISNULL(JS.ProcessingCount, 0) as ProcessingCount,
-                ISNULL(JS.FailedCount, 0) as FailedCount,
-                ISNULL(JS.SucceededCount, 0) as SucceededCount,
-                ISNULL(JS.CancelledCount, 0) as CancelledCount,
-                Q.ZombieTimeoutSeconds,
-                JS.FirstJobAtUtc,
-                JS.LastJobAtUtc
-            FROM {queuesTable} Q WITH (NOLOCK)
-            FULL OUTER JOIN JobStats JS ON JS.Queue = Q.Name
-            ORDER BY JS.LastJobAtUtc ASC, Name ASC";
-
-        using var connection = new SqlConnection(_connectionString);
-        return await connection.QueryAsync<QueueDto>(new CommandDefinition(sql, cancellationToken: ct));
     }
 
     public async ValueTask KeepAliveAsync(string jobId, CancellationToken ct = default)
     {
-        var sql = $"UPDATE {_tableName} SET LastUpdatedUtc = SYSUTCDATETIME() WHERE Id = @Id";
-        using var connection = new SqlConnection(_connectionString);
-        await connection.ExecuteAsync(new CommandDefinition(sql, new { Id = jobId }, cancellationToken: ct));
+        using var db = CreateConnection();
+        var sql = $"UPDATE [{_schema}].[Jobs] SET [HeartbeatUtc] = SYSUTCDATETIME(), [LastUpdatedUtc] = SYSUTCDATETIME() WHERE [Id] = @Id";
+        await db.ExecuteAsync(new CommandDefinition(sql, new { Id = jobId }, cancellationToken: ct));
+    }
+
+    // ========================================================================
+    // 2. TRANSITIONS (Atomic Move)
+    // ========================================================================
+
+    public async Task ArchiveAsSuccessAsync(JobSucceededEntity r, CancellationToken ct = default)
+    {
+        using var db = CreateConnection();
+        await db.OpenAsync(ct);
+        using var tran = db.BeginTransaction();
+
+        try
+        {
+            var delSql = $"DELETE FROM [{_schema}].[Jobs] WHERE [Id] = @Id;";
+            var rows = await db.ExecuteAsync(delSql, new { r.Id }, tran);
+
+            if (rows == 0) { tran.Rollback(); return; }
+
+            var insSql = $@"
+                INSERT INTO [{_schema}].[JobsSucceeded] 
+                ([Id], [Queue], [Type], [Payload], [Tags], [WorkerId], [CreatedBy], [LastModifiedBy], [FinishedAtUtc], [DurationMs])
+                VALUES 
+                (@Id, @Queue, @Type, @Payload, @Tags, @WorkerId, @CreatedBy, @LastModifiedBy, @FinishedAtUtc, @DurationMs);";
+
+            await db.ExecuteAsync(insSql, r, tran);
+
+            var statsSql = $@"
+                UPDATE [{_schema}].[StatsSummary] 
+                SET [SucceededTotal] = [SucceededTotal] + 1, [LastActivityUtc] = SYSUTCDATETIME()
+                WHERE [Queue] = @Queue;
+                
+                IF @@ROWCOUNT = 0
+                BEGIN
+                    INSERT INTO [{_schema}].[StatsSummary] ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal], [LastActivityUtc])
+                    VALUES (@Queue, 1, 0, 0, SYSUTCDATETIME());
+                END";
+
+            await db.ExecuteAsync(statsSql, new { r.Queue }, tran);
+            tran.Commit();
+        }
+        catch { tran.Rollback(); throw; }
+    }
+
+    public async Task ArchiveAsMorgueAsync(JobMorgueEntity r, CancellationToken ct = default)
+    {
+        using var db = CreateConnection();
+        await db.OpenAsync(ct);
+        using var tran = db.BeginTransaction();
+
+        try
+        {
+            var delSql = $"DELETE FROM [{_schema}].[Jobs] WHERE [Id] = @Id;";
+            var rows = await db.ExecuteAsync(delSql, new { r.Id }, tran);
+
+            if (rows == 0) { tran.Rollback(); return; }
+
+            var insSql = $@"
+                INSERT INTO [{_schema}].[JobsMorgue] 
+                ([Id], [Queue], [Type], [Payload], [Tags], [ErrorDetails], [AttemptCount], [WorkerId], [CreatedBy], [LastModifiedBy], [FailedAtUtc])
+                VALUES 
+                (@Id, @Queue, @Type, @Payload, @Tags, @ErrorDetails, @AttemptCount, @WorkerId, @CreatedBy, @LastModifiedBy, @FailedAtUtc);";
+
+            await db.ExecuteAsync(insSql, r, tran);
+
+            var statsSql = $@"
+                UPDATE [{_schema}].[StatsSummary] 
+                SET [FailedTotal] = [FailedTotal] + 1, [LastActivityUtc] = SYSUTCDATETIME()
+                WHERE [Queue] = @Queue;
+                
+                IF @@ROWCOUNT = 0
+                BEGIN
+                    INSERT INTO [{_schema}].[StatsSummary] ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal], [LastActivityUtc])
+                    VALUES (@Queue, 0, 1, 0, SYSUTCDATETIME());
+                END";
+
+            await db.ExecuteAsync(statsSql, new { r.Queue }, tran);
+            tran.Commit();
+        }
+        catch { tran.Rollback(); throw; }
+    }
+
+    public async Task RetryJobAsync(string jobId, int nextAttempt, TimeSpan delay, string? lastError, CancellationToken ct = default)
+    {
+        using var db = CreateConnection();
+        var scheduledAt = DateTime.UtcNow.Add(delay);
+        var sql = $@"
+            UPDATE [{_schema}].[Jobs] 
+            SET [Status] = 0, [AttemptCount] = @Attempt, [ScheduledAtUtc] = @ScheduledAt, 
+                [WorkerId] = NULL, [HeartbeatUtc] = NULL, [LastUpdatedUtc] = SYSUTCDATETIME()
+            WHERE [Id] = @Id;";
+
+        await db.ExecuteAsync(new CommandDefinition(sql, new { Id = jobId, Attempt = nextAttempt, ScheduledAt = scheduledAt }, cancellationToken: ct));
+    }
+
+    public async Task ResurrectJobAsync(string jobId, CancellationToken ct = default)
+    {
+        using var db = CreateConnection();
+        await db.OpenAsync(ct);
+        using var tran = db.BeginTransaction();
+        try
+        {
+            var sqlMove = $@"
+                INSERT INTO [{_schema}].[Jobs]
+                ([Id], [Queue], [Type], [Payload], [Tags], [Priority], [Status], [AttemptCount], [CreatedAtUtc], [LastUpdatedUtc], [CreatedBy], [LastModifiedBy])
+                SELECT [Id], [Queue], [Type], [Payload], [Tags], 10, 0, 0, SYSUTCDATETIME(), SYSUTCDATETIME(), [CreatedBy], 'Resurrected'
+                FROM [{_schema}].[JobsMorgue] WHERE [Id] = @Id;
+                DELETE FROM [{_schema}].[JobsMorgue] WHERE [Id] = @Id;";
+
+            var rows = await db.ExecuteAsync(sqlMove, new { Id = jobId }, tran);
+            if (rows > 0) tran.Commit(); else tran.Rollback();
+        }
+        catch { tran.Rollback(); throw; }
+    }
+
+    public async Task UpdateJobDataAsync(JobDataUpdateDto update, CancellationToken ct = default)
+    {
+        using var db = CreateConnection();
+        var updates = new List<string>();
+        if (update.NewPayload != null) updates.Add("[Payload] = @NewPayload");
+        if (update.NewTags != null) updates.Add("[Tags] = @NewTags");
+        if (update.NewPriority.HasValue) updates.Add("[Priority] = @NewPriority");
+        updates.Add("[LastModifiedBy] = @UpdatedBy");
+        updates.Add("[LastUpdatedUtc] = SYSUTCDATETIME()");
+
+        var sql = $@"UPDATE [{_schema}].[Jobs] SET {string.Join(", ", updates)} WHERE [Id] = @JobId AND [Status] = 0;";
+        await db.ExecuteAsync(new CommandDefinition(sql, update, cancellationToken: ct));
+    }
+
+    public async Task PurgeJobAsync(string id, CancellationToken ct = default)
+    {
+        using var db = CreateConnection();
+        var sql = $@"
+            DELETE FROM [{_schema}].[Jobs] WHERE [Id] = @Id;
+            DELETE FROM [{_schema}].[JobsSucceeded] WHERE [Id] = @Id;
+            DELETE FROM [{_schema}].[JobsMorgue] WHERE [Id] = @Id;";
+        await db.ExecuteAsync(new CommandDefinition(sql, new { Id = id }, cancellationToken: ct));
+    }
+
+    public async ValueTask<StatsSummaryEntity?> GetSummaryStatsAsync(string queue, CancellationToken ct = default)
+    {
+        using var db = CreateConnection();
+        var sql = $"SELECT * FROM [{_schema}].[StatsSummary] WHERE [Queue] = @Queue";
+        return await db.QuerySingleOrDefaultAsync<StatsSummaryEntity>(new CommandDefinition(sql, new { Queue = queue }, cancellationToken: ct));
+    }
+
+    public async ValueTask<IEnumerable<JobSucceededEntity>> GetHistoryJobsAsync(string queue, int skip, int take, CancellationToken ct = default)
+    {
+        using var db = CreateConnection();
+        var sql = $"SELECT * FROM [{_schema}].[JobsSucceeded] WHERE [Queue] = @Queue ORDER BY [FinishedAtUtc] DESC OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY";
+        return await db.QueryAsync<JobSucceededEntity>(new CommandDefinition(sql, new { Queue = queue, Skip = skip, Take = take }, cancellationToken: ct));
+    }
+
+    public async ValueTask<IEnumerable<JobMorgueEntity>> GetMorgueJobsAsync(string queue, int skip, int take, CancellationToken ct = default)
+    {
+        using var db = CreateConnection();
+        var sql = $"SELECT * FROM [{_schema}].[JobsMorgue] WHERE [Queue] = @Queue ORDER BY [FailedAtUtc] DESC OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY";
+        return await db.QueryAsync<JobMorgueEntity>(new CommandDefinition(sql, new { Queue = queue, Skip = skip, Take = take }, cancellationToken: ct));
+    }
+
+    public async ValueTask<JobEntity?> GetJobEntityAsync(string id, CancellationToken ct = default)
+    {
+        using var db = CreateConnection();
+        return await db.QuerySingleOrDefaultAsync<JobEntity>($"SELECT * FROM [{_schema}].[Jobs] WHERE [Id] = @Id", new { Id = id });
+    }
+
+    public async ValueTask<JobSucceededEntity?> GetSucceededEntityAsync(string id, CancellationToken ct = default)
+    {
+        using var db = CreateConnection();
+        return await db.QuerySingleOrDefaultAsync<JobSucceededEntity>($"SELECT * FROM [{_schema}].[JobsSucceeded] WHERE [Id] = @Id", new { Id = id });
+    }
+
+    public async ValueTask<JobMorgueEntity?> GetMorgueEntityAsync(string id, CancellationToken ct = default)
+    {
+        using var db = CreateConnection();
+        return await db.QuerySingleOrDefaultAsync<JobMorgueEntity>($"SELECT * FROM [{_schema}].[JobsMorgue] WHERE [Id] = @Id", new { Id = id });
+    }
+
+    public async ValueTask<IEnumerable<QueueEntity>> GetQueuesAsync(CancellationToken ct = default)
+    {
+        using var db = CreateConnection();
+        return await db.QueryAsync<QueueEntity>($"SELECT * FROM [{_schema}].[Queues]");
+    }
+
+    public async ValueTask SetQueueStateAsync(string queueName, bool isPaused, CancellationToken ct = default)
+    {
+        using var db = CreateConnection();
+        var sql = $@"
+            UPDATE [{_schema}].[Queues] SET [IsPaused] = @IsPaused, [LastUpdatedUtc] = SYSUTCDATETIME() WHERE [Name] = @Name;
+            IF @@ROWCOUNT = 0 INSERT INTO [{_schema}].[Queues] ([Name], [IsPaused], [LastUpdatedUtc]) VALUES (@Name, @IsPaused, SYSUTCDATETIME());";
+        await db.ExecuteAsync(new CommandDefinition(sql, new { Name = queueName, IsPaused = isPaused }, cancellationToken: ct));
     }
 
     public async ValueTask<int> MarkZombiesAsync(int globalTimeoutSeconds, CancellationToken ct = default)
     {
-        var queuesTable = $"[{_schemaName}].[Queues]";
-
-        var sql = $@"
-            UPDATE J
-            SET 
-                Status = {(int)JobStatus.Zombie},
-                ErrorDetails = 'Zombie: Detected dead worker (Heartbeat timeout)',
-                WorkerId = NULL,
-                LastUpdatedUtc = SYSUTCDATETIME()
-            FROM {_tableName} J
-            LEFT JOIN {queuesTable} Q WITH (NOLOCK) ON J.Queue = Q.Name
-            WHERE J.Status = {(int)JobStatus.Processing}
-              AND J.LastUpdatedUtc < DATEADD(second, -COALESCE(Q.ZombieTimeoutSeconds, @GlobalTimeout), SYSUTCDATETIME())";
-
-        using var connection = new SqlConnection(_connectionString);
-        return await connection.ExecuteAsync(new CommandDefinition(sql, new { GlobalTimeout = globalTimeoutSeconds }, cancellationToken: ct));
+        using var db = CreateConnection();
+        var threshold = DateTime.UtcNow.AddSeconds(-globalTimeoutSeconds);
+        var sql = $"UPDATE [{_schema}].[Jobs] SET [Status] = 0, [WorkerId] = NULL, [HeartbeatUtc] = NULL, [LastUpdatedUtc] = SYSUTCDATETIME() WHERE [Status] = 1 AND [HeartbeatUtc] < @Threshold";
+        return await db.ExecuteAsync(new CommandDefinition(sql, new { Threshold = threshold }, cancellationToken: ct));
     }
 
-    public async ValueTask UpdateQueueTimeoutAsync(string queueName, int? timeoutSeconds, CancellationToken ct = default)
-    {
-        var queuesTable = $"[{_schemaName}].[Queues]";
-        var sql = $@"
-            MERGE {queuesTable} AS target
-            USING (SELECT @Name AS Name) AS source
-            ON (target.Name = source.Name)
-            WHEN MATCHED THEN
-                UPDATE SET ZombieTimeoutSeconds = @Timeout, LastUpdatedUtc = SYSUTCDATETIME()
-            WHEN NOT MATCHED THEN
-                INSERT (Name, IsPaused, ZombieTimeoutSeconds, LastUpdatedUtc)
-                VALUES (@Name, 0, @Timeout, SYSUTCDATETIME());";
-
-        using var connection = new SqlConnection(_connectionString);
-        await connection.ExecuteAsync(new CommandDefinition(sql, new { Name = queueName, Timeout = timeoutSeconds }, cancellationToken: ct));
-    }
-
-    /// <inheritdoc />
-    public async ValueTask SetQueueStateAsync(string queueName, bool isPaused, CancellationToken ct = default)
-    {
-        var queuesTable = $"[{_schemaName}].[Queues]";
-
-        var sql = $@"
-            MERGE {queuesTable} AS target
-            USING (SELECT @Name AS Name) AS source
-            ON (target.Name = source.Name)
-            WHEN MATCHED THEN
-                UPDATE SET IsPaused = @IsPaused, LastUpdatedUtc = SYSUTCDATETIME()
-            WHEN NOT MATCHED THEN
-                INSERT (Name, IsPaused, LastUpdatedUtc)
-                VALUES (@Name, @IsPaused, SYSUTCDATETIME());";
-
-        using var connection = new SqlConnection(_connectionString);
-        await connection.ExecuteAsync(new CommandDefinition(sql, new
-        {
-            Name = queueName,
-            IsPaused = isPaused
-        }, cancellationToken: ct));
-    }
-
-    /// <inheritdoc />
-    public async ValueTask UpdateJobPriorityAsync(string id, int newPriority, CancellationToken ct = default)
-    {
-        var sql = $@"
-            UPDATE {_tableName}
-            SET Priority = @Priority, LastUpdatedUtc = SYSUTCDATETIME()
-            WHERE Id = @Id";
-
-        using var connection = new SqlConnection(_connectionString);
-        await connection.ExecuteAsync(new CommandDefinition(sql, new { Id = id, Priority = newPriority }, cancellationToken: ct));
-    }
-
-    public async ValueTask RescheduleJobAsync(
-        string jobId,
-        DateTime scheduledAtUtc,
-        int attemptCount,
-        string errorDetails,
-        CancellationToken ct = default)
-    {
-        var sql = $@"
-            UPDATE {_tableName}
-            SET 
-                Status = @PendingStatus,
-                ScheduledAtUtc = @ScheduledAt,
-                AttemptCount = @AttemptCount,
-                ErrorDetails = @Error,
-                WorkerId = NULL,
-                LastUpdatedUtc = SYSUTCDATETIME()
-            WHERE Id = @Id";
-
-        using var connection = new SqlConnection(_connectionString);
-        await connection.ExecuteAsync(new CommandDefinition(sql, new
-        {
-            Id = jobId,
-            PendingStatus = (int)JobStatus.Pending,
-            ScheduledAt = scheduledAtUtc,
-            AttemptCount = attemptCount,
-            Error = errorDetails
-        }, cancellationToken: ct));
-    }
+    public ValueTask UpdateQueueTimeoutAsync(string queueName, int? timeoutSeconds, CancellationToken ct = default) => ValueTask.CompletedTask;
 }
