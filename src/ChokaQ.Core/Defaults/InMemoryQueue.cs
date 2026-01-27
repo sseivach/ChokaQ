@@ -1,44 +1,21 @@
 ﻿using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.Enums;
-using ChokaQ.Core.Execution;
 using Microsoft.Extensions.Logging;
-using System.Text.Json;
-using System.Threading.Channels;
 
 namespace ChokaQ.Core.Defaults;
 
 /// <summary>
-/// High-performance, in-memory implementation of the job queue using System.Threading.Channels.
-/// Acts as a Producer-Consumer buffer between the API and the Worker.
+/// Adapts the IJobStorage to the typed IChokaQQueue interface (Bus Mode).
 /// </summary>
 public class InMemoryQueue : IChokaQQueue
 {
-    private readonly Channel<IChokaQJob> _queue;
     private readonly IJobStorage _storage;
-    private readonly IChokaQNotifier _notifier;
-    private readonly JobTypeRegistry _registry;
     private readonly ILogger<InMemoryQueue> _logger;
 
-    public InMemoryQueue(
-        IJobStorage storage,
-        IChokaQNotifier notifier,
-        JobTypeRegistry registry,
-        ILogger<InMemoryQueue> logger)
+    public InMemoryQueue(IJobStorage storage, ILogger<InMemoryQueue> logger)
     {
-        _storage = storage ?? throw new ArgumentNullException(nameof(storage));
-        _notifier = notifier ?? throw new ArgumentNullException(nameof(notifier));
-        _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _storage = storage;
         _logger = logger;
-
-        var options = new UnboundedChannelOptions
-        {
-            SingleReader = false,
-            SingleWriter = false
-        };
-        _queue = Channel.CreateUnbounded<IChokaQJob>(options);
     }
-
-    public ChannelReader<IChokaQJob> Reader => _queue.Reader;
 
     public async Task EnqueueAsync<TJob>(
         TJob job,
@@ -48,52 +25,20 @@ public class InMemoryQueue : IChokaQQueue
         string? tags = null,
         CancellationToken ct = default) where TJob : IChokaQJob
     {
-        // 1. Serialize payload for persistence
-        var payload = JsonSerializer.Serialize(job, job.GetType());
+        string type = typeof(TJob).Name;
 
-        // [FIX] Resolve Key from Registry first. 
-        // If the user mapped this DTO in a Profile, use that Key.
-        // Otherwise, fall back to the Type Name.
-        var jobTypeName = _registry.GetKeyByType(job.GetType()) ?? job.GetType().Name;
+        var payloadJson = System.Text.Json.JsonSerializer.Serialize(job);
 
-        // 2. Persist to Storage (Status: Pending)
-        await _storage.CreateJobAsync(
-             id: job.Id,
-             queue: queue,
-             jobType: jobTypeName, // <--- Correct mapped key (e.g. "system_test")
-             payload: payload,
-             priority: priority,
-             createdBy: createdBy,
-             tags: tags,
-             ct: ct
+        await _storage.EnqueueAsync(
+            queue: queue,
+            jobType: type,
+            payload: payloadJson,
+            priority: priority,
+            createdBy: createdBy ?? "System",
+            tags: tags,
+            delay: null,
+            idempotencyKey: null,
+            ct: ct
         );
-
-        // 3. Real-time Notification
-        try
-        {
-            await _notifier.NotifyJobUpdatedAsync(
-                job.Id,
-                jobTypeName,
-                JobStatus.Pending,
-                0,
-                null,
-                createdBy,
-                null,
-                queue,
-                priority
-            );
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("Failed to notify UI about new job: {Message}", ex.Message);
-        }
-
-        // 4. Push to Channel
-        await _queue.Writer.WriteAsync(job, ct);
-    }
-
-    public async ValueTask RequeueAsync(IChokaQJob job, CancellationToken ct = default)
-    {
-        await _queue.Writer.WriteAsync(job, ct);
     }
 }

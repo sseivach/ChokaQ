@@ -6,7 +6,7 @@
 using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Entities;
 using ChokaQ.Abstractions.Enums;
-using ChokaQ.Abstractions.Storage;
+using ChokaQ.Abstractions;
 using System.Collections.Concurrent;
 
 namespace ChokaQ.Core.Storage;

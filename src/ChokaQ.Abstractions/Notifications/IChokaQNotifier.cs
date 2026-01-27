@@ -4,16 +4,19 @@ namespace ChokaQ.Abstractions;
 
 public interface IChokaQNotifier
 {
+    /// <summary>
+    /// Notifies connected clients about a job status change.
+    /// </summary>
     Task NotifyJobUpdatedAsync(
         string jobId,
         string type,
-        JobStatus status,
+        JobUIStatus status,
         int attemptCount,
-        double? executionDurationMs = null,
-        string? createdBy = null,
-        DateTime? startedAtUtc = null,
-        string queue = "default",
-        int priority = 10
+        double? executionDurationMs,
+        string? createdBy,
+        DateTime? startedAtUtc,
+        string queue,
+        int priority
     );
 
     Task NotifyJobProgressAsync(string jobId, int percentage);

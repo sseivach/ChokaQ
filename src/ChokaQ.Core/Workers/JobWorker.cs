@@ -1,240 +1,102 @@
-﻿using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.Enums;
-using ChokaQ.Core.Defaults;
+﻿// ============================================================================
+// PROJECT: ChokaQ
+// DESCRIPTION: Universal worker that executes jobs from IJobStorage.
+// ============================================================================
+
+using ChokaQ.Abstractions.Entities;
+using ChokaQ.Abstractions;
 using ChokaQ.Core.Processing;
-using ChokaQ.Core.State;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Text.Json;
 
 namespace ChokaQ.Core.Workers;
 
 /// <summary>
-/// In-Memory Worker implementation used for development or non-persistent scenarios.
-/// Consumes jobs from System.Threading.Channels.
+/// The main background engine of ChokaQ. 
+/// It fetches batches of jobs and delegates them to the JobProcessor.
 /// </summary>
-public class JobWorker : BackgroundService, IWorkerManager
+public class JobWorker : BackgroundService
 {
-    private readonly InMemoryQueue _queue;
     private readonly IJobStorage _storage;
+    private readonly JobProcessor _processor;
     private readonly ILogger<JobWorker> _logger;
-    private readonly IJobStateManager _stateManager;
-    private readonly IJobProcessor _processor;
-    private readonly List<(Task Task, CancellationTokenSource Cts)> _workers = new();
-    private readonly object _lock = new();
 
-    // Configuration delegated to Processor
-    public int MaxRetries
-    {
-        get => _processor.MaxRetries;
-        set => _processor.MaxRetries = value;
-    }
+    // Unique identifier for this specific worker instance
+    private readonly string _workerId = Guid.NewGuid().ToString("N");
 
-    public int RetryDelaySeconds
-    {
-        get => _processor.RetryDelaySeconds;
-        set => _processor.RetryDelaySeconds = value;
-    }
-
-    public int ActiveWorkers { get; private set; } = 0;
-    private int _targetWorkerCount = 1; // Default
-    public int TotalWorkers => _targetWorkerCount;
+    // TODO: Move to configuration options (WorkerOptions)
+    private const int BatchSize = 10;
+    private static readonly TimeSpan IdleDelay = TimeSpan.FromSeconds(1);
 
     public JobWorker(
-        InMemoryQueue queue,
         IJobStorage storage,
-        ILogger<JobWorker> logger,
-        IJobStateManager stateManager,
-        IJobProcessor processor)
+        JobProcessor processor,
+        ILogger<JobWorker> logger)
     {
-        _queue = queue;
         _storage = storage;
-        _logger = logger;
-        _stateManager = stateManager;
         _processor = processor;
+        _logger = logger;
     }
 
-    public async Task CancelJobAsync(string jobId)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Try to cancel if running
-        if (_processor is JobProcessor concreteProcessor)
+        _logger.LogInformation("ChokaQ Worker {WorkerId} started.", _workerId);
+
+        while (!stoppingToken.IsCancellationRequested)
         {
-            concreteProcessor.CancelJob(jobId);
-        }
-
-        // Also ensure state is updated if it was pending
-        _logger.LogInformation("Marking job {JobId} as Cancelled (if not already).", jobId);
-
-        // Fetch metadata to keep state consistent
-        var job = await _storage.GetJobAsync(jobId);
-
-        await _stateManager.UpdateStateAsync(
-            jobId,
-            job?.Type ?? "Unknown",
-            JobStatus.Cancelled,
-            job?.AttemptCount ?? 0,
-            executionDurationMs: null,
-            createdBy: job?.CreatedBy,
-            startedAtUtc: null);
-    }
-
-    public async Task RestartJobAsync(string jobId)
-    {
-        var storageDto = await _storage.GetJobAsync(jobId);
-        if (storageDto == null) return;
-
-        if (storageDto.Status == JobStatus.Processing || storageDto.Status == JobStatus.Pending)
-        {
-            _logger.LogWarning("Cannot restart job {JobId}: active ({Status}).", jobId, storageDto.Status);
-            return;
-        }
-
-        try
-        {
-            _logger.LogInformation("Restarting job {JobId}...", jobId);
-
-            // 1. Reset State
-            await _storage.UpdateJobStateAsync(jobId, JobStatus.Pending);
-            await _storage.IncrementJobAttemptAsync(jobId, 0);
-
-            await _stateManager.UpdateStateAsync(
-                jobId,
-                storageDto.Type,
-                JobStatus.Pending,
-                0,
-                executionDurationMs: null,
-                createdBy: storageDto.CreatedBy,
-                startedAtUtc: null);
-
-            // 2. Re-queue logic depends on strategy
-            var jobType = Type.GetType(storageDto.Type);
-
-            // Fallback: try to find type in current AppDomain assemblies if Type.GetType fails (often needed for simple names)
-            if (jobType == null)
+            try
             {
-                jobType = AppDomain.CurrentDomain.GetAssemblies()
-                    .SelectMany(a => a.GetTypes())
-                    .FirstOrDefault(t => t.Name == storageDto.Type);
-            }
+                // 1. ATOMIC FETCH
+                // Request a batch of pending jobs from the storage (SQL or Memory).
+                // The storage marks them as 'Fetched' and assigns them to this WorkerId.
+                var jobs = await _storage.FetchNextBatchAsync(_workerId, BatchSize, null, stoppingToken);
 
-            if (jobType != null)
-            {
-                var jobObject = JsonSerializer.Deserialize(storageDto.Payload, jobType) as IChokaQJob;
-                if (jobObject != null)
+                if (!jobs.Any())
                 {
-                    await _queue.RequeueAsync(jobObject);
+                    // No jobs found, wait before next poll
+                    await Task.Delay(IdleDelay, stoppingToken);
+                    continue;
+                }
+
+                _logger.LogDebug("Fetched {Count} jobs for processing.", jobs.Count());
+
+                // 2. BATCH PROCESSING
+                // We process jobs sequentially to ensure simple concurrency control.
+                // For high-throughput scenarios, Task.WhenAll can be used with a Semaphore.
+                foreach (var job in jobs)
+                {
+                    if (stoppingToken.IsCancellationRequested) break;
+
+                    await ProcessSingleJobAsync(job, stoppingToken);
                 }
             }
-            else
+            catch (OperationCanceledException)
             {
-                _logger.LogWarning("Could not resolve type {Type} for In-Memory restart. Job is reset in DB but not in Channel.", storageDto.Type);
+                break; // Graceful shutdown
             }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Critical error in Worker loop. Restarting in 5s...");
+                await Task.Delay(5000, stoppingToken);
+            }
+        }
+
+        _logger.LogInformation("ChokaQ Worker {WorkerId} stopped.", _workerId);
+    }
+
+    private async Task ProcessSingleJobAsync(JobEntity job, CancellationToken ct)
+    {
+        try
+        {
+            // 3. EXECUTION & TRANSITION
+            // Processor handles the Try/Catch logic and moves the job 
+            // to Succeeded, Morgue, or schedules a Retry.
+            await _processor.ProcessJobAsync(job, ct);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to restart job {JobId}.", jobId);
+            // This is a safety net for errors inside the Processor itself.
+            _logger.LogError(ex, "Unexpected error in Processor for Job {JobId}", job.Id);
         }
-    }
-
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        UpdateWorkerCount(1);
-        return Task.CompletedTask;
-    }
-
-    public void UpdateWorkerCount(int targetCount)
-    {
-        if (targetCount < 0) targetCount = 0;
-        if (targetCount > 100) targetCount = 100;
-
-        _targetWorkerCount = targetCount;
-
-        lock (_lock)
-        {
-            int current = _workers.Count;
-            if (targetCount > current)
-            {
-                int toAdd = targetCount - current;
-                for (int i = 0; i < toAdd; i++)
-                {
-                    var cts = new CancellationTokenSource();
-                    var task = Task.Run(() => WorkerLoopAsync(cts.Token), cts.Token);
-                    _workers.Add((task, cts));
-                }
-            }
-            else if (targetCount < current)
-            {
-                int toRemove = current - targetCount;
-                for (int i = 0; i < toRemove; i++)
-                {
-                    var worker = _workers.Last();
-                    worker.Cts.Cancel();
-                    _workers.RemoveAt(_workers.Count - 1);
-                }
-            }
-
-            ActiveWorkers = _workers.Count;
-        }
-    }
-
-    private async Task WorkerLoopAsync(CancellationToken workerCt)
-    {
-        var workerId = Guid.NewGuid().ToString()[..4];
-        try
-        {
-            while (!workerCt.IsCancellationRequested)
-            {
-                if (await _queue.Reader.WaitToReadAsync(workerCt))
-                {
-                    while (_queue.Reader.TryRead(out var job))
-                    {
-                        // Since IChokaQJob doesn't know its queue, we look it up in storage.
-                        var storageJob = await _storage.GetJobAsync(job.Id, workerCt);
-
-                        // If job vanished or invalid, skip
-                        if (storageJob == null) continue;
-
-                        var queues = await _storage.GetQueuesAsync(workerCt);
-                        var targetQueue = queues.FirstOrDefault(q => q.Name == storageJob.Queue);
-
-                        if (targetQueue != null && targetQueue.IsPaused)
-                        {
-                            // Queue is paused! Put it back at the end of the line.
-                            await _queue.RequeueAsync(job, workerCt);
-
-                            // Sleep briefly to avoid hot-looping (consuming CPU while requeuing same job)
-                            await Task.Delay(1000, workerCt);
-                            continue;
-                        }
-
-                        var typeKey = job.GetType().Name;
-
-                        var payload = JsonSerializer.Serialize(job, job.GetType());
-
-                        await _processor.ProcessJobAsync(
-                            job.Id,
-                            typeKey,
-                            payload,
-                            workerId,
-                            storageJob.AttemptCount,
-                            storageJob.CreatedBy,
-                            workerCt
-                        );
-
-                        if (workerCt.IsCancellationRequested) break;
-                    }
-                }
-            }
-        }
-        catch (OperationCanceledException) { }
-        finally
-        {
-            _logger.LogInformation("[Worker {ID}] Stopped.", workerId);
-        }
-    }
-
-    public async Task SetJobPriorityAsync(string jobId, int priority)
-    {
-        await _storage.UpdateJobPriorityAsync(jobId, priority);
     }
 }

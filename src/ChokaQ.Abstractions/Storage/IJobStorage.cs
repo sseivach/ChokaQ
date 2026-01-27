@@ -2,7 +2,7 @@
 using ChokaQ.Abstractions.Entities;
 using ChokaQ.Abstractions.Enums;
 
-namespace ChokaQ.Abstractions.Storage;
+namespace ChokaQ.Abstractions;
 
 public interface IJobStorage
 {

@@ -8,7 +8,7 @@ internal class NullNotifier : IChokaQNotifier
     public Task NotifyJobUpdatedAsync(
         string jobId,
         string type,
-        JobStatus status,
+        JobUIStatus status,
         int attemptCount,
         double? executionDurationMs = null,
         string? createdBy = null,

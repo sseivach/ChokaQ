@@ -1,4 +1,4 @@
-﻿using ChokaQ.Abstractions.Storage;
+﻿using ChokaQ.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 

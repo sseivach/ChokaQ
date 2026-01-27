@@ -1,6 +1,5 @@
 ﻿using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.Entities;
-using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Core.Contexts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
