@@ -1,32 +1,16 @@
-﻿using ChokaQ.Abstractions.Enums;
-using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.DTOs;
-using ChokaQ.Dashboard.Components.Features;
-using ChokaQ.Dashboard.Models;
+﻿using ChokaQ.Abstractions;
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.SignalR.Client;
-using System.Timers;
 
 namespace ChokaQ.Dashboard.Components.Pages;
 
-public partial class DashboardPage : IAsyncDisposable
+public partial class DashboardPage : ComponentBase
 {
-    [Inject] public NavigationManager Navigation { get; set; } = default!;
+    // Inject Options mainly for Title/Version display
     [Inject] public ChokaQDashboardOptions Options { get; set; } = default!;
-    [Inject] public IJobStorage JobStorage { get; set; } = default!;
 
-    private HubConnection? _hubConnection;
-    private List<JobViewModel> _jobs = new();
-    private JobCountsDto _counts = new(0, 0, 0, 0, 0, 0, 0);
-
-    private System.Timers.Timer? _uiRefreshTimer;
     private string _currentTheme = "office";
-    private CircuitMonitor? _circuitMonitor;
 
-    private const int MaxHistoryCount = 1000; // Load recent 1000 for UI list
-
-    private bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
-
+    // CSS class mapping
     private string CurrentThemeClass => _currentTheme switch
     {
         "nightshift" => "cq-theme-nightshift",
@@ -42,134 +26,5 @@ public partial class DashboardPage : IAsyncDisposable
     {
         _currentTheme = newTheme;
         StateHasChanged();
-    }
-
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadDataAsync();
-
-        _uiRefreshTimer = new System.Timers.Timer(2000);
-        _uiRefreshTimer.AutoReset = true;
-        _uiRefreshTimer.Elapsed += async (sender, e) => await LoadDataAsync();
-        _uiRefreshTimer.Start();
-
-        var hubPath = Options.RoutePrefix.TrimEnd('/') + "/hub";
-        var hubUrl = Navigation.ToAbsoluteUri(hubPath);
-
-        _hubConnection = new HubConnectionBuilder()
-            .WithUrl(hubUrl)
-            .WithAutomaticReconnect()
-            .Build();
-
-        _hubConnection.On<JobUpdateDto>("JobUpdated", (dto) =>
-        {
-            InvokeAsync(() =>
-            {
-                var existing = _jobs.FirstOrDefault(j => j.Id == dto.JobId);
-                if (existing != null)
-                {
-                    existing.Status = dto.Status;
-                    existing.Attempts = dto.AttemptCount;
-                    existing.Duration = dto.ExecutionDurationMs.HasValue
-                        ? TimeSpan.FromMilliseconds(dto.ExecutionDurationMs.Value)
-                        : null;
-                    existing.StartedAtUtc = dto.StartedAtUtc?.ToLocalTime();
-                    existing.Queue = dto.Queue;
-                    existing.Priority = dto.Priority;
-                }
-                else
-                {
-                    _jobs.Insert(0, new JobViewModel
-                    {
-                        Id = dto.JobId,
-                        Queue = dto.Queue,
-                        Type = dto.Type,
-                        Status = dto.Status,
-                        Attempts = dto.AttemptCount,
-                        Priority = dto.Priority,
-                        AddedAt = DateTime.Now,
-                        CreatedBy = dto.CreatedBy,
-                        StartedAtUtc = dto.StartedAtUtc?.ToLocalTime()
-                    });
-
-                    if (_jobs.Count > MaxHistoryCount)
-                        _jobs.RemoveAt(_jobs.Count - 1);
-                }
-
-                _circuitMonitor?.Refresh();
-                StateHasChanged();
-            });
-        });
-
-        _hubConnection.On<string, int>("JobProgress", (jobId, percentage) =>
-        {
-            InvokeAsync(() =>
-            {
-                var job = _jobs.FirstOrDefault(j => j.Id == jobId);
-                if (job != null)
-                {
-                    job.Progress = percentage;
-                    StateHasChanged();
-                }
-            });
-        });
-
-        await _hubConnection.StartAsync();
-    }
-
-    private async Task LoadDataAsync()
-    {
-        try
-        {
-            // 1. Fetch Counts (Fast)
-            var counts = await JobStorage.GetJobCountsAsync();
-
-            // 2. Fetch Recent Jobs (Limited)
-            var storageJobs = await JobStorage.GetJobsAsync(MaxHistoryCount);
-            var viewModels = storageJobs.Select(dto => new JobViewModel
-            {
-                Id = dto.Id,
-                Queue = dto.Queue,
-                Type = dto.Type,
-                Status = dto.Status,
-                Priority = dto.Priority,
-                Attempts = dto.AttemptCount,
-                AddedAt = dto.CreatedAtUtc.ToLocalTime(),
-                Duration = dto.FinishedAtUtc.HasValue && dto.StartedAtUtc.HasValue
-                    ? dto.FinishedAtUtc.Value - dto.StartedAtUtc.Value
-                    : null,
-                CreatedBy = dto.CreatedBy,
-                StartedAtUtc = dto.StartedAtUtc?.ToLocalTime(),
-                Payload = dto.Payload,
-                ErrorDetails = dto.ErrorDetails
-            }).ToList();
-
-            await InvokeAsync(() =>
-            {
-                _counts = counts;
-                _jobs = viewModels;
-                StateHasChanged();
-            });
-        }
-        catch { /* ignore connection errors */ }
-    }
-
-    private void HandleSettingsUpdated() => StateHasChanged();
-
-    private void ClearHistory()
-    {
-        _jobs.Clear();
-        StateHasChanged();
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_uiRefreshTimer is not null)
-        {
-            _uiRefreshTimer.Stop();
-            _uiRefreshTimer.Dispose();
-        }
-        if (_hubConnection is not null) await _hubConnection.DisposeAsync();
-        GC.SuppressFinalize(this);
     }
 }

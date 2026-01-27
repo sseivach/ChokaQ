@@ -1,5 +1,5 @@
 ﻿using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.DTOs;
+using ChokaQ.Abstractions.Entities; // <--- ВАЖНО: Используем Entities
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
 
@@ -10,9 +10,13 @@ public partial class QueueManager : IDisposable
     [Inject] public IJobStorage Storage { get; set; } = default!;
     [Parameter] public HubConnection? HubConnection { get; set; }
 
-    private List<QueueDto> _queues = new();
+    // FIX: Zero-Copy. Работаем напрямую с Entity.
+    private List<QueueEntity> _queues = new();
     private HashSet<string> _hiddenQueues = new();
-    private IEnumerable<QueueDto> _visibleQueues => _queues.Where(q => !_hiddenQueues.Contains(q.Name));
+
+    // FIX: Тип коллекции тоже меняем
+    private IEnumerable<QueueEntity> _visibleQueues => _queues.Where(q => !_hiddenQueues.Contains(q.Name));
+
     private System.Threading.Timer? _timer;
     private bool _isLoading = true;
     private bool _isFirstLoad = true;
@@ -26,7 +30,8 @@ public partial class QueueManager : IDisposable
     {
         try
         {
-            // 1. Fetch data (already sorted by DB)
+            // 1. Fetch data
+            // Теперь это работает, так как слева List<QueueEntity> и справа IEnumerable<QueueEntity>
             _queues = (await Storage.GetQueuesAsync()).ToList();
             _isLoading = false;
 
@@ -35,17 +40,18 @@ public partial class QueueManager : IDisposable
             {
                 foreach (var q in _queues)
                 {
-                    // If queue is empty and idle -> hide it
+                    // NOTE: Убедись, что в QueueEntity есть эти свойства (PendingCount и т.д.).
+                    // Если их нет, придется джойнить статистику отдельно или добавить [NotMapped] свойства в Entity.
                     bool isActive = q.PendingCount > 0 || q.FetchedCount > 0 || q.ProcessingCount > 0;
                     if (!isActive)
                     {
                         _hiddenQueues.Add(q.Name);
                     }
                 }
-                _isFirstLoad = false; // Disable flag after first run
+                _isFirstLoad = false;
             }
 
-            // 3. Auto-unhide (if an inactive queue suddenly wakes up)
+            // 3. Auto-unhide
             foreach (var q in _queues)
             {
                 bool isActive = q.PendingCount > 0 || q.FetchedCount > 0 || q.ProcessingCount > 0;
@@ -61,7 +67,6 @@ public partial class QueueManager : IDisposable
         catch
         {
             _isLoading = false;
-            // Silent catch for polling
         }
     }
 
@@ -69,9 +74,14 @@ public partial class QueueManager : IDisposable
     {
         var pause = !isRunning;
 
-        // Optimistic UI update to prevent flickering
+        // Optimistic UI update
         var q = _queues.FirstOrDefault(x => x.Name == name);
-        if (q != null) q = q with { IsPaused = pause };
+        if (q != null)
+        {
+            // FIX: Entity - это класс, меняем свойство напрямую. 
+            // Синтаксис 'with' работает только для records.
+            q.IsPaused = pause;
+        }
 
         if (HubConnection is not null)
         {
@@ -80,18 +90,12 @@ public partial class QueueManager : IDisposable
         }
     }
 
-    /// <summary>
-    /// Handles changes to the Zombie Timeout input field.
-    /// Values less than 60 seconds are clamped to 60 to prevent accidental immediate termination.
-    /// </summary>
     private async Task UpdateTimeout(string name, object? value)
     {
         int? parsedValue = null;
 
-        // Attempt to parse the input
         if (value is string strVal && int.TryParse(strVal, out int iVal))
         {
-            // Enforce a minimum safety limit of 60 seconds
             parsedValue = Math.Max(60, iVal);
         }
         else if (value is int intVal)
@@ -101,22 +105,28 @@ public partial class QueueManager : IDisposable
 
         // Optimistic local update
         var q = _queues.FirstOrDefault(x => x.Name == name);
-        if (q != null) q = q with { ZombieTimeoutSeconds = parsedValue };
+        if (q != null)
+        {
+            // FIX: Прямая мутация
+            q.ZombieTimeoutSeconds = parsedValue;
+        }
 
-        // Send to server
         if (HubConnection is not null)
         {
             await HubConnection.InvokeAsync("UpdateQueueTimeout", name, parsedValue);
-            // We rely on the background polling timer to eventually refresh the state from the DB.
         }
     }
 
     private void HideQueue(string name) => _hiddenQueues.Add(name);
     private void ShowAllQueues() => _hiddenQueues.Clear();
 
-    private string GetDuration(QueueDto q)
+    // FIX: Принимаем Entity
+    private string GetDuration(QueueEntity q)
     {
+        // NOTE: Убедись, что FirstJobAtUtc/LastJobAtUtc есть в Entity.
+        // Если нет - придется убрать этот метод или брать данные из другого места.
         if (!q.FirstJobAtUtc.HasValue) return "-";
+
         var end = q.LastJobAtUtc ?? DateTime.UtcNow;
         if (q.PendingCount > 0 || q.ProcessingCount > 0) end = DateTime.UtcNow;
         var span = end - q.FirstJobAtUtc.Value;

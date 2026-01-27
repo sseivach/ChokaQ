@@ -1,87 +1,161 @@
 ﻿@using ChokaQ.Abstractions.Enums
+@namespace ChokaQ.Dashboard.Components.Shared
 
-<div class="row mb-3 g-2 row-cols-2 row-cols-md-4 row-cols-lg-6">
-    <div class="col">
-        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Pending) ? "active" : "")"
-             @onclick="() => Select(JobStatus.Pending)">
-            <div class="card-body">
-                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Pending</small>
-                <div class="fs-4 fw-bold mt-1" style="color: var(--cq-info)">
-                    @GetCount(JobStatus.Pending)
+<div class="stats-grid">
+    @foreach (var status in _statusesToShow)
+    {
+        var count = GetCount(status);
+        var isSelected = SelectedStatus == status;
+        var isDimmed = SelectedStatus.HasValue && !isSelected;
+
+        // Магия CSS переменных для цвета
+        var color = GetColorHex(status);
+
+        <div class="stat-card @(isSelected ? "active" : "") @(isDimmed ? "dimmed" : "")"
+             style="--accent-color: @color;"
+             @onclick="() => SelectStatus(status)">
+
+            <div class="stat-content">
+                <div class="stat-info">
+                    <span class="stat-label">@status.ToString()</span>
+                    <span class="stat-value" style="color: var(--accent-color)">@count</span>
+                </div>
+
+                <div class="stat-icon-circle">
+                    <i class="bi @GetIcon(status)"></i>
                 </div>
             </div>
         </div>
-    </div>
-
-    <div class="col">
-        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Fetched) ? "active" : "")"
-             @onclick="() => Select(JobStatus.Fetched)">
-            <div class="card-body">
-                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Buffered</small>
-                <div class="fs-4 fw-bold mt-1" style="color: #6f42c1;">
-                    @GetCount(JobStatus.Fetched)
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="col">
-        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Processing) ? "active" : "")"
-             @onclick="() => Select(JobStatus.Processing)">
-            <div class="card-body">
-                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Processing</small>
-                <div class="fs-4 fw-bold mt-1" style="color: var(--cq-warning)">
-                    @GetCount(JobStatus.Processing)
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="col">
-        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Succeeded) ? "active" : "")"
-             @onclick="() => Select(JobStatus.Succeeded)">
-            <div class="card-body">
-                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Succeeded</small>
-                <div class="fs-4 fw-bold mt-1" style="color: var(--cq-success)">
-                    @GetCount(JobStatus.Succeeded)
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="col">
-        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Failed) ? "active" : "")"
-             @onclick="() => Select(JobStatus.Failed)">
-            <div class="card-body">
-                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Failed</small>
-                <div class="fs-4 fw-bold mt-1" style="color: var(--cq-danger)">
-                    @GetCount(JobStatus.Failed)
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="col">
-        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Cancelled) ? "active" : "")"
-             @onclick="() => Select(JobStatus.Cancelled)">
-            <div class="card-body">
-                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Canceled</small>
-                <div class="fs-4 fw-bold mt-1" style="color: var(--cq-text-muted)">
-                    @GetCount(JobStatus.Cancelled)
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="col">
-        <div class="card cq-card shadow-sm h-100 filter-card @(SelectedStatus == null ? "active" : "")"
-             @onclick="() => OnStatusSelected.InvokeAsync(null)">
-            <div class="card-body">
-                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Total</small>
-                <div class="fs-4 fw-bold mt-1">
-                    @Counts.Total
-                </div>
-            </div>
-        </div>
-    </div>
+    }
 </div>
+
+<style>
+    /* --- Zero Dependency CSS Grid --- */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 12px;
+        margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+        background-color: var(--cq-panel-bg, #ffffff);
+        border: 1px solid var(--cq-border, #dee2e6);
+        border-radius: 8px;
+        padding: 12px 16px;
+        cursor: pointer;
+        transition: all 0.2s ease-in-out;
+        position: relative;
+        overflow: hidden;
+        user-select: none;
+    }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            border-color: var(--accent-color);
+        }
+
+        /* Active State */
+        .stat-card.active {
+            border-color: var(--accent-color);
+            background-color: color-mix(in srgb, var(--accent-color), transparent 95%);
+            box-shadow: 0 0 0 1px var(--accent-color);
+        }
+
+        /* Dimmed State */
+        .stat-card.dimmed {
+            opacity: 0.6;
+            filter: grayscale(0.8);
+        }
+
+    .stat-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .stat-info {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .stat-label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-weight: 700;
+        color: var(--cq-text-muted, #6c757d);
+        margin-bottom: 4px;
+    }
+
+    .stat-value {
+        font-size: 1.5rem;
+        font-weight: 800;
+        line-height: 1.2;
+    }
+
+    .stat-icon-circle {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background-color: color-mix(in srgb, var(--accent-color), transparent 90%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--accent-color);
+        font-size: 1.1rem;
+    }
+</style>
+
+@code {
+    [Parameter] public Dictionary<JobUIStatus, int> Counts { get; set; } = new();
+    [Parameter] public JobUIStatus? SelectedStatus { get; set; }
+    [Parameter] public EventCallback<JobUIStatus?> OnStatusSelected { get; set; }
+
+    // Hardcoded list to ensure order (Pending -> Processing -> Done -> Fail)
+    private readonly List<JobUIStatus> _statusesToShow = new()
+    {
+        JobUIStatus.Pending,
+        JobUIStatus.Processing,
+        JobUIStatus.Succeeded,
+        JobUIStatus.Retrying,
+        JobUIStatus.Morgue,
+        JobUIStatus.Cancelled
+    };
+
+    private int GetCount(JobUIStatus status) => Counts.TryGetValue(status, out var c) ? c : 0;
+
+    private async Task SelectStatus(JobUIStatus status)
+    {
+        // Toggle logic: click again to deselect
+        if (SelectedStatus == status)
+            await OnStatusSelected.InvokeAsync(null);
+        else
+            await OnStatusSelected.InvokeAsync(status);
+    }
+
+    // Colors mapping (adjust hex codes to your theme if needed)
+    private string GetColorHex(JobUIStatus status) => status switch
+    {
+        JobUIStatus.Pending => "#6c757d", // Grey
+        JobUIStatus.Processing => "#0d6efd", // Blue
+        JobUIStatus.Succeeded => "#198754", // Green
+        JobUIStatus.Retrying => "#ffc107", // Yellow
+        JobUIStatus.Morgue => "#dc3545", // Red
+        JobUIStatus.Cancelled => "#212529", // Dark
+        _ => "#adb5bd"
+    };
+
+    // Icons mapping
+    private string GetIcon(JobUIStatus status) => status switch
+    {
+        JobUIStatus.Pending => "bi-hourglass",
+        JobUIStatus.Processing => "bi-gear-wide-connected",
+        JobUIStatus.Succeeded => "bi-check-lg",
+        JobUIStatus.Retrying => "bi-arrow-repeat",
+        JobUIStatus.Morgue => "bi-skull",
+        JobUIStatus.Cancelled => "bi-x-circle",
+        _ => "bi-question"
+    };
+}

@@ -1,5 +1,6 @@
 ﻿@using ChokaQ.Dashboard.Components.Shared
 @using ChokaQ.Dashboard.Models
+@using ChokaQ.Abstractions.Enums
 @using Microsoft.AspNetCore.Components.Web.Virtualization
 
 <StatsCard Counts="Counts" OnStatusSelected="SetStatusFilter" SelectedStatus="_activeStatusFilter" />
@@ -63,7 +64,7 @@
             </button>
 
             <button class="btn btn-sm btn-outline-danger d-flex align-items-center gap-2" @onclick="CancelSelected">
-                🛑 Cancel
+                🛑 Delete
             </button>
 
             <div class="d-flex align-items-center gap-1 ms-2 border-start ps-3" style="border-color: var(--cq-border) !important;">
@@ -95,9 +96,9 @@
                     <th style="width: 5%" class="text-center">Pri</th>
                     <th style="width: 10%">User</th>
                     <th style="width: 10%">Status</th>
-                    <th style="width: 15%">Progress</th>
+                    <th style="width: 15%">Duration</th> 
                     <th style="width: 5%">Att.</th>
-                    <th style="width: 5%">Duration</th>
+                    <th style="width: 5%">Created/End</th>
                     <th class="text-end">Actions</th>
                 </tr>
             </thead>
@@ -129,7 +130,7 @@
 </div>
 
 <JobInspector @bind-IsVisible="_isInspectorVisible"
-              JobId="@_selectedInspectorJobId"
+              Job="@_selectedInspectorJob"
               OnRestart="HandleRestartRequest"
               OnDelete="HandleDeleteRequest" />
 

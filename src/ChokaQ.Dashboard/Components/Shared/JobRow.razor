@@ -1,4 +1,5 @@
-﻿@using ChokaQ.Abstractions.Enums
+﻿@using ChokaQ.Dashboard.Models
+@using ChokaQ.Abstractions.Enums
 
 <tr class="cq-job-row @(IsSelected ? "selected-row" : "")" @onclick="HandleRowClick">
 
@@ -9,8 +10,7 @@
                @onchange="HandleCheckboxChange" />
     </td>
 
-    <td class="font-monospace fw-bold" style="color: var(--cq-info); font-size: 0.85rem;"
-        title="@Job.Id">
+    <td class="font-monospace fw-bold" style="color: var(--cq-info); font-size: 0.85rem;" title="@Job.Id">
         @Job.Id.Substring(0, 8)...
     </td>
 
@@ -37,58 +37,52 @@
     </td>
 
     <td>
-        @if (Job.Status == JobStatus.Fetched)
-        {
-            <span class="badge" style="background-color: #6f42c1; color: white;">FETCHED</span>
-        }
-        else
-        {
-            <span class="badge @GetStatusBadgeClass()">
-                @GetStatusLabel()
-            </span>
-        }
-    </td>
-
-    <td>
-        @if (Job.Status == JobStatus.Processing)
-        {
-            <div class="progress" style="height: 4px; background-color: var(--cq-border);">
-                <div class="progress-bar" role="progressbar"
-                     style="width: @(Job.Progress)%; background-color: var(--cq-info);
-                         transition: width 0.3s ease;">
-                </div>
-            </div>
-            <div style="font-size: 0.7em; margin-top: 2px;">@Job.Progress%</div>
-        }
-        else if (Job.Status == JobStatus.Succeeded)
-        {
-            <div class="progress" style="height: 4px; background-color: var(--cq-border);">
-                <div class="progress-bar" style="width: 100%; background-color: var(--cq-success);"></div>
-            </div>
-        }
-        else
-        {
-            <span style="color: var(--cq-text-muted)">-</span>
-        }
-    </td>
-
-    <td>
-        @if (Job.Attempts > 1)
-        {
-            <span class="badge" style="border: 1px solid var(--cq-border); color: var(--cq-text);">@Job.Attempts</span>
-        }
-        else
-        {
-            <span style="color: var(--cq-text-muted)">1</span>
-        }
+        <span class="badge bg-@Job.StatusColor text-uppercase">
+            <i class="bi @Job.StatusIcon me-1"></i> @Job.Status
+        </span>
     </td>
 
     <td class="font-monospace small">
-        @FormatDuration(Job.Duration)
+        @if (Job.DurationMs.HasValue)
+        {
+            <span>@(Job.DurationMs.Value.ToString("N0")) ms</span>
+        }
+        else if (Job.Status == JobUIStatus.Processing)
+        {
+            <div class="spinner-border spinner-border-sm text-primary" role="status">
+                <span class="visually-hidden">Running...</span>
+            </div>
+        }
+        else
+        {
+            <span class="text-muted">-</span>
+        }
+    </td>
+
+    <td>
+        @if (Job.AttemptCount > 1)
+        {
+            <span class="badge border border-secondary text-dark">@Job.AttemptCount</span>
+        }
+        else
+        {
+            <span class="text-muted small">1</span>
+        }
+    </td>
+
+    <td class="small text-muted">
+        @if (Job.FinishedAt.HasValue)
+        {
+            <span>@Job.FinishedAt.Value.ToLocalTime().ToString("HH:mm:ss")</span>
+        }
+        else if (Job.CreatedAt.HasValue)
+        {
+            <span>@Job.CreatedAt.Value.ToLocalTime().ToString("HH:mm:ss")</span>
+        }
     </td>
 
     <td class="text-end">
-        @if (Job.Status == JobStatus.Processing || Job.Status == JobStatus.Pending || Job.Status == JobStatus.Fetched)
+        @if (Job.Status == JobUIStatus.Processing || Job.Status == JobUIStatus.Pending || Job.Status == JobUIStatus.Retrying)
         {
             <button class="btn btn-sm btn-outline-danger me-2"
                     title="Stop Job"
@@ -98,7 +92,7 @@
             </button>
         }
 
-        @if (Job.Status == JobStatus.Succeeded || Job.Status == JobStatus.Failed || Job.Status == JobStatus.Cancelled)
+        @if (Job.Status == JobUIStatus.Succeeded || Job.Status == JobUIStatus.Morgue || Job.Status == JobUIStatus.Cancelled)
         {
             <button class="btn btn-sm btn-outline-primary me-2"
                     title="Restart Job"

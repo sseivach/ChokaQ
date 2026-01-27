@@ -1,70 +1,57 @@
-﻿using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.DTOs;
-using ChokaQ.Abstractions.Enums;
+﻿using ChokaQ.Dashboard.Models;
 using Microsoft.AspNetCore.Components;
-using System.Text.Json;
 
 namespace ChokaQ.Dashboard.Components.Features;
 
 public partial class JobInspector
 {
-    [Inject] public IJobStorage JobStorage { get; set; } = default!;
+    /// <summary>
+    /// Controls visibility (Two-way binding).
+    /// </summary>
+    [Parameter]
+    public bool IsVisible { get; set; }
 
-    [Parameter] public bool IsVisible { get; set; }
-    [Parameter] public string? JobId { get; set; }
-    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
-    [Parameter] public EventCallback<string> OnRestart { get; set; }
-    [Parameter] public EventCallback<string> OnDelete { get; set; }
+    [Parameter]
+    public EventCallback<bool> IsVisibleChanged { get; set; }
 
-    private JobStorageDto? _job;
+    /// <summary>
+    /// The Job Data passed directly from the Feed.
+    /// Eliminates the need to fetch from DB (and guess which table).
+    /// </summary>
+    [Parameter]
+    public JobViewModel? Job { get; set; }
 
-    private bool CanRequeue => _job?.Status == JobStatus.Failed ||
-                               _job?.Status == JobStatus.Cancelled ||
-                               _job?.Status == JobStatus.Succeeded;
+    // --- Actions ---
 
-    protected override async Task OnParametersSetAsync()
-    {
-        if (IsVisible && !string.IsNullOrEmpty(JobId))
-        {
-            // Simple caching: only fetch if ID changed
-            if (_job?.Id != JobId)
-            {
-                _job = await JobStorage.GetJobAsync(JobId);
-                StateHasChanged();
-            }
-        }
-    }
+    [Parameter]
+    public EventCallback<string> OnRestart { get; set; }
+
+    [Parameter]
+    public EventCallback<string> OnDelete { get; set; }
+
+    // --- Handlers ---
 
     private async Task Close()
     {
         IsVisible = false;
-        _job = null;
         await IsVisibleChanged.InvokeAsync(false);
     }
 
-    private string GetStatusColor()
+    private async Task Restart()
     {
-        return _job?.Status switch
+        if (Job is not null)
         {
-            JobStatus.Failed => "var(--cq-danger)",
-            JobStatus.Succeeded => "var(--cq-success)",
-            JobStatus.Processing => "var(--cq-warning)",
-            JobStatus.Cancelled => "var(--cq-text-muted)",
-            _ => "var(--cq-info)"
-        };
+            await OnRestart.InvokeAsync(Job.Id);
+            await Close();
+        }
     }
 
-    private string PrettyPrintJson(string json)
+    private async Task Delete()
     {
-        if (string.IsNullOrWhiteSpace(json)) return "{}";
-        try
+        if (Job is not null)
         {
-            var doc = JsonDocument.Parse(json);
-            return JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
-        }
-        catch
-        {
-            return json;
+            await OnDelete.InvokeAsync(Job.Id);
+            await Close();
         }
     }
 }

@@ -28,6 +28,8 @@ public static class ChokaQDashboardExtensions
         services.AddRazorComponents()
                 .AddInteractiveServerComponents();
 
+        services.AddScoped<DashboardService>();
+
         // Required explicitly because we use app.UseAntiforgery() in the mapping
         services.AddAntiforgery();
 

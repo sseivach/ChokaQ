@@ -1,131 +1,166 @@
-@if (IsVisible && _job != null)
+@using ChokaQ.Dashboard.Models
+@namespace ChokaQ.Dashboard.Components.Features
+
+@if (IsVisible)
 {
     <div class="inspector-backdrop" @onclick="Close"></div>
+}
 
-    <div class="inspector-panel">
-
+<div class="inspector-panel shadow-lg @(IsVisible ? "open" : "")">
+    @if (Job == null)
+    {
+        <div class="p-4 text-center text-muted">
+            <p>No job selected</p>
+        </div>
+    }
+    else
+    {
         <div class="inspector-header">
-            <div class="inspector-title">
-                <h3>Job Inspector</h3>
-                <div class="inspector-subtitle">
-                    <span style="color: var(--cq-info); font-weight: bold; margin-right: 8px;">GUID:</span>
-                    <span style="user-select: all;">@_job.Id</span>
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <h5 class="mb-1">Job Details</h5>
+                    <div class="font-monospace small text-muted">@Job.Id</div>
                 </div>
+                <button type="button" class="btn-close" @onclick="Close"></button>
             </div>
 
-            <button class="btn-icon" @onclick="Close" title="Close Panel">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
-                    <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z" />
-                </svg>
-            </button>
+            <div class="mt-3 d-flex gap-2 align-items-center">
+                <span class="badge bg-@Job.StatusColor">
+                    <i class="bi @Job.StatusIcon me-1"></i> @Job.Status
+                </span>
+                <span class="badge bg-light text-dark border">
+                    Queue: @Job.Queue
+                </span>
+                <span class="badge bg-light text-dark border">
+                    Try: @Job.AttemptCount
+                </span>
+            </div>
         </div>
 
         <div class="inspector-body">
-
-            <div class="inspector-section">
-                <div class="d-flex align-items-center justify-content-between p-3 rounded border"
-                     style="background-color: var(--cq-bg); border-color: var(--cq-border) !important;">
-                    <div>
-                        <div class="section-title" style="margin-bottom: 0;">Current Status</div>
-                        <div class="fs-5 fw-bold mt-1" style="color: @GetStatusColor()">
-                            @_job.Status.ToString().ToUpper()
-                        </div>
-                    </div>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="@GetStatusColor()" viewBox="0 0 16 16" style="opacity: 0.8;">
-                        <path fill-rule="evenodd" d="M6 2a.5.5 0 0 1 .47.33L10 12.036l1.53-4.208A.5.5 0 0 1 12 7.5h3.5a.5.5 0 0 1 0 1h-3.15l-1.88 5.17a.5.5 0 0 1-.94 0L6 3.964 4.47 8.171A.5.5 0 0 1 4 8.5H.5a.5.5 0 0 1 0-1h3.15l1.88-5.17A.5.5 0 0 1 6 2Z" />
-                    </svg>
+            <div class="mb-4">
+                <h6 class="text-uppercase small fw-bold text-muted mb-2">Payload (JSON)</h6>
+                <div class="code-block">
+                    @if (string.IsNullOrEmpty(Job.Payload))
+                    {
+                        <span class="text-muted fst-italic">No payload data</span>
+                    }
+                    else
+                    {
+                        <code>@Job.Payload</code>
+                    }
                 </div>
             </div>
 
-            <div class="inspector-section">
-                <div class="section-title">Job Metadata</div>
-                <ul class="meta-list">
-                    <li>
-                        <span class="meta-label">Job Type</span>
-                        <span class="meta-value text-break" style="max-width: 60%; text-align: right;">@_job.Type</span>
-                    </li>
-                    <li>
-                        <span class="meta-label">Target Queue</span>
-                        <span class="meta-value">@_job.Queue</span>
-                    </li>
-                    <li>
-                        <span class="meta-label">Priority</span>
-                        <span class="meta-value">@_job.Priority</span>
-                    </li>
-                    <li>
-                        <span class="meta-label">Created By</span>
-                        <span class="meta-value">@(_job.CreatedBy ?? "-")</span>
-                    </li>
-                </ul>
-            </div>
-
-            <div class="inspector-section">
-                <div class="section-title">Execution Timeline</div>
-                <ul class="meta-list">
-                    <li>
-                        <span class="meta-label">Created At</span>
-                        <span class="meta-value">@_job.CreatedAtUtc.ToLocalTime().ToString("G")</span>
-                    </li>
-                    @if (_job.StartedAtUtc.HasValue)
-                    {
-                        <li>
-                            <span class="meta-label">Started At</span>
-                            <span class="meta-value">@_job.StartedAtUtc.Value.ToLocalTime().ToString("G")</span>
-                        </li>
-                    }
-                    @if (_job.FinishedAtUtc.HasValue)
-                    {
-                        <li>
-                            <span class="meta-label">Finished At</span>
-                            <span class="meta-value">@_job.FinishedAtUtc.Value.ToLocalTime().ToString("G")</span>
-                        </li>
-                    }
-                    <li>
-                        <span class="meta-label">Retry Attempts</span>
-                        <span class="meta-value">@_job.AttemptCount</span>
-                    </li>
-                </ul>
-            </div>
-
-            @if (!string.IsNullOrEmpty(_job.ErrorDetails))
+            @if (!string.IsNullOrEmpty(Job.ErrorDetails))
             {
-                <div class="inspector-section">
-                    <div class="section-title text-danger">Exception Stack Trace</div>
-                    <div class="code-block error">
-                        @_job.ErrorDetails
+                <div class="mb-4">
+                    <h6 class="text-uppercase small fw-bold text-danger mb-2">Error Details</h6>
+                    <div class="code-block border-danger bg-danger bg-opacity-10 text-danger">
+                        <code>@Job.ErrorDetails</code>
                     </div>
                 </div>
             }
 
-            <div class="inspector-section">
-                <div class="section-title">Payload Data</div>
-                <div class="code-block">
-                    @PrettyPrintJson(_job.Payload)
+            <div class="row g-3 small text-muted">
+                <div class="col-6">
+                    <div class="fw-bold">Created</div>
+                    <div>@(Job.CreatedAt?.ToLocalTime().ToString("G") ?? "-")</div>
+                </div>
+                <div class="col-6">
+                    <div class="fw-bold">Finished</div>
+                    <div>@(Job.FinishedAt?.ToLocalTime().ToString("G") ?? "-")</div>
+                </div>
+                <div class="col-6">
+                    <div class="fw-bold">Duration</div>
+                    <div>@(Job.DurationMs.HasValue ? $"{Job.DurationMs:F0} ms" : "-")</div>
+                </div>
+                <div class="col-6">
+                    <div class="fw-bold">User</div>
+                    <div>@(Job.CreatedBy ?? "System")</div>
                 </div>
             </div>
-
         </div>
 
         <div class="inspector-footer">
-            @if (CanRequeue)
-            {
-                <button class="btn-action btn-primary-action" @onclick="() => OnRestart.InvokeAsync(_job.Id)">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                        <path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z" />
-                        <path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3M3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9z" />
-                    </svg>
-                    Requeue Job
+            <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                @if (Job.Status == ChokaQ.Abstractions.Enums.JobUIStatus.Morgue)
+                {
+                    <button class="btn btn-outline-success" @onclick="Restart">
+                        <i class="bi bi-heart-pulse me-1"></i> Resurrect
+                    </button>
+                }
+
+                <button class="btn btn-outline-danger" @onclick="Delete">
+                    <i class="bi bi-trash me-1"></i> Delete Forever
                 </button>
-            }
-
-            <button class="btn-action btn-danger-action" @onclick="() => OnDelete.InvokeAsync(_job.Id)">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                    <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z" />
-                    <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z" />
-                </svg>
-                Delete
-            </button>
+            </div>
         </div>
+    }
+</div>
 
-    </div>
-}
+<style>
+    /* Backdrop */
+    .inspector-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0,0,0,0.3);
+        z-index: 1040;
+        animation: fadeIn 0.2s;
+    }
+
+    /* Panel */
+    .inspector-panel {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: 100%;
+        max-width: 500px;
+        height: 100vh;
+        background: var(--cq-panel-bg, #fff);
+        z-index: 1050;
+        border-left: 1px solid var(--cq-border, #dee2e6);
+        transform: translateX(100%);
+        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        display: flex;
+        flex-direction: column;
+    }
+
+        .inspector-panel.open {
+            transform: translateX(0);
+        }
+
+    /* Sections */
+    .inspector-header {
+        padding: 1.5rem;
+        border-bottom: 1px solid var(--cq-border, #dee2e6);
+    }
+
+    .inspector-body {
+        padding: 1.5rem;
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    .inspector-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid var(--cq-border, #dee2e6);
+        background: var(--cq-bg, #f8f9fa);
+    }
+
+    /* Code Block */
+    .code-block {
+        background: #f1f3f5;
+        padding: 1rem;
+        border-radius: 6px;
+        font-family: var(--bs-font-monospace, monospace);
+        font-size: 0.85rem;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        border: 1px solid var(--cq-border, #dee2e6);
+    }
+</style>
