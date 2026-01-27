@@ -18,25 +18,5 @@ public enum JobStatus
     /// <summary>
     /// Job is currently being executed by a worker.
     /// </summary>
-    Processing = 2,
-
-    /// <summary>
-    /// Job has finished execution successfully.
-    /// </summary>
-    Succeeded = 3,
-
-    /// <summary>
-    /// Job execution failed due to an unhandled exception.
-    /// </summary>
-    Failed = 4,
-
-    /// <summary>
-    /// Job was cancelled before completion.
-    /// </summary>
-    Cancelled = 5,
-
-    /// <summary>
-    /// Zombie.
-    /// </summary>
-    Zombie = 6
+    Processing = 2
 }
