@@ -1,4 +1,4 @@
-﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Dashboard;
 using ChokaQ.Dashboard.Components.Layout;
 using ChokaQ.Dashboard.Hubs;

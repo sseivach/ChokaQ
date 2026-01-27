@@ -1,5 +1,7 @@
-﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Resilience;
+using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Contexts;
 using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
@@ -41,7 +43,7 @@ public static class ChokaQCoreExtensions
         services.TryAddSingleton<IDeduplicator, InMemoryDeduplicator>();
         services.TryAddSingleton<ICircuitBreaker, InMemoryCircuitBreaker>();
 
-        // Register InMemoryJobStorage with the configured options
+        // Register InMemoryJobStorage with the configured options (Three Pillars)
         services.TryAddSingleton<IJobStorage>(sp => new InMemoryJobStorage(options.InMemoryOptions));
         services.TryAddSingleton<IChokaQNotifier, NullNotifier>();
         services.TryAddSingleton<InMemoryQueue>();

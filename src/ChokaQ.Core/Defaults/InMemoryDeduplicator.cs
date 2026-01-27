@@ -1,4 +1,4 @@
-﻿using ChokaQ.Abstractions.Resilience;
+using ChokaQ.Abstractions.Resilience;
 using System.Collections.Concurrent;
 
 namespace ChokaQ.Core.Defaults;

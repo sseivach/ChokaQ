@@ -1,14 +1,17 @@
-﻿using ChokaQ.Abstractions.Enums;
-using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.DTOs;
+using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Storage;
 using ChokaQ.Dashboard.Components.Features;
 using ChokaQ.Dashboard.Models;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
-using System.Timers;
 
 namespace ChokaQ.Dashboard.Components.Pages;
 
+/// <summary>
+/// Main Dashboard page with Three Pillars data integration.
+/// Shows Hot (active), Archive (succeeded), and DLQ (failed) jobs.
+/// </summary>
 public partial class DashboardPage : IAsyncDisposable
 {
     [Inject] public NavigationManager Navigation { get; set; } = default!;
@@ -23,7 +26,7 @@ public partial class DashboardPage : IAsyncDisposable
     private string _currentTheme = "office";
     private CircuitMonitor? _circuitMonitor;
 
-    private const int MaxHistoryCount = 1000; // Load recent 1000 for UI list
+    private const int MaxHistoryCount = 1000;
 
     private bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
 
@@ -61,6 +64,7 @@ public partial class DashboardPage : IAsyncDisposable
             .WithAutomaticReconnect()
             .Build();
 
+        // Real-time job updates
         _hubConnection.On<JobUpdateDto>("JobUpdated", (dto) =>
         {
             InvokeAsync(() =>
@@ -70,8 +74,8 @@ public partial class DashboardPage : IAsyncDisposable
                 {
                     existing.Status = dto.Status;
                     existing.Attempts = dto.AttemptCount;
-                    existing.Duration = dto.ExecutionDurationMs.HasValue
-                        ? TimeSpan.FromMilliseconds(dto.ExecutionDurationMs.Value)
+                    existing.Duration = dto.DurationMs.HasValue
+                        ? TimeSpan.FromMilliseconds(dto.DurationMs.Value)
                         : null;
                     existing.StartedAtUtc = dto.StartedAtUtc?.ToLocalTime();
                     existing.Queue = dto.Queue;
@@ -101,6 +105,45 @@ public partial class DashboardPage : IAsyncDisposable
             });
         });
 
+        // Job archived (removed from Hot → Archive)
+        _hubConnection.On<string, string>("JobArchived", (jobId, queue) =>
+        {
+            InvokeAsync(() =>
+            {
+                var job = _jobs.FirstOrDefault(j => j.Id == jobId);
+                if (job != null)
+                {
+                    job.Status = JobStatus.Succeeded;
+                }
+                StateHasChanged();
+            });
+        });
+
+        // Job failed (removed from Hot → DLQ)
+        _hubConnection.On<string, string, string>("JobFailed", (jobId, queue, reason) =>
+        {
+            InvokeAsync(() =>
+            {
+                var job = _jobs.FirstOrDefault(j => j.Id == jobId);
+                if (job != null)
+                {
+                    job.Status = JobStatus.Failed;
+                    job.ErrorDetails = reason;
+                }
+                StateHasChanged();
+            });
+        });
+
+        // Stats updated - refresh counts
+        _hubConnection.On("StatsUpdated", () =>
+        {
+            InvokeAsync(async () =>
+            {
+                _counts = await JobStorage.GetSummaryStatsAsync();
+                StateHasChanged();
+            });
+        });
+
         _hubConnection.On<string, int>("JobProgress", (jobId, percentage) =>
         {
             InvokeAsync(() =>
@@ -121,27 +164,26 @@ public partial class DashboardPage : IAsyncDisposable
     {
         try
         {
-            // 1. Fetch Counts (Fast)
-            var counts = await JobStorage.GetJobCountsAsync();
+            // 1. Fetch Summary Stats (Fast - from StatsSummary + Hot counts)
+            var counts = await JobStorage.GetSummaryStatsAsync();
 
-            // 2. Fetch Recent Jobs (Limited)
-            var storageJobs = await JobStorage.GetJobsAsync(MaxHistoryCount);
-            var viewModels = storageJobs.Select(dto => new JobViewModel
+            // 2. Fetch Active Jobs from Hot table
+            var hotJobs = await JobStorage.GetActiveJobsAsync(MaxHistoryCount);
+            var viewModels = hotJobs.Select(job => new JobViewModel
             {
-                Id = dto.Id,
-                Queue = dto.Queue,
-                Type = dto.Type,
-                Status = dto.Status,
-                Priority = dto.Priority,
-                Attempts = dto.AttemptCount,
-                AddedAt = dto.CreatedAtUtc.ToLocalTime(),
-                Duration = dto.FinishedAtUtc.HasValue && dto.StartedAtUtc.HasValue
-                    ? dto.FinishedAtUtc.Value - dto.StartedAtUtc.Value
+                Id = job.Id,
+                Queue = job.Queue,
+                Type = job.Type,
+                Status = job.Status,
+                Priority = job.Priority,
+                Attempts = job.AttemptCount,
+                AddedAt = job.CreatedAtUtc.ToLocalTime(),
+                Duration = job.StartedAtUtc.HasValue
+                    ? DateTime.UtcNow - job.StartedAtUtc.Value
                     : null,
-                CreatedBy = dto.CreatedBy,
-                StartedAtUtc = dto.StartedAtUtc?.ToLocalTime(),
-                Payload = dto.Payload,
-                ErrorDetails = dto.ErrorDetails
+                CreatedBy = job.CreatedBy,
+                StartedAtUtc = job.StartedAtUtc?.ToLocalTime(),
+                Payload = job.Payload
             }).ToList();
 
             await InvokeAsync(() =>

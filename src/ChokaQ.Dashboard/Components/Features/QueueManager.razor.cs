@@ -1,18 +1,22 @@
-﻿using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.DTOs;
+using ChokaQ.Abstractions.Entities;
+using ChokaQ.Abstractions.Storage;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
 
 namespace ChokaQ.Dashboard.Components.Features;
 
+/// <summary>
+/// Queue management component for Three Pillars architecture.
+/// Displays queue configuration and allows pause/resume operations.
+/// </summary>
 public partial class QueueManager : IDisposable
 {
     [Inject] public IJobStorage Storage { get; set; } = default!;
     [Parameter] public HubConnection? HubConnection { get; set; }
 
-    private List<QueueDto> _queues = new();
+    private List<QueueEntity> _queues = new();
     private HashSet<string> _hiddenQueues = new();
-    private IEnumerable<QueueDto> _visibleQueues => _queues.Where(q => !_hiddenQueues.Contains(q.Name));
+    private IEnumerable<QueueEntity> _visibleQueues => _queues.Where(q => !_hiddenQueues.Contains(q.Name));
     private System.Threading.Timer? _timer;
     private bool _isLoading = true;
     private bool _isFirstLoad = true;
@@ -26,31 +30,28 @@ public partial class QueueManager : IDisposable
     {
         try
         {
-            // 1. Fetch data (already sorted by DB)
+            // Fetch queue configurations
             _queues = (await Storage.GetQueuesAsync()).ToList();
             _isLoading = false;
 
-            // 2. STARTUP LOGIC: Hide inactive queues initially
+            // STARTUP LOGIC: Hide inactive queues initially
             if (_isFirstLoad)
             {
                 foreach (var q in _queues)
                 {
-                    // If queue is empty and idle -> hide it
-                    bool isActive = q.PendingCount > 0 || q.FetchedCount > 0 || q.ProcessingCount > 0;
-                    if (!isActive)
+                    // If queue is not active, hide it
+                    if (!q.IsActive)
                     {
                         _hiddenQueues.Add(q.Name);
                     }
                 }
-                _isFirstLoad = false; // Disable flag after first run
+                _isFirstLoad = false;
             }
 
-            // 3. Auto-unhide (if an inactive queue suddenly wakes up)
+            // Auto-unhide if queue becomes active
             foreach (var q in _queues)
             {
-                bool isActive = q.PendingCount > 0 || q.FetchedCount > 0 || q.ProcessingCount > 0;
-
-                if (isActive && _hiddenQueues.Contains(q.Name))
+                if (q.IsActive && _hiddenQueues.Contains(q.Name))
                 {
                     _hiddenQueues.Remove(q.Name);
                 }
@@ -61,7 +62,6 @@ public partial class QueueManager : IDisposable
         catch
         {
             _isLoading = false;
-            // Silent catch for polling
         }
     }
 
@@ -69,9 +69,13 @@ public partial class QueueManager : IDisposable
     {
         var pause = !isRunning;
 
-        // Optimistic UI update to prevent flickering
+        // Optimistic UI update
         var q = _queues.FirstOrDefault(x => x.Name == name);
-        if (q != null) q = q with { IsPaused = pause };
+        if (q != null)
+        {
+            var index = _queues.IndexOf(q);
+            _queues[index] = q with { IsPaused = pause };
+        }
 
         if (HubConnection is not null)
         {
@@ -82,16 +86,14 @@ public partial class QueueManager : IDisposable
 
     /// <summary>
     /// Handles changes to the Zombie Timeout input field.
-    /// Values less than 60 seconds are clamped to 60 to prevent accidental immediate termination.
+    /// Values less than 60 seconds are clamped to 60.
     /// </summary>
     private async Task UpdateTimeout(string name, object? value)
     {
         int? parsedValue = null;
 
-        // Attempt to parse the input
         if (value is string strVal && int.TryParse(strVal, out int iVal))
         {
-            // Enforce a minimum safety limit of 60 seconds
             parsedValue = Math.Max(60, iVal);
         }
         else if (value is int intVal)
@@ -101,28 +103,33 @@ public partial class QueueManager : IDisposable
 
         // Optimistic local update
         var q = _queues.FirstOrDefault(x => x.Name == name);
-        if (q != null) q = q with { ZombieTimeoutSeconds = parsedValue };
+        if (q != null)
+        {
+            var index = _queues.IndexOf(q);
+            _queues[index] = q with { ZombieTimeoutSeconds = parsedValue };
+        }
 
-        // Send to server
         if (HubConnection is not null)
         {
             await HubConnection.InvokeAsync("UpdateQueueTimeout", name, parsedValue);
-            // We rely on the background polling timer to eventually refresh the state from the DB.
         }
     }
 
     private void HideQueue(string name) => _hiddenQueues.Add(name);
     private void ShowAllQueues() => _hiddenQueues.Clear();
 
-    private string GetDuration(QueueDto q)
+    private string GetQueueStatus(QueueEntity q)
     {
-        if (!q.FirstJobAtUtc.HasValue) return "-";
-        var end = q.LastJobAtUtc ?? DateTime.UtcNow;
-        if (q.PendingCount > 0 || q.ProcessingCount > 0) end = DateTime.UtcNow;
-        var span = end - q.FirstJobAtUtc.Value;
+        if (q.IsPaused) return "PAUSED";
+        if (!q.IsActive) return "INACTIVE";
+        return "ACTIVE";
+    }
 
-        if (span.TotalHours >= 1) return span.ToString(@"hh\:mm\:ss");
-        return span.ToString(@"mm\:ss");
+    private string GetStatusColor(QueueEntity q)
+    {
+        if (q.IsPaused) return "var(--cq-warning)";
+        if (!q.IsActive) return "var(--cq-text-muted)";
+        return "var(--cq-success)";
     }
 
     public void Dispose() => _timer?.Dispose();

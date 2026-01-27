@@ -1,18 +1,19 @@
-﻿using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Enums;
 
 namespace ChokaQ.Abstractions.DTOs;
 
 /// <summary>
-/// Carries real-time update data for a job to avoid SignalR argument limits (max 8).
+/// Real-time job update payload for SignalR.
+/// Designed to avoid SignalR argument limits (max 8 parameters per method).
 /// </summary>
 public record JobUpdateDto(
     string JobId,
     string Type,
+    string Queue,
     JobStatus Status,
     int AttemptCount,
-    double? ExecutionDurationMs,
+    int Priority,
+    double? DurationMs,
     string? CreatedBy,
-    DateTime? StartedAtUtc,
-    string Queue,
-    int Priority
+    DateTime? StartedAtUtc
 );

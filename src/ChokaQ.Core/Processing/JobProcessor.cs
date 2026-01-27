@@ -1,5 +1,5 @@
-﻿using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Execution;
 using ChokaQ.Core.State;
 using Microsoft.Extensions.Logging;
@@ -10,7 +10,13 @@ namespace ChokaQ.Core.Processing;
 
 /// <summary>
 /// The core execution engine for a single job.
-/// Orchestrates the lifecycle: Fetch -> Circuit Check -> Execute -> Success/Failure -> Retry.
+/// Orchestrates the lifecycle: Fetch -> Circuit Check -> Execute -> Archive (Success/DLQ).
+/// 
+/// Three Pillars Integration:
+/// - Success: Job archived to Archive table
+/// - Failure (max retries): Job archived to DLQ
+/// - Cancelled: Job archived to DLQ
+/// - Retry: Job stays in Hot table with scheduled time
 /// </summary>
 public class JobProcessor : IJobProcessor
 {
@@ -21,13 +27,12 @@ public class JobProcessor : IJobProcessor
     private readonly IJobStateManager _stateManager;
 
     // Registry of tokens for currently running jobs to allow real-time cancellation.
-    // Key: JobId, Value: CancellationTokenSource linked to the worker token.
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeJobTokens = new();
 
     // --- Configuration ---
 
     /// <summary>
-    /// Maximum number of retries before marking a job as Failed.
+    /// Maximum number of retries before archiving job to DLQ.
     /// Default: 3.
     /// </summary>
     public int MaxRetries { get; set; } = 3;
@@ -40,7 +45,6 @@ public class JobProcessor : IJobProcessor
 
     /// <summary>
     /// Time to wait (in seconds) if the Circuit Breaker blocks execution.
-    /// Prevents tight loops when a downstream service is down.
     /// Default: 5 seconds.
     /// </summary>
     public int CircuitBreakerDelaySeconds { get; set; } = 5;
@@ -91,92 +95,82 @@ public class JobProcessor : IJobProcessor
         CancellationToken workerCt)
     {
         var meta = _dispatcher.ParseMetadata(payload);
-        var context = new JobExecutionContext(createdBy, meta.Queue, meta.Priority, attemptCount);
+        var context = new JobExecutionContext(jobId, jobType, createdBy, meta.Queue, meta.Priority, attemptCount);
 
         // 1. Circuit Breaker Check
         if (!_breaker.IsExecutionPermitted(jobType))
         {
             _logger.LogWarning("[CircuitBreaker] Job {JobId} skipped. Circuit for {Type} is OPEN.", jobId, jobType);
 
-            // Fast-fail / Reschedule logic
-            var currentJob = await _storage.GetJobAsync(jobId);
-            if (currentJob != null)
-            {
-                await _stateManager.RescheduleJobAsync(
-                    jobId,
-                    jobType,
-                    DateTime.UtcNow.AddSeconds(CircuitBreakerDelaySeconds),
-                    currentJob.AttemptCount,
-                    "Circuit Breaker Open",
-                    meta.Queue,
-                    meta.Priority,
-                    workerCt);
-            }
+            // Reschedule with delay
+            await _stateManager.RescheduleForRetryAsync(
+                jobId, jobType, meta.Queue, meta.Priority,
+                DateTime.UtcNow.AddSeconds(CircuitBreakerDelaySeconds),
+                attemptCount,
+                "Circuit Breaker Open",
+                workerCt);
             return;
         }
 
         // 2. Mark as Processing and Start Heartbeat
-        var startedAt = DateTime.UtcNow;
-        await UpdateStatusAsync(jobId, jobType, JobStatus.Processing, context, startedAt: startedAt, ct: workerCt);
+        await _stateManager.MarkAsProcessingAsync(
+            jobId, jobType, meta.Queue, meta.Priority, attemptCount, createdBy, workerCt);
 
-        // Create a linked token so the job cancels if:
-        // A) The Worker shuts down (workerCt)
-        // B) The User cancels this specific job via Dashboard (CancelJob)
+        // Create a linked token for cancellation
         using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(workerCt);
         _activeJobTokens.TryAdd(jobId, jobCts);
 
-        // Start Heartbeat: Create a separate cancellation source to stop the heartbeat 
-        // immediately when the job finishes, regardless of the worker status.
+        // Start Heartbeat loop
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(workerCt);
         var heartbeatTask = StartHeartbeatLoopAsync(jobId, heartbeatCts.Token);
 
         var sw = Stopwatch.StartNew();
         try
         {
-            // 3. Dispatch
+            // 3. Dispatch execution
             await _dispatcher.DispatchAsync(jobId, jobType, payload, jobCts.Token);
             sw.Stop();
 
-            // Stop heartbeat immediately
+            // Stop heartbeat
             await heartbeatCts.CancelAsync();
-            // Await the task to ensure graceful cleanup
             try { await heartbeatTask; } catch (OperationCanceledException) { }
 
-            // 4. Success Path
-            _breaker.ReportSuccess(jobType); // Tell breaker "Service is healthy"
+            // 4. SUCCESS: Archive to Archive table
+            _breaker.ReportSuccess(jobType);
+            await _stateManager.ArchiveSucceededAsync(
+                jobId, jobType, meta.Queue, sw.Elapsed.TotalMilliseconds, workerCt);
 
-            await UpdateStatusAsync(jobId, jobType, JobStatus.Succeeded, context,
-                durationMs: sw.Elapsed.TotalMilliseconds, startedAt: startedAt, ct: workerCt);
-
-            _logger.LogInformation("[Worker {ID}] Job {JobId} succeeded in {Duration}ms.", workerId, jobId, sw.Elapsed.TotalMilliseconds);
+            _logger.LogInformation(
+                "[Worker {ID}] Job {JobId} succeeded in {Duration:F1}ms → Archived.",
+                workerId, jobId, sw.Elapsed.TotalMilliseconds);
         }
         catch (OperationCanceledException)
         {
             sw.Stop();
-            await heartbeatCts.CancelAsync(); // Ensure heartbeat stops
+            await heartbeatCts.CancelAsync();
 
-            _logger.LogInformation("[Worker {ID}] Job {JobId} was cancelled during execution.", workerId, jobId);
-            await UpdateStatusAsync(jobId, jobType, JobStatus.Cancelled, context,
-                durationMs: sw.Elapsed.TotalMilliseconds, startedAt: startedAt, ct: workerCt);
+            // CANCELLED: Archive to DLQ
+            _logger.LogInformation("[Worker {ID}] Job {JobId} was cancelled.", workerId, jobId);
+            await _stateManager.ArchiveCancelledAsync(
+                jobId, jobType, meta.Queue, "Worker/Admin cancellation", workerCt);
         }
         catch (Exception ex)
         {
             sw.Stop();
-            await heartbeatCts.CancelAsync(); // Ensure heartbeat stops
+            await heartbeatCts.CancelAsync();
 
-            // 5. Failure Path (Retry Logic)
-            await HandleErrorAsync(ex, jobId, jobType, context, workerId, workerCt, sw.Elapsed.TotalMilliseconds, startedAt);
+            // 5. FAILURE: Retry or Archive to DLQ
+            await HandleErrorAsync(ex, context, workerId, workerCt);
         }
         finally
         {
-            // Cleanup token registry
             _activeJobTokens.TryRemove(jobId, out _);
         }
     }
 
     /// <summary>
-    /// Periodically updates the job timestamp in storage to indicate liveness.
-    /// Uses jitter to prevent thundering herd effect on the database.
+    /// Periodically updates the job heartbeat in storage.
+    /// Uses jitter to prevent thundering herd effect.
     /// </summary>
     private async Task StartHeartbeatLoopAsync(string jobId, CancellationToken ct)
     {
@@ -186,81 +180,56 @@ public class JobProcessor : IJobProcessor
         {
             while (!ct.IsCancellationRequested)
             {
-                // Jitter: Wait between 8 and 12 seconds.
-                // This prevents multiple workers from hitting the DB simultaneously.
+                // Jitter: Wait between 8 and 12 seconds
                 var delayMs = random.Next(8000, 12000);
                 await Task.Delay(delayMs, ct);
-
-                // Send Keep-Alive signal
                 await _storage.KeepAliveAsync(jobId, ct);
             }
         }
         catch (OperationCanceledException)
         {
-            // Expected behavior when the job completes or is cancelled.
+            // Expected when job completes
         }
         catch (Exception ex)
         {
-            // Log warning but do not crash the worker thread. 
-            // Database connectivity issues should not terminate the job execution if possible.
             _logger.LogWarning(ex, "Heartbeat failed for job {JobId}", jobId);
         }
     }
 
     private async Task HandleErrorAsync(
         Exception ex,
-        string jobId,
-        string jobType,
         JobExecutionContext context,
         string workerId,
-        CancellationToken ct,
-        double durationMs,
-        DateTime startedAt)
+        CancellationToken ct)
     {
-        // 1. Notify monitoring system (Circuit Breaker metrics)
-        _breaker.ReportFailure(jobType);
+        // Notify Circuit Breaker
+        _breaker.ReportFailure(context.JobType);
 
-        var currentAttempt = context.AttemptCount;
-
-        // 2. Decision: Retry or Fail Permanently?
-        if (currentAttempt < MaxRetries)
+        // Decision: Retry or Archive to DLQ?
+        if (context.AttemptCount < MaxRetries)
         {
-            var nextAttempt = currentAttempt + 1;
+            var nextAttempt = context.AttemptCount + 1;
             var delayMs = CalculateBackoff(nextAttempt);
             var scheduledAt = DateTime.UtcNow.AddMilliseconds(delayMs);
 
             _logger.LogWarning(ex,
-                "[Worker {WorkerId}] Job {JobId} failed. Smart Retry #{Attempt} scheduled in {Delay}ms.",
-                workerId, jobId, nextAttempt, delayMs);
+                "[Worker {WorkerId}] Job {JobId} failed. Retry #{Attempt} scheduled in {Delay}ms.",
+                workerId, context.JobId, nextAttempt, delayMs);
 
-            // Smart reschedule in storage
-            await _stateManager.RescheduleJobAsync(
-                jobId,
-                jobType,
-                scheduledAt,
-                nextAttempt,
-                ex.Message,
-                context.Queue,
-                context.Priority,
-                ct);
+            // RETRY: Stay in Hot table
+            await _stateManager.RescheduleForRetryAsync(
+                context.JobId, context.JobType, context.Queue, context.Priority,
+                scheduledAt, nextAttempt, ex.Message, ct);
         }
         else
         {
-            // Log permanent failure
             _logger.LogError(ex,
-                "[Worker {WorkerId}] Job {JobId} failed permanently after {Retries} attempts. Error: {Error}",
-                workerId, jobId, MaxRetries, ex.Message);
+                "[Worker {WorkerId}] Job {JobId} failed permanently after {Retries} attempts → Archived to DLQ.",
+                workerId, context.JobId, MaxRetries);
 
-            // Mark job as Failed
-            await UpdateStatusAsync(
-                jobId,
-                jobType,
-                JobStatus.Failed,
-                context,
-                ex.Message,
-                durationMs,
-                startedAt,
-                ct);
+            // FINAL FAILURE: Archive to DLQ
+            await _stateManager.ArchiveFailedAsync(
+                context.JobId, context.JobType, context.Queue, ex.ToString(), ct);
         }
     }
 
@@ -272,47 +241,19 @@ public class JobProcessor : IJobProcessor
     {
         var baseDelay = RetryDelaySeconds * Math.Pow(2, attempt - 1);
 
-        // Cap the delay at 1 hour
+        // Cap at 1 hour
         if (baseDelay > 3600) baseDelay = 3600;
 
-        var jitter = Random.Shared.Next(0, 1000); // 0-1 sec jitter
+        var jitter = Random.Shared.Next(0, 1000);
         return (int)(baseDelay * 1000) + jitter;
     }
 
-    /// <summary>
-    /// Helper to update state in Storage + Notify Dashboard via SignalR.
-    /// </summary>
-    private async Task UpdateStatusAsync(
-        string jobId,
-        string jobType,
-        JobStatus status,
-        JobExecutionContext context,
-        string? result = null,
-        double durationMs = 0,
-        DateTime? startedAt = null,
-        CancellationToken ct = default)
-    {
-        // 1. Notify State Manager
-        await _stateManager.UpdateStateAsync(
-            jobId: jobId,
-            type: jobType,
-            status: status,
-            attemptCount: context.AttemptCount,
-            executionDurationMs: durationMs,
-            createdBy: context.CreatedBy,
-            startedAtUtc: startedAt,
-            queue: context.Queue,
-            priority: context.Priority,
-            errorDetails: result,
-            ct: ct);
-
-        // 2. Notify Circuit Breaker (Success counts towards closing the circuit)
-        if (status == JobStatus.Succeeded)
-        {
-            _breaker.ReportSuccess(jobType);
-        }
-    }
-
-    // Lightweight record to pass immutable metadata through the pipeline
-    private record JobExecutionContext(string? CreatedBy, string Queue, int Priority, int AttemptCount);
+    // Immutable context for job execution
+    private record JobExecutionContext(
+        string JobId,
+        string JobType,
+        string? CreatedBy,
+        string Queue,
+        int Priority,
+        int AttemptCount);
 }

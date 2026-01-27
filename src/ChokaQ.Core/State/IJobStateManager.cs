@@ -1,35 +1,70 @@
-﻿using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Enums;
 
 namespace ChokaQ.Core.State;
 
 /// <summary>
-/// Manages the state transitions of jobs.
-/// Encapsulates the logic of persisting state changes to storage and notifying the UI via real-time events.
+/// Manages the state transitions of jobs in Three Pillars architecture.
+/// Coordinates storage operations and real-time notifications.
 /// </summary>
 public interface IJobStateManager
 {
-    Task UpdateStateAsync(
+    /// <summary>
+    /// Archives a succeeded job: Hot → Archive.
+    /// Notifies dashboard about the transition.
+    /// </summary>
+    Task ArchiveSucceededAsync(
         string jobId,
-        string type,
-        JobStatus status,
-        int attemptCount,
-        double? executionDurationMs = null,
-        string? createdBy = null,
-        DateTime? startedAtUtc = null,
-        string queue = "default",
-        int priority = 10,
-        string? errorDetails = null,
-        CancellationToken ct = default
-    );
+        string jobType,
+        string queue,
+        double? durationMs = null,
+        CancellationToken ct = default);
 
-    Task RescheduleJobAsync(
+    /// <summary>
+    /// Archives a failed job: Hot → DLQ.
+    /// Notifies dashboard about the transition.
+    /// </summary>
+    Task ArchiveFailedAsync(
         string jobId,
-        string type,
-        DateTime scheduledAtUtc,
-        int attemptCount,
+        string jobType,
+        string queue,
         string errorDetails,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Archives a cancelled job: Hot → DLQ.
+    /// Notifies dashboard about the transition.
+    /// </summary>
+    Task ArchiveCancelledAsync(
+        string jobId,
+        string jobType,
+        string queue,
+        string? cancelledBy = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Reschedules a job for retry (stays in Hot).
+    /// Notifies dashboard about the update.
+    /// </summary>
+    Task RescheduleForRetryAsync(
+        string jobId,
+        string jobType,
         string queue,
         int priority,
-        CancellationToken ct = default
-    );
+        DateTime scheduledAtUtc,
+        int newAttemptCount,
+        string lastError,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Updates job to Processing status (stays in Hot).
+    /// Notifies dashboard about the update.
+    /// </summary>
+    Task MarkAsProcessingAsync(
+        string jobId,
+        string jobType,
+        string queue,
+        int priority,
+        int attemptCount,
+        string? createdBy,
+        CancellationToken ct = default);
 }
