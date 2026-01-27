@@ -44,6 +44,12 @@ public interface IJobStorage
     // ========================================================================
 
     /// <summary>
+    /// [Retry Logic] Keeps the job in Hot storage but schedules it for later.
+    /// Used when a job fails transiently (e.g., API timeout) and has attempts left.
+    /// </summary>
+    Task RetryJobAsync(string jobId, int nextAttempt, TimeSpan delay, string? lastError, CancellationToken ct = default);
+
+    /// <summary>
     /// [1.4 Transition] ArchiveJobAsync (Success variant).
     /// Atomically DELETE from Hot -> INSERT into Succeeded.
     /// </summary>

@@ -108,6 +108,29 @@ public class InMemoryJobStorage : IJobStorage
     // 2. TRANSITIONS (Logic Parity)
     // ========================================================================
 
+    public Task RetryJobAsync(string jobId, int nextAttempt, TimeSpan delay, string? lastError, CancellationToken ct = default)
+    {
+        if (_activeJobs.TryGetValue(jobId, out var job))
+        {
+            // Mutation in Hot storage: increment attempts, set delay, release worker lock
+            var retriedJob = job with
+            {
+                AttemptCount = nextAttempt,
+                ScheduledAtUtc = DateTime.UtcNow.Add(delay),
+                WorkerId = null,            // Release back to the pool
+                HeartbeatUtc = null,        // Reset heartbeat
+                Status = JobStatus.Pending, // Make visible for picking again
+                LastUpdatedUtc = DateTime.UtcNow
+                // Note: Transient errors are not stored in JobEntity to keep it lightweight.
+                // Only the final error is stored in Morgue.
+            };
+
+            _activeJobs.TryUpdate(jobId, retriedJob, job);
+            UpdateStats(job.Queue, s => s with { RetriedTotal = s.RetriedTotal + 1 });
+        }
+        return Task.CompletedTask;
+    }
+
     public Task ArchiveAsSuccessAsync(JobSucceededEntity archiveRecord, CancellationToken ct = default)
     {
         // Atomic Move: Remove from Hot, Add to Archive
