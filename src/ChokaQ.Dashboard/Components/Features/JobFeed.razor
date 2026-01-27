@@ -1,4 +1,4 @@
-﻿@using ChokaQ.Dashboard.Components.Shared
+@using ChokaQ.Dashboard.Components.Shared
 @using ChokaQ.Dashboard.Models
 @using Microsoft.AspNetCore.Components.Web.Virtualization
 
@@ -11,7 +11,7 @@
         <div class="d-flex align-items-center gap-2" style="flex: 1; max-width: 400px;">
             <div class="input-group input-group-sm">
                 <span class="input-group-text" style="background-color: var(--cq-bg); border-color: var(--cq-border); color: var(--cq-text-muted);">
-                    🔍
+                    Search
                 </span>
                 <input type="text"
                        class="form-control cq-input"
@@ -24,7 +24,7 @@
                     <span class="input-group-text" style="background-color: var(--cq-bg); border-color: var(--cq-border); color: var(--cq-info); font-weight: bold; font-size: 0.8rem;">
                         @FilteredJobs.Count
                     </span>
-                    <button class="btn btn-outline-secondary" type="button" @onclick="() => _searchQuery = string.Empty">✖</button>
+                    <button class="btn btn-outline-secondary" type="button" @onclick="() => _searchQuery = string.Empty">X</button>
                 }
             </div>
         </div>
@@ -59,11 +59,11 @@
             <span class="small fw-bold text-muted">BULK ACTIONS:</span>
 
             <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-2" @onclick="RestartSelected">
-                🔄 Restart
+                Retry All
             </button>
 
             <button class="btn btn-sm btn-outline-danger d-flex align-items-center gap-2" @onclick="CancelSelected">
-                🛑 Cancel
+                Cancel All
             </button>
 
             <div class="d-flex align-items-center gap-1 ms-2 border-start ps-3" style="border-color: var(--cq-border) !important;">

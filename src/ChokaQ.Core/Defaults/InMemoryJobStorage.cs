@@ -386,23 +386,25 @@ public class InMemoryJobStorage : IJobStorage
     // OBSERVABILITY (Dashboard)
     // ========================================================================
 
-    public ValueTask<JobCountsDto> GetSummaryStatsAsync(CancellationToken ct = default)
+    public ValueTask<StatsSummaryEntity> GetSummaryStatsAsync(CancellationToken ct = default)
     {
         // Hybrid: Real-time counts from Hot + totals from Stats
         var hotValues = _hotJobs.Values;
         var statsValues = _stats.Values;
 
-        var counts = new JobCountsDto(
+        var stats = new StatsSummaryEntity(
+            Queue: null, // Aggregated across all queues
             Pending: hotValues.Count(x => x.Status == JobStatus.Pending),
             Fetched: hotValues.Count(x => x.Status == JobStatus.Fetched),
             Processing: hotValues.Count(x => x.Status == JobStatus.Processing),
-            Succeeded: statsValues.Sum(x => x.SucceededTotal),
-            Failed: statsValues.Sum(x => x.FailedTotal),
-            Retried: statsValues.Sum(x => x.RetriedTotal),
-            Total: hotValues.Count + _archiveJobs.Count + _dlqJobs.Count
+            SucceededTotal: statsValues.Sum(x => x.SucceededTotal),
+            FailedTotal: statsValues.Sum(x => x.FailedTotal),
+            RetriedTotal: statsValues.Sum(x => x.RetriedTotal),
+            Total: hotValues.Count + _archiveJobs.Count + _dlqJobs.Count,
+            LastActivityUtc: statsValues.Max(x => x.LastActivityUtc)
         );
 
-        return new ValueTask<JobCountsDto>(counts);
+        return new ValueTask<StatsSummaryEntity>(stats);
     }
 
     public ValueTask<IEnumerable<JobHotEntity>> GetActiveJobsAsync(

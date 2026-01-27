@@ -180,8 +180,9 @@ public interface IJobStorage
     /// <summary>
     /// Gets hybrid statistics: StatsSummary (totals) + Hot counts.
     /// O(1) read from StatsSummary + fast COUNT on Hot.
+    /// Returns aggregated stats (Queue = null for all queues).
     /// </summary>
-    ValueTask<JobCountsDto> GetSummaryStatsAsync(CancellationToken ct = default);
+    ValueTask<StatsSummaryEntity> GetSummaryStatsAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Retrieves active jobs from Hot table for dashboard.

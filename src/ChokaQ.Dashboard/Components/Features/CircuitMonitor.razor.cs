@@ -1,4 +1,4 @@
-﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
 using Microsoft.AspNetCore.Components;
@@ -61,9 +61,9 @@ public partial class CircuitMonitor : IDisposable
 
     private string GetIcon(CircuitStatus status) => status switch
     {
-        CircuitStatus.Open => "🛑",
-        CircuitStatus.HalfOpen => "⚠️",
-        _ => "✅"
+        CircuitStatus.Open => "[OPEN]",
+        CircuitStatus.HalfOpen => "[HALF]",
+        _ => "[OK]"
     };
 
     public void Dispose()

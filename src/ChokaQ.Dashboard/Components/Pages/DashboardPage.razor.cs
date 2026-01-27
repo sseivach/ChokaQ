@@ -1,4 +1,5 @@
 using ChokaQ.Abstractions.DTOs;
+using ChokaQ.Abstractions.Entities;
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Dashboard.Components.Features;
@@ -20,7 +21,7 @@ public partial class DashboardPage : IAsyncDisposable
 
     private HubConnection? _hubConnection;
     private List<JobViewModel> _jobs = new();
-    private JobCountsDto _counts = new(0, 0, 0, 0, 0, 0, 0);
+    private StatsSummaryEntity _counts = new(null, 0, 0, 0, 0, 0, 0, 0, null);
 
     private System.Timers.Timer? _uiRefreshTimer;
     private string _currentTheme = "office";
@@ -183,7 +184,7 @@ public partial class DashboardPage : IAsyncDisposable
                     : null,
                 CreatedBy = job.CreatedBy,
                 StartedAtUtc = job.StartedAtUtc?.ToLocalTime(),
-                Payload = job.Payload
+                Payload = job.Payload ?? "{}"
             }).ToList();
 
             await InvokeAsync(() =>

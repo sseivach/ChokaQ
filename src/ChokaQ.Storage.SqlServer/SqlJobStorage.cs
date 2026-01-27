@@ -421,24 +421,26 @@ public class SqlJobStorage : IJobStorage
     // OBSERVABILITY (Dashboard)
     // ========================================================================
 
-    public async ValueTask<JobCountsDto> GetSummaryStatsAsync(CancellationToken ct = default)
+    public async ValueTask<StatsSummaryEntity> GetSummaryStatsAsync(CancellationToken ct = default)
     {
         await using var conn = await OpenConnectionAsync(ct);
 
         // Hybrid: Real-time counts from Hot + pre-aggregated totals from StatsSummary
         var sql = $@"
             SELECT 
-                (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Status] = 0) AS Pending,
-                (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Status] = 1) AS Fetched,
-                (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Status] = 2) AS Processing,
-                (SELECT ISNULL(SUM([SucceededTotal]), 0) FROM [{_schema}].[StatsSummary]) AS Succeeded,
-                (SELECT ISNULL(SUM([FailedTotal]), 0) FROM [{_schema}].[StatsSummary]) AS Failed,
-                (SELECT ISNULL(SUM([RetriedTotal]), 0) FROM [{_schema}].[StatsSummary]) AS Retried,
+                NULL AS [Queue],
+                (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Status] = 0) AS [Pending],
+                (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Status] = 1) AS [Fetched],
+                (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Status] = 2) AS [Processing],
+                (SELECT ISNULL(SUM([SucceededTotal]), 0) FROM [{_schema}].[StatsSummary]) AS [SucceededTotal],
+                (SELECT ISNULL(SUM([FailedTotal]), 0) FROM [{_schema}].[StatsSummary]) AS [FailedTotal],
+                (SELECT ISNULL(SUM([RetriedTotal]), 0) FROM [{_schema}].[StatsSummary]) AS [RetriedTotal],
                 (SELECT COUNT(1) FROM [{_schema}].[JobsHot]) + 
                 (SELECT COUNT(1) FROM [{_schema}].[JobsArchive]) + 
-                (SELECT COUNT(1) FROM [{_schema}].[JobsDLQ]) AS Total";
+                (SELECT COUNT(1) FROM [{_schema}].[JobsDLQ]) AS [Total],
+                (SELECT MAX([LastActivityUtc]) FROM [{_schema}].[StatsSummary]) AS [LastActivityUtc]";
 
-        return await conn.QuerySingleAsync<JobCountsDto>(new CommandDefinition(sql, cancellationToken: ct));
+        return await conn.QuerySingleAsync<StatsSummaryEntity>(new CommandDefinition(sql, cancellationToken: ct));
     }
 
     public async ValueTask<IEnumerable<JobHotEntity>> GetActiveJobsAsync(
