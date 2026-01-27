@@ -7,9 +7,18 @@ using Microsoft.Extensions.Logging;
 namespace ChokaQ.Core.State;
 
 /// <summary>
-/// Manages state transitions in Three Pillars architecture.
-/// Coordinates storage operations and real-time SignalR notifications.
+/// Manages job state transitions following the Three Pillars architecture.
+/// Acts as an orchestration layer between storage persistence and SignalR notifications.
 /// </summary>
+/// <remarks>
+/// Responsibilities:
+/// - Coordinates atomic transitions between pillars (Hot → Archive, Hot → DLQ)
+/// - Triggers real-time dashboard updates via IChokaQNotifier
+/// - Handles notification failures gracefully (fire-and-forget with logging)
+/// 
+/// This separation of concerns allows JobProcessor to focus on execution logic
+/// while JobStateManager handles the persistence and notification plumbing.
+/// </remarks>
 public class JobStateManager : IJobStateManager
 {
     private readonly IJobStorage _storage;
@@ -26,6 +35,10 @@ public class JobStateManager : IJobStateManager
         _logger = logger;
     }
 
+    /// <summary>
+    /// Archives a successfully completed job from Hot to Archive table.
+    /// Updates StatsSummary.SucceededTotal and notifies connected dashboards.
+    /// </summary>
     public async Task ArchiveSucceededAsync(
         string jobId,
         string jobType,
@@ -40,6 +53,11 @@ public class JobStateManager : IJobStateManager
         await SafeNotifyAsync(() => _notifier.NotifyJobArchivedAsync(jobId, queue));
     }
 
+    /// <summary>
+    /// Archives a permanently failed job from Hot to DLQ table.
+    /// Called when a job exhausts all retry attempts.
+    /// Updates StatsSummary.FailedTotal and notifies connected dashboards.
+    /// </summary>
     public async Task ArchiveFailedAsync(
         string jobId,
         string jobType,

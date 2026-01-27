@@ -9,12 +9,42 @@ using Microsoft.Extensions.Options;
 
 namespace ChokaQ.Storage.SqlServer;
 
+/// <summary>
+/// Extension methods for configuring ChokaQ with SQL Server persistence.
+/// </summary>
 public static class ChokaQSqlServerExtensions
 {
     /// <summary>
-    /// Configures ChokaQ to use SQL Server as the storage provider (Three Pillars architecture).
-    /// Replaces the default In-Memory storage and In-Memory Worker with SQL-backed implementations.
+    /// Configures ChokaQ to use SQL Server as the storage provider.
+    /// Implements the Three Pillars architecture: JobsHot, JobsArchive, JobsDLQ.
     /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configure">Configuration callback for SQL Server options.</param>
+    /// <remarks>
+    /// Usage:
+    /// <code>
+    /// services.AddChokaQ(options => options.AddProfile&lt;MyProfile&gt;());
+    /// services.UseSqlServer(options =>
+    /// {
+    ///     options.ConnectionString = "Server=...";
+    ///     options.SchemaName = "chokaq";
+    ///     options.AutoCreateSqlTable = true;
+    ///     options.PollingInterval = TimeSpan.FromSeconds(5);
+    /// });
+    /// </code>
+    /// 
+    /// This method performs the "Great Swap":
+    /// 1. Replaces InMemoryJobStorage with SqlJobStorage
+    /// 2. Replaces JobWorker with SqlJobWorker (polling-based)
+    /// 3. Optionally creates database schema on startup
+    /// 
+    /// Tables created (when AutoCreateSqlTable = true):
+    /// - [schema].[JobsHot]: Active jobs
+    /// - [schema].[JobsArchive]: Succeeded jobs history
+    /// - [schema].[JobsDLQ]: Failed jobs (dead letter queue)
+    /// - [schema].[StatsSummary]: Pre-aggregated metrics
+    /// - [schema].[Queues]: Queue configuration
+    /// </remarks>
     public static void UseSqlServer(this IServiceCollection services, Action<SqlJobStorageOptions> configure)
     {
         var options = new SqlJobStorageOptions();

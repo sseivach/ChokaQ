@@ -7,9 +7,27 @@ using Microsoft.Extensions.Logging;
 namespace ChokaQ.Dashboard.Hubs;
 
 /// <summary>
-/// SignalR Hub for Dashboard real-time operations.
-/// Provides bidirectional communication for job management.
+/// SignalR Hub providing real-time bidirectional communication for the ChokaQ Dashboard.
+/// Handles administrative commands from dashboard clients and routes them to appropriate services.
 /// </summary>
+/// <remarks>
+/// Available client methods:
+/// - CancelJob: Stops a running job and moves it to DLQ
+/// - RestartJob: Re-enqueues a failed job from DLQ to Hot
+/// - ResurrectJob: Moves DLQ job to Hot with optional payload/priority updates
+/// - ToggleQueue: Pauses/resumes job processing for a queue
+/// - SetPriority: Changes job priority (Pending jobs only)
+/// - UpdateQueueTimeout: Sets per-queue zombie detection timeout
+/// - PurgeDLQ: Permanently deletes jobs from Dead Letter Queue
+/// - EditJob: Modifies payload/tags/priority of Pending jobs
+/// 
+/// Server-to-client events (sent via IChokaQNotifier):
+/// - JobUpdated: Real-time job state changes
+/// - JobProgress: Execution progress (0-100%)
+/// - JobArchived: Job moved to Archive (success)
+/// - JobFailed: Job moved to DLQ (failure)
+/// - StatsUpdated: Dashboard counters refreshed
+/// </remarks>
 public class ChokaQHub : Hub
 {
     private readonly IWorkerManager _workerManager;
@@ -26,12 +44,20 @@ public class ChokaQHub : Hub
         _logger = logger;
     }
 
+    /// <summary>
+    /// Cancels a running job. If processing, signals the job's CancellationToken.
+    /// Job will be moved to DLQ with FailureReason.Cancelled.
+    /// </summary>
     public async Task CancelJob(string jobId)
     {
         _logger.LogInformation("Dashboard: CancelJob requested for {JobId}", jobId);
         await _workerManager.CancelJobAsync(jobId);
     }
 
+    /// <summary>
+    /// Restarts a job by re-enqueuing from DLQ to Hot table.
+    /// Resets attempt count to 0 and status to Pending.
+    /// </summary>
     public async Task RestartJob(string jobId)
     {
         _logger.LogInformation("Dashboard: RestartJob requested for {JobId}", jobId);
