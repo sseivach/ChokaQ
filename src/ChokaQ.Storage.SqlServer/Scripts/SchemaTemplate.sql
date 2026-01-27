@@ -39,6 +39,7 @@ BEGIN
         [CreatedAtUtc]   [datetime2](7)   NOT NULL,                             -- Creation timestamp
         [LastUpdatedUtc] [datetime2](7)   NOT NULL,                             -- Record version timestamp
         [CreatedBy]      [varchar](100)   NULL,                                 -- Identity of the producer
+        [LastModifiedBy] [varchar](100)   NULL,                                 -- Audit: Who edited/resurrected this job last
 
         CONSTRAINT [PK_{SCHEMA}_Jobs] PRIMARY KEY CLUSTERED ([Id] ASC)
         WITH (DATA_COMPRESSION = PAGE, FILLFACTOR = 80)                         -- Reserv space for updates/splits
@@ -87,12 +88,13 @@ IF OBJECT_ID(N'[{SCHEMA}].[JobsSucceeded]', N'U') IS NULL
 BEGIN
     CREATE TABLE [{SCHEMA}].[JobsSucceeded](
         [Id]             [varchar](50)    NOT NULL,                             -- Same ID as Jobs table
-        [Queue]          [varchar](255)   NOT NULL,                             
+        [Queue]          [varchar](255)   NOT NULL,
         [Type]           [varchar](255)   NOT NULL,
         [Payload]        [varchar](max)   NULL,                                 -- Full data snapshot
         [Tags]           [varchar](1000)  NULL,                                 -- Searchable metadata (Key=Value) Capped at 1000 to stay well under the 1700-byte limit, accounting for clustered key overhead.
         [WorkerId]       [varchar](100)   NULL,
         [CreatedBy]      [varchar](100)   NULL,
+        [LastModifiedBy] [varchar](100)   NULL,                                 -- Audit trail from the hot job
         [FinishedAtUtc]  [datetime2](7)   NOT NULL,                             -- Completion time
         [DurationMs]     [float]          NULL,                                 -- Telemetry: Execution time
 
@@ -138,6 +140,7 @@ BEGIN
         [AttemptCount]   [int]            NOT NULL,
         [WorkerId]       [varchar](100)   NULL,
         [CreatedBy]      [varchar](100)   NULL,
+        [LastModifiedBy] [varchar](100)   NULL,                                 -- Audit trail
         [FailedAtUtc]    [datetime2](7)   NOT NULL,                             -- Time of death
 
         CONSTRAINT [PK_{SCHEMA}_JobsMorgue] PRIMARY KEY CLUSTERED ([Id] ASC)

@@ -25,7 +25,7 @@ public class SqlJobStorage : IJobStorage
     {
         _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _deduplicator = deduplicator ?? throw new ArgumentNullException(nameof(deduplicator)); // <--- Сохраняем
+        _deduplicator = deduplicator ?? throw new ArgumentNullException(nameof(deduplicator));
 
         if (string.IsNullOrWhiteSpace(schemaName))
             throw new ArgumentException("Schema name cannot be empty.", nameof(schemaName));

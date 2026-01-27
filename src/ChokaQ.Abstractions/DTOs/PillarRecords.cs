@@ -57,6 +57,7 @@ public record JobMorgue(
     string? Payload,            // Preserved payload for potential fix and resurrection
     string? Tags,               // Searchable metadata for troubleshooting
     string? ErrorDetails,       // Full exception stack trace and error message
+    int Priority,               // Original Priority
     int AttemptCount,           // Total attempts made before the job was moved to morgue
     string? WorkerId,           // Last worker instance that attempted execution
     string? CreatedBy,          // Identity of the original producer
