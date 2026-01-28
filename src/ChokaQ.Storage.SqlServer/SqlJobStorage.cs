@@ -79,9 +79,12 @@ public class SqlJobStorage : IJobStorage
                 INSERT INTO [{_schema}].[Queues] ([Name], [IsPaused], [IsActive], [LastUpdatedUtc])
                 VALUES (@Queue, 0, 1, SYSUTCDATETIME());
             
-            -- Ensure stats row exists
-            IF NOT EXISTS (SELECT 1 FROM [{_schema}].[StatsSummary] WHERE [Queue] = @Queue)
-                INSERT INTO [{_schema}].[StatsSummary] ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal])
+            -- Ensure stats row exists (MERGE for atomicity)
+            MERGE [{_schema}].[StatsSummary] AS target
+            USING (SELECT @Queue AS Queue) AS source
+            ON target.[Queue] = source.Queue
+            WHEN NOT MATCHED THEN
+                INSERT ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal])
                 VALUES (@Queue, 0, 0, 0);";
 
         await conn.ExecuteAsync(new CommandDefinition(sql, new
@@ -93,6 +96,7 @@ public class SqlJobStorage : IJobStorage
             Tags = tags,
             IdempotencyKey = idempotencyKey,
             Priority = priority,
+            CreatedBy = createdBy,
             ScheduledAt = delay.HasValue ? DateTime.UtcNow.Add(delay.Value) : (DateTime?)null
         }, cancellationToken: ct));
 
@@ -182,6 +186,9 @@ public class SqlJobStorage : IJobStorage
 
         // INSERT-first with OUTPUT for atomicity (no data loss on crash)
         var sql = $@"
+            DECLARE @Queue varchar(255);
+            SELECT @Queue = [Queue] FROM [{_schema}].[JobsHot] WHERE [Id] = @Id;
+
             -- 1. Archive to JobsArchive using OUTPUT from DELETE
             INSERT INTO [{_schema}].[JobsArchive]
             ([Id], [Queue], [Type], [Payload], [Tags], [AttemptCount], [WorkerId], 
@@ -194,11 +201,16 @@ public class SqlJobStorage : IJobStorage
             -- 2. Delete from Hot
             DELETE FROM [{_schema}].[JobsHot] WHERE [Id] = @Id;
 
-            -- 3. Update stats
-            UPDATE [{_schema}].[StatsSummary]
-            SET [SucceededTotal] = [SucceededTotal] + 1,
-                [LastActivityUtc] = SYSUTCDATETIME()
-            WHERE [Queue] = (SELECT TOP 1 [Queue] FROM [{_schema}].[JobsArchive] WHERE [Id] = @Id);";
+            -- 3. Update stats (MERGE for upsert)
+            MERGE [{_schema}].[StatsSummary] AS target
+            USING (SELECT @Queue AS Queue) AS source
+            ON target.[Queue] = source.Queue
+            WHEN MATCHED THEN
+                UPDATE SET [SucceededTotal] = [SucceededTotal] + 1,
+                           [LastActivityUtc] = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN
+                INSERT ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal], [LastActivityUtc])
+                VALUES (@Queue, 1, 0, 0, SYSUTCDATETIME());";
 
         await conn.ExecuteAsync(new CommandDefinition(sql, new { Id = jobId, DurationMs = durationMs }, cancellationToken: ct));
     }
@@ -239,11 +251,16 @@ public class SqlJobStorage : IJobStorage
             -- 2. Delete from Hot
             DELETE FROM [{_schema}].[JobsHot] WHERE [Id] = @Id;
 
-            -- 3. Update stats
-            UPDATE [{_schema}].[StatsSummary]
-            SET [FailedTotal] = [FailedTotal] + 1,
-                [LastActivityUtc] = SYSUTCDATETIME()
-            WHERE [Queue] = @Queue;";
+            -- 3. Update stats (MERGE for upsert)
+            MERGE [{_schema}].[StatsSummary] AS target
+            USING (SELECT @Queue AS Queue) AS source
+            ON target.[Queue] = source.Queue
+            WHEN MATCHED THEN
+                UPDATE SET [FailedTotal] = [FailedTotal] + 1,
+                           [LastActivityUtc] = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN
+                INSERT ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal], [LastActivityUtc])
+                VALUES (@Queue, 0, 1, 0, SYSUTCDATETIME());";
 
         await conn.ExecuteAsync(new CommandDefinition(sql, new
         {
@@ -342,6 +359,9 @@ public class SqlJobStorage : IJobStorage
         await using var conn = await OpenConnectionAsync(ct);
 
         var sql = $@"
+            DECLARE @Queue varchar(255);
+            SELECT @Queue = [Queue] FROM [{_schema}].[JobsHot] WHERE [Id] = @Id;
+
             UPDATE [{_schema}].[JobsHot]
             SET [Status] = 0,
                 [AttemptCount] = @Attempt,
@@ -351,11 +371,16 @@ public class SqlJobStorage : IJobStorage
                 [LastUpdatedUtc] = SYSUTCDATETIME()
             WHERE [Id] = @Id;
 
-            -- Increment retry counter
-            UPDATE [{_schema}].[StatsSummary]
-            SET [RetriedTotal] = [RetriedTotal] + 1,
-                [LastActivityUtc] = SYSUTCDATETIME()
-            WHERE [Queue] = (SELECT [Queue] FROM [{_schema}].[JobsHot] WHERE [Id] = @Id);";
+            -- Increment retry counter (MERGE for upsert)
+            MERGE [{_schema}].[StatsSummary] AS target
+            USING (SELECT @Queue AS Queue) AS source
+            ON target.[Queue] = source.Queue
+            WHEN MATCHED THEN
+                UPDATE SET [RetriedTotal] = [RetriedTotal] + 1,
+                           [LastActivityUtc] = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN
+                INSERT ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal], [LastActivityUtc])
+                VALUES (@Queue, 0, 0, 1, SYSUTCDATETIME());";
 
         await conn.ExecuteAsync(new CommandDefinition(sql, new
         {
@@ -428,19 +453,46 @@ public class SqlJobStorage : IJobStorage
         // Hybrid: Real-time counts from Hot + pre-aggregated totals from StatsSummary
         var sql = $@"
             SELECT 
-                NULL AS [Queue],
+                CAST(NULL AS NVARCHAR(100)) AS [Queue],
                 (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Status] = 0) AS [Pending],
                 (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Status] = 1) AS [Fetched],
                 (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Status] = 2) AS [Processing],
                 (SELECT ISNULL(SUM([SucceededTotal]), 0) FROM [{_schema}].[StatsSummary]) AS [SucceededTotal],
                 (SELECT ISNULL(SUM([FailedTotal]), 0) FROM [{_schema}].[StatsSummary]) AS [FailedTotal],
                 (SELECT ISNULL(SUM([RetriedTotal]), 0) FROM [{_schema}].[StatsSummary]) AS [RetriedTotal],
-                (SELECT COUNT(1) FROM [{_schema}].[JobsHot]) + 
-                (SELECT COUNT(1) FROM [{_schema}].[JobsArchive]) + 
-                (SELECT COUNT(1) FROM [{_schema}].[JobsDLQ]) AS [Total],
+                CAST(
+                    (SELECT COUNT(1) FROM [{_schema}].[JobsHot]) + 
+                    (SELECT COUNT(1) FROM [{_schema}].[JobsArchive]) + 
+                    (SELECT COUNT(1) FROM [{_schema}].[JobsDLQ]) 
+                AS BIGINT) AS [Total],
                 (SELECT MAX([LastActivityUtc]) FROM [{_schema}].[StatsSummary]) AS [LastActivityUtc]";
 
         return await conn.QuerySingleAsync<StatsSummaryEntity>(new CommandDefinition(sql, cancellationToken: ct));
+    }
+
+    public async ValueTask<IEnumerable<StatsSummaryEntity>> GetQueueStatsAsync(CancellationToken ct = default)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+
+        // Per-queue hybrid stats
+        var sql = $@"
+            SELECT 
+                q.[Name] AS [Queue],
+                (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Queue] = q.[Name] AND [Status] = 0) AS [Pending],
+                (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Queue] = q.[Name] AND [Status] = 1) AS [Fetched],
+                (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Queue] = q.[Name] AND [Status] = 2) AS [Processing],
+                ISNULL(s.[SucceededTotal], 0) AS [SucceededTotal],
+                ISNULL(s.[FailedTotal], 0) AS [FailedTotal],
+                ISNULL(s.[RetriedTotal], 0) AS [RetriedTotal],
+                (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Queue] = q.[Name]) + 
+                (SELECT COUNT(1) FROM [{_schema}].[JobsArchive] WHERE [Queue] = q.[Name]) + 
+                (SELECT COUNT(1) FROM [{_schema}].[JobsDLQ] WHERE [Queue] = q.[Name]) AS [Total],
+                s.[LastActivityUtc]
+            FROM [{_schema}].[Queues] q
+            LEFT JOIN [{_schema}].[StatsSummary] s ON s.[Queue] = q.[Name]
+            ORDER BY q.[Name]";
+
+        return await conn.QueryAsync<StatsSummaryEntity>(new CommandDefinition(sql, cancellationToken: ct));
     }
 
     public async ValueTask<IEnumerable<JobHotEntity>> GetActiveJobsAsync(

@@ -407,6 +407,37 @@ public class InMemoryJobStorage : IJobStorage
         return new ValueTask<StatsSummaryEntity>(stats);
     }
 
+    public ValueTask<IEnumerable<StatsSummaryEntity>> GetQueueStatsAsync(CancellationToken ct = default)
+    {
+        // Per-queue stats
+        var allQueues = _queues.Keys.ToList();
+        var result = new List<StatsSummaryEntity>();
+
+        foreach (var queueName in allQueues)
+        {
+            var hotForQueue = _hotJobs.Values.Where(x => x.Queue == queueName).ToList();
+            var statForQueue = _stats.GetValueOrDefault(queueName);
+
+            var queueStat = new StatsSummaryEntity(
+                Queue: queueName,
+                Pending: hotForQueue.Count(x => x.Status == JobStatus.Pending),
+                Fetched: hotForQueue.Count(x => x.Status == JobStatus.Fetched),
+                Processing: hotForQueue.Count(x => x.Status == JobStatus.Processing),
+                SucceededTotal: statForQueue?.SucceededTotal ?? 0,
+                FailedTotal: statForQueue?.FailedTotal ?? 0,
+                RetriedTotal: statForQueue?.RetriedTotal ?? 0,
+                Total: hotForQueue.Count +
+                       _archiveJobs.Values.Count(x => x.Queue == queueName) +
+                       _dlqJobs.Values.Count(x => x.Queue == queueName),
+                LastActivityUtc: statForQueue?.LastActivityUtc
+            );
+
+            result.Add(queueStat);
+        }
+
+        return new ValueTask<IEnumerable<StatsSummaryEntity>>(result);
+    }
+
     public ValueTask<IEnumerable<JobHotEntity>> GetActiveJobsAsync(
         int limit = 100,
         JobStatus? statusFilter = null,

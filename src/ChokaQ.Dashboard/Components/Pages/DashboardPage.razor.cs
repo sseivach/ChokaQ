@@ -194,7 +194,7 @@ public partial class DashboardPage : IAsyncDisposable
                 StateHasChanged();
             });
         }
-        catch { /* ignore connection errors */ }
+        catch { /* Ignore transient connection errors during polling */ }
     }
 
     private void HandleSettingsUpdated() => StateHasChanged();

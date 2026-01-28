@@ -15,6 +15,7 @@ public partial class QueueManager : IDisposable
     [Parameter] public HubConnection? HubConnection { get; set; }
 
     private List<QueueEntity> _queues = new();
+    private Dictionary<string, StatsSummaryEntity> _queueStats = new();
     private HashSet<string> _hiddenQueues = new();
     private IEnumerable<QueueEntity> _visibleQueues => _queues.Where(q => !_hiddenQueues.Contains(q.Name));
     private System.Threading.Timer? _timer;
@@ -26,12 +27,30 @@ public partial class QueueManager : IDisposable
         _timer = new System.Threading.Timer(async _ => await Refresh(), null, 0, 2000);
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && HubConnection != null)
+        {
+            // Subscribe to real-time stats updates
+            HubConnection.On("StatsUpdated", () => InvokeAsync(async () => await Refresh()}));
+
+            // Ensure connection is started (DashboardPage should already have it started)
+            if (HubConnection.State == HubConnectionState.Disconnected)
+            {
+                await HubConnection.StartAsync();
+            }
+        }
+    }
+
     private async Task Refresh()
     {
         try
         {
-            // Fetch queue configurations
+            // Fetch queue configurations and stats
             _queues = (await Storage.GetQueuesAsync()).ToList();
+            var stats = await Storage.GetQueueStatsAsync();
+            _queueStats = stats.ToDictionary(s => s.Queue ?? "", s => s);
+            
             _isLoading = false;
 
             // STARTUP LOGIC: Hide inactive queues initially
@@ -130,6 +149,11 @@ public partial class QueueManager : IDisposable
         if (q.IsPaused) return "var(--cq-warning)";
         if (!q.IsActive) return "var(--cq-text-muted)";
         return "var(--cq-success)";
+    }
+
+    private StatsSummaryEntity? GetQueueStats(string queueName)
+    {
+        return _queueStats.GetValueOrDefault(queueName);
     }
 
     public void Dispose() => _timer?.Dispose();

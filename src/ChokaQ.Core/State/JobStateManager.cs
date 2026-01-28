@@ -51,6 +51,7 @@ public class JobStateManager : IJobStateManager
 
         // 2. Notify dashboard
         await SafeNotifyAsync(() => _notifier.NotifyJobArchivedAsync(jobId, queue));
+        await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync());
     }
 
     /// <summary>
@@ -70,6 +71,7 @@ public class JobStateManager : IJobStateManager
 
         // 2. Notify dashboard
         await SafeNotifyAsync(() => _notifier.NotifyJobFailedAsync(jobId, queue, "MaxRetriesExceeded"));
+        await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync());
     }
 
     public async Task ArchiveCancelledAsync(
@@ -84,6 +86,7 @@ public class JobStateManager : IJobStateManager
 
         // 2. Notify dashboard
         await SafeNotifyAsync(() => _notifier.NotifyJobFailedAsync(jobId, queue, "Cancelled"));
+        await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync());
     }
 
     public async Task RescheduleForRetryAsync(
@@ -112,6 +115,7 @@ public class JobStateManager : IJobStateManager
             StartedAtUtc: null
         );
         await SafeNotifyAsync(() => _notifier.NotifyJobUpdatedAsync(update));
+        await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync());
     }
 
     public async Task MarkAsProcessingAsync(

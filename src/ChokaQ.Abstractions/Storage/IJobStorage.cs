@@ -185,6 +185,12 @@ public interface IJobStorage
     ValueTask<StatsSummaryEntity> GetSummaryStatsAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// Gets per-queue statistics: StatsSummary (totals) + Hot counts per queue.
+    /// Returns stats for each queue separately (Queue field is not null).
+    /// </summary>
+    ValueTask<IEnumerable<StatsSummaryEntity>> GetQueueStatsAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Retrieves active jobs from Hot table for dashboard.
     /// </summary>
     ValueTask<IEnumerable<JobHotEntity>> GetActiveJobsAsync(
