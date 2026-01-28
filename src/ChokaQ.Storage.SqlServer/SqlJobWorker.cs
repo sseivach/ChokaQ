@@ -1,6 +1,7 @@
-﻿using ChokaQ.Abstractions;
-using ChokaQ.Abstractions.DTOs;
+using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.Entities;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Concurrency;
 using ChokaQ.Core.Processing;
 using ChokaQ.Core.State;
@@ -11,8 +12,12 @@ using System.Threading.Channels;
 namespace ChokaQ.Storage.SqlServer;
 
 /// <summary>
-/// Worker implementing the "Prefetching Consumer" pattern.
+/// Worker implementing the "Prefetching Consumer" pattern for SQL Server.
 /// Decouples DB fetching latency from Job Execution throughput using an elastic concurrency limiter.
+/// 
+/// Three Pillars Integration:
+/// - Fetches from JobsHot table
+/// - Archives to JobsArchive or JobsDLQ via StateManager
 /// </summary>
 public class SqlJobWorker : BackgroundService, IWorkerManager
 {
@@ -22,11 +27,10 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
     private readonly ILogger<SqlJobWorker> _logger;
     private readonly SqlJobStorageOptions _options;
 
-    // Internal buffer: Decouples Fetching (IO Bound) from Processing (CPU Bound).
-    // Acts as a "Leaky Bucket" for load leveling.
-    private readonly Channel<JobStorageDto> _prefetchBuffer;
+    // Internal buffer: Decouples Fetching (IO Bound) from Processing (CPU Bound)
+    private readonly Channel<JobHotEntity> _prefetchBuffer;
 
-    // Encapsulates the logic for dynamic scaling (Permit Burning / Minting).
+    // Encapsulates the logic for dynamic scaling (Permit Burning / Minting)
     private readonly ElasticSemaphore _concurrencyLimiter;
 
     /// <summary>
@@ -65,35 +69,29 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options ?? new SqlJobStorageOptions();
 
-        // Use a Bounded Channel to apply Backpressure. 
-        // If execution is slow, the buffer fills up (limit 100), 
-        // and the Fetcher automatically waits before pulling more from DB.
-        _prefetchBuffer = Channel.CreateBounded<JobStorageDto>(new BoundedChannelOptions(100)
+        // Bounded Channel for Backpressure
+        _prefetchBuffer = Channel.CreateBounded<JobHotEntity>(new BoundedChannelOptions(100)
         {
             FullMode = BoundedChannelFullMode.Wait,
-            SingleWriter = true, // Only the Fetcher writes
-            SingleReader = false // Multiple virtual consumers read
+            SingleWriter = true,
+            SingleReader = false
         });
 
-        // Initialize the elastic semaphore with a default capacity of 10.
-        // It uses int.MaxValue internally to allow infinite scaling UP.
+        // Initialize elastic semaphore with default capacity of 10
         _concurrencyLimiter = new ElasticSemaphore(10);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation(
-            "🚀 Worker Starting. Strategy: Prefetch + ElasticSemaphore. Initial Capacity: {Capacity}",
+            "SQL Worker Starting. Strategy: Prefetch + ElasticSemaphore. Initial Capacity: {Capacity}",
             _concurrencyLimiter.Capacity);
 
-        // Spawning TWO independent long-running loops:
-
-        // 1. The Supplier (Fetch from DB -> Memory)
+        // Two independent long-running loops:
         var fetcherTask = Task.Factory.StartNew(
             () => FetcherLoopAsync(stoppingToken),
             TaskCreationOptions.LongRunning);
 
-        // 2. The Consumer (Memory -> CPU execution)
         var processorTask = Task.Factory.StartNew(
             () => ProcessorLoopAsync(stoppingToken),
             TaskCreationOptions.LongRunning);
@@ -102,62 +100,46 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
     }
 
     /// <summary>
-    /// The "Supplier". Its only job is to keep the local buffer full of work.
-    /// Uses Batch Fetching to reduce DB roundtrips.
+    /// The "Supplier". Keeps the local buffer full of work from JobsHot table.
     /// </summary>
     private async Task FetcherLoopAsync(CancellationToken ct)
     {
-        var workerId = Environment.MachineName; // Identify node for locking
+        var workerId = $"{Environment.MachineName}-{Guid.NewGuid().ToString()[..4]}";
 
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                // [Optimization] Flow Control
-                // Only fetch if we have space in the buffer.
-                // Channel.WriteAsync will block if full, providing natural backpressure.
+                // Wait for space in buffer
                 await _prefetchBuffer.Writer.WaitToWriteAsync(ct);
 
-                // Determine how many slots are free (approx).
-                // We fetch slightly more than needed to keep the pipe full, but not too much.
+                // Determine batch size based on buffer space
                 int batchSize = Math.Min(20, 100 - _prefetchBuffer.Reader.Count);
+                if (batchSize <= 0) batchSize = 1;
 
-                if (batchSize <= 0)
-                {
-                    batchSize = 1;
-                }
-
-                // [Optimization] Active Queue Discovery
+                // Get active queues
                 var queues = await _storage.GetQueuesAsync(ct);
                 var activeQueues = queues.Where(q => !q.IsPaused).Select(q => q.Name).ToArray();
 
                 if (activeQueues.Length == 0)
                 {
-                    if (_logger.IsEnabled(LogLevel.Debug))
-                    {
-                        _logger.LogDebug("No active queues. Fetcher sleeping...");
-                    }
-
+                    _logger.LogDebug("No active queues. Fetcher sleeping...");
                     await Task.Delay(_options.NoQueuesSleepInterval, ct);
                     continue;
                 }
 
-                // Atomic Fetch & Lock from DB
-                // This is the only time we touch the DB in this loop.
-                var jobs = await _storage.FetchAndLockNextBatchAsync(workerId, batchSize, activeQueues, ct);
+                // Atomic Fetch & Lock from Hot table
+                var jobs = await _storage.FetchNextBatchAsync(workerId, batchSize, activeQueues, ct);
 
                 if (!jobs.Any())
                 {
-                    // Exponential backoff or static sleep on empty DB to save resources.
                     await Task.Delay(_options.PollingInterval, ct);
                     continue;
                 }
 
                 foreach (var job in jobs)
                 {
-                    // Push to memory buffer. 
-                    // If buffer is full, this line AWAITS until a processor frees up space.
-                    // This is the Magic of Backpressure.
+                    // Push to buffer - awaits if full (backpressure)
                     await _prefetchBuffer.Writer.WriteAsync(job, ct);
                 }
             }
@@ -167,7 +149,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "🔥 Fetcher Loop crashed. Cooling down...");
+                _logger.LogError(ex, "Fetcher Loop crashed. Cooling down...");
                 await Task.Delay(5000, ct);
             }
         }
@@ -176,12 +158,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
     }
 
     /// <summary>
-    /// The "Consumer". Orchestrates parallel execution limited by the ElasticSemaphore.
-    /// Does NOT poll the DB. Only eats from the Channel.
-    /// </summary>
-    /// <summary>
-    /// The "Consumer". Orchestrates parallel execution limited by the ElasticSemaphore.
-    /// Does NOT poll the DB. Only eats from the Channel.
+    /// The "Consumer". Orchestrates parallel execution limited by ElasticSemaphore.
     /// </summary>
     private async Task ProcessorLoopAsync(CancellationToken ct)
     {
@@ -189,30 +166,25 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
         {
             await foreach (var job in _prefetchBuffer.Reader.ReadAllAsync(ct))
             {
-                // Ждем слот
                 await _concurrencyLimiter.WaitAsync(ct);
 
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        // 1. PING DB: "I am really starting now!"
-                        // Status: Fetched (1) -> Processing (2)
-                        await _storage.MarkAsProcessingAsync(job.Id, ct);
-
-                        // 2. Process
+                        // Processor handles the full lifecycle including archiving
                         await _processor.ProcessJobAsync(
                             job.Id,
                             job.Type,
-                            job.Payload,
-                            "prefetch-worker",
+                            job.Payload ?? "{}",
+                            "sql-worker",
                             job.AttemptCount,
                             job.CreatedBy,
                             ct);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Critical error in job dispatch wrapper.");
+                        _logger.LogError(ex, "Critical error in job dispatch wrapper for {JobId}.", job.Id);
                     }
                     finally
                     {
@@ -228,70 +200,63 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
 
     public void UpdateWorkerCount(int count)
     {
-        // This is where the magic happens.
-        // We simply delegate the complexity to our ElasticSemaphore wrapper.
-        // It handles scaling UP (releasing) and scaling DOWN (burning permits).
         _logger.LogInformation("Updating worker count to {Count}", count);
-
         _concurrencyLimiter.SetCapacity(count);
     }
 
     public async Task CancelJobAsync(string jobId)
     {
-        // Proxy to Processor to cancel running cancellation token
+        // Try to cancel if running
         if (_processor is JobProcessor concreteProcessor)
         {
             concreteProcessor.CancelJob(jobId);
         }
 
-        // Also ensure state is updated in DB
+        // Also archive to DLQ if still in Hot and Pending/Fetched
         var job = await _storage.GetJobAsync(jobId);
-
-        if (job != null)
+        if (job != null && (job.Status == JobStatus.Pending || job.Status == JobStatus.Fetched))
         {
-            await _stateManager.UpdateStateAsync(
-                jobId,
-                job.Type,
-                JobStatus.Cancelled,
-                job.AttemptCount,
-                createdBy: job.CreatedBy,
-                startedAtUtc: job.StartedAtUtc,
-                queue: job.Queue,
-                priority: job.Priority);
+            await _stateManager.ArchiveCancelledAsync(jobId, job.Type, job.Queue, "Admin cancellation");
         }
     }
 
     public async Task RestartJobAsync(string jobId)
     {
-        var job = await _storage.GetJobAsync(jobId);
-
-        if (job == null || job.Status == JobStatus.Processing)
+        // Check Hot table first
+        var hotJob = await _storage.GetJobAsync(jobId);
+        if (hotJob != null && hotJob.Status == JobStatus.Processing)
         {
+            _logger.LogWarning("Cannot restart job {JobId}: still processing.", jobId);
             return;
         }
 
-        // Reset to pending
-        await _stateManager.UpdateStateAsync(
-             jobId,
-             job.Type,
-             JobStatus.Pending,
-             0, // Reset attempts
-             createdBy: job.CreatedBy,
-             startedAtUtc: null,
-             queue: job.Queue,
-             priority: job.Priority);
+        // Check DLQ for resurrection
+        var dlqJob = await _storage.GetDLQJobAsync(jobId);
+        if (dlqJob != null)
+        {
+            _logger.LogInformation("Resurrecting job {JobId} from DLQ...", jobId);
+            await _storage.ResurrectAsync(jobId, null, "Admin restart");
+            return;
+        }
 
-        await _storage.IncrementJobAttemptAsync(jobId, 0);
+        _logger.LogWarning("Cannot restart job {JobId}: not found in DLQ.", jobId);
     }
 
     public async Task SetJobPriorityAsync(string jobId, int priority)
     {
-        await _storage.UpdateJobPriorityAsync(jobId, priority);
+        var result = await _storage.UpdateJobDataAsync(
+            jobId,
+            new Abstractions.DTOs.JobDataUpdateDto(null, null, priority),
+            "Admin");
+
+        if (!result)
+        {
+            _logger.LogWarning("Cannot update priority for job {JobId}: not Pending or not found.", jobId);
+        }
     }
 
     public override void Dispose()
     {
-        // Clean up managed resources
         _concurrencyLimiter.Dispose();
         base.Dispose();
     }

@@ -1,4 +1,4 @@
-﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Dashboard;
 using ChokaQ.Dashboard.Components.Layout;
 using ChokaQ.Dashboard.Hubs;
@@ -7,56 +7,97 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace ChokaQ;
-// Root namespace for easier discovery
+// Root namespace for easier discovery by users
 
+/// <summary>
+/// Extension methods for adding the ChokaQ Dashboard to ASP.NET Core applications.
+/// </summary>
 public static class ChokaQDashboardExtensions
 {
+    /// <summary>
+    /// Registers ChokaQ Dashboard services including Blazor Server and SignalR.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configure">Optional configuration for dashboard settings.</param>
+    /// <returns>The service collection for chaining.</returns>
+    /// <remarks>
+    /// Usage:
+    /// <code>
+    /// // In Program.cs
+    /// builder.Services.AddChokaQ(options => options.AddProfile&lt;MyProfile&gt;());
+    /// builder.Services.AddChokaQDashboard(options =>
+    /// {
+    ///     options.RoutePrefix = "/jobs";  // Dashboard URL
+    /// });
+    /// 
+    /// var app = builder.Build();
+    /// app.MapChokaQDashboard();
+    /// app.Run();
+    /// </code>
+    /// 
+    /// This registers:
+    /// - Blazor Server components for the dashboard UI
+    /// - SignalR hub for real-time job updates
+    /// - IChokaQNotifier implementation (replaces NullNotifier)
+    /// - Required antiforgery services
+    /// </remarks>
     public static IServiceCollection AddChokaQDashboard(
         this IServiceCollection services,
         Action<ChokaQDashboardOptions>? configure = null)
     {
-        // 1. Configure Options
+        // Configure options
         var options = new ChokaQDashboardOptions();
         configure?.Invoke(options);
-
-        // Register as Singleton so we can access it everywhere
         services.AddSingleton(options);
 
-        // 2. Add Blazor & Core Dependencies (The "Sidecar" logic)
-        // Since we are running inside potentially a pure Web API, we must ensure
-        // Blazor services are registered for the Dashboard to work.
+        // Add Blazor Server (sidecar pattern - works in any ASP.NET Core app)
         services.AddRazorComponents()
                 .AddInteractiveServerComponents();
 
-        // Required explicitly because we use app.UseAntiforgery() in the mapping
+        // Required for Blazor form protection
         services.AddAntiforgery();
 
-        // 3. Add SignalR
+        // Add SignalR for real-time updates
         services.AddSignalR();
+
+        // Replace NullNotifier with SignalR implementation
         services.AddSingleton<IChokaQNotifier, ChokaQSignalRNotifier>();
 
         return services;
     }
 
+    /// <summary>
+    /// Maps the ChokaQ Dashboard endpoints to the application pipeline.
+    /// </summary>
+    /// <param name="app">The web application.</param>
+    /// <returns>The web application for chaining.</returns>
+    /// <remarks>
+    /// This configures:
+    /// - Static file serving for dashboard assets
+    /// - SignalR hub at {RoutePrefix}/hub
+    /// - Blazor Server rendering at {RoutePrefix}
+    /// 
+    /// Default route: /chokaq
+    /// Access the dashboard at: https://yourapp.com/chokaq
+    /// </remarks>
     public static WebApplication MapChokaQDashboard(this WebApplication app)
     {
-        // 1. Resolve Options
         var options = app.Services.GetRequiredService<ChokaQDashboardOptions>();
         var path = options.RoutePrefix;
 
+        // Normalize path format
         if (!path.StartsWith("/")) path = "/" + path;
         path = path.TrimEnd('/');
 
-        // 2. Static Files & Security
+        // Enable static files (CSS, JS) and CSRF protection
         app.UseStaticFiles();
-        app.UseAntiforgery(); // This requires AddAntiforgery() to be called above
+        app.UseAntiforgery();
 
-        // 3. Map SignalR
+        // Map SignalR hub for real-time communication
         app.MapHub<ChokaQHub>($"{path}/hub");
 
-        // 4. Map Blazor Host
+        // Map Blazor Server components under the dashboard route
         var dashboardGroup = app.MapGroup(path);
-
         dashboardGroup.MapRazorComponents<DashboardHost>()
                       .AddInteractiveServerRenderMode();
 

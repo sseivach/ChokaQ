@@ -1,5 +1,8 @@
-﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Notifications;
+using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Execution;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -51,16 +54,16 @@ public class InMemoryQueue : IChokaQQueue
         // 1. Serialize payload for persistence
         var payload = JsonSerializer.Serialize(job, job.GetType());
 
-        // [FIX] Resolve Key from Registry first. 
+        // Resolve Key from Registry first. 
         // If the user mapped this DTO in a Profile, use that Key.
         // Otherwise, fall back to the Type Name.
         var jobTypeName = _registry.GetKeyByType(job.GetType()) ?? job.GetType().Name;
 
-        // 2. Persist to Storage (Status: Pending)
-        await _storage.CreateJobAsync(
+        // 2. Persist to Storage (Hot table, Status: Pending)
+        await _storage.EnqueueAsync(
              id: job.Id,
              queue: queue,
-             jobType: jobTypeName, // <--- Correct mapped key (e.g. "system_test")
+             jobType: jobTypeName,
              payload: payload,
              priority: priority,
              createdBy: createdBy,
@@ -71,17 +74,18 @@ public class InMemoryQueue : IChokaQQueue
         // 3. Real-time Notification
         try
         {
-            await _notifier.NotifyJobUpdatedAsync(
-                job.Id,
-                jobTypeName,
-                JobStatus.Pending,
-                0,
-                null,
-                createdBy,
-                null,
-                queue,
-                priority
+            var update = new JobUpdateDto(
+                JobId: job.Id,
+                Type: jobTypeName,
+                Queue: queue,
+                Status: JobStatus.Pending,
+                AttemptCount: 0,
+                Priority: priority,
+                DurationMs: null,
+                CreatedBy: createdBy,
+                StartedAtUtc: null
             );
+            await _notifier.NotifyJobUpdatedAsync(update);
         }
         catch (Exception ex)
         {

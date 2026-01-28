@@ -1,4 +1,4 @@
-﻿@using ChokaQ.Abstractions.Enums
+@using ChokaQ.Abstractions.Enums
 
 <tr class="cq-job-row @(IsSelected ? "selected-row" : "")" @onclick="HandleRowClick">
 
@@ -94,7 +94,7 @@
                     title="Stop Job"
                     @onclick="CancelJob"
                     @onclick:stopPropagation="true">
-                🛑
+                Stop
             </button>
         }
 
@@ -104,7 +104,7 @@
                     title="Restart Job"
                     @onclick="RestartJob"
                     @onclick:stopPropagation="true">
-                🔄
+                Retry
             </button>
         }
     </td>

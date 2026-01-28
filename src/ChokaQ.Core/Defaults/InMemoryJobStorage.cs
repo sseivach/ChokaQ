@@ -1,29 +1,50 @@
-﻿using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.DTOs;
+using ChokaQ.Abstractions.Entities;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Storage;
 using System.Collections.Concurrent;
 
 namespace ChokaQ.Core.Defaults;
 
 /// <summary>
-/// Thread-safe in-memory implementation of the job storage.
+/// Thread-safe in-memory implementation of the Three Pillars storage.
 /// Suitable for "Pipe Mode" (Rocket Speed) or local development.
+/// 
+/// Storage structure:
+/// - _hotJobs: Active jobs (Pending, Fetched, Processing)
+/// - _archiveJobs: Succeeded jobs (History)
+/// - _dlqJobs: Failed/Cancelled/Zombie jobs (Dead Letter Queue)
+/// - _stats: Pre-aggregated counters per queue
+/// - _queues: Queue configuration
 /// </summary>
 public class InMemoryJobStorage : IJobStorage
 {
     private readonly int _maxCapacity;
-    private readonly ConcurrentDictionary<string, JobStorageDto> _jobs = new();
-    private readonly ConcurrentDictionary<string, QueueInfo> _queues = new();
+    private readonly object _transitionLock = new();
+
+    // Three Pillars
+    private readonly ConcurrentDictionary<string, JobHotEntity> _hotJobs = new();
+    private readonly ConcurrentDictionary<string, JobArchiveEntity> _archiveJobs = new();
+    private readonly ConcurrentDictionary<string, JobDLQEntity> _dlqJobs = new();
+
+    // Aggregates & Config
+    private readonly ConcurrentDictionary<string, StatsSummaryData> _stats = new();
+    private readonly ConcurrentDictionary<string, QueueData> _queues = new();
 
     public InMemoryJobStorage(InMemoryStorageOptions options)
     {
         _maxCapacity = options.MaxCapacity;
-        // Initialize default queue to ensure it always exists
-        _queues.TryAdd("default", new QueueInfo("default"));
+        
+        // Initialize default queue
+        _queues.TryAdd("default", new QueueData("default"));
+        _stats.TryAdd("default", new StatsSummaryData("default"));
     }
 
-    /// <inheritdoc />
-    public ValueTask<string> CreateJobAsync(
+    // ========================================================================
+    // CORE OPERATIONS (Hot Table)
+    // ========================================================================
+
+    public ValueTask<string> EnqueueAsync(
         string id,
         string queue,
         string jobType,
@@ -35,290 +56,243 @@ public class InMemoryJobStorage : IJobStorage
         string? idempotencyKey = null,
         CancellationToken ct = default)
     {
-        // 1. Check Idempotency (Simple check for In-Memory)
+        // Idempotency check
         if (!string.IsNullOrEmpty(idempotencyKey))
         {
-            var existing = _jobs.Values.FirstOrDefault(j => j.IdempotencyKey == idempotencyKey);
+            var existing = _hotJobs.Values.FirstOrDefault(j => j.IdempotencyKey == idempotencyKey);
             if (existing != null)
-            {
                 return new ValueTask<string>(existing.Id);
-            }
         }
 
-        var jobDto = new JobStorageDto(
+        var now = DateTime.UtcNow;
+        var job = new JobHotEntity(
             Id: id,
             Queue: queue,
             Type: jobType,
             Payload: payload,
-            Status: JobStatus.Pending,
-            AttemptCount: 0,
-            Priority: priority,
-            ScheduledAtUtc: delay.HasValue ? DateTime.UtcNow.Add(delay.Value) : null,
             Tags: tags,
             IdempotencyKey: idempotencyKey,
+            Priority: priority,
+            Status: JobStatus.Pending,
+            AttemptCount: 0,
             WorkerId: null,
-            ErrorDetails: null,
-            CreatedBy: createdBy,
-            CreatedAtUtc: DateTime.UtcNow,
+            HeartbeatUtc: null,
+            ScheduledAtUtc: delay.HasValue ? now.Add(delay.Value) : null,
+            CreatedAtUtc: now,
             StartedAtUtc: null,
-            FinishedAtUtc: null,
-            LastUpdatedUtc: DateTime.UtcNow
+            LastUpdatedUtc: now,
+            CreatedBy: createdBy,
+            LastModifiedBy: null
         );
 
-        SaveJobInternal(jobDto);
+        EnforceCapacity();
+        _hotJobs[id] = job;
+        EnsureQueueExists(queue);
+
         return new ValueTask<string>(id);
     }
 
-    /// <inheritdoc />
-    public ValueTask<JobStorageDto?> GetJobAsync(string jobId, CancellationToken ct = default)
-    {
-        _jobs.TryGetValue(jobId, out var job);
-        return new ValueTask<JobStorageDto?>(job);
-    }
-
-    /// <inheritdoc />
-    public ValueTask<bool> UpdateJobStateAsync(
-        string jobId,
-        JobStatus status,
-        string? errorDetails = null,
+    public ValueTask<IEnumerable<JobHotEntity>> FetchNextBatchAsync(
+        string workerId,
+        int batchSize,
+        string[]? allowedQueues = null,
         CancellationToken ct = default)
     {
-        if (_jobs.TryGetValue(jobId, out var job))
-        {
-            var updatedJob = job with
-            {
-                Status = status,
-                ErrorDetails = errorDetails,
-                StartedAtUtc = status == JobStatus.Processing ? DateTime.UtcNow : job.StartedAtUtc,
-                FinishedAtUtc = (status == JobStatus.Succeeded || status == JobStatus.Failed || status == JobStatus.Cancelled) ? DateTime.UtcNow : job.FinishedAtUtc,
-                LastUpdatedUtc = DateTime.UtcNow
-            };
-            _jobs[jobId] = updatedJob;
-            return new ValueTask<bool>(true);
-        }
-        return new ValueTask<bool>(false);
-    }
-
-    /// <inheritdoc />
-    public Task MarkAsProcessingAsync(string jobId, CancellationToken ct)
-    {
-        if (_jobs.TryGetValue(jobId, out var job))
-        {
-            // Transition from Fetched (1) -> Processing (2)
-            // And set the real Start Time
-            var updatedJob = job with
-            {
-                Status = JobStatus.Processing,
-                StartedAtUtc = DateTime.UtcNow,
-                LastUpdatedUtc = DateTime.UtcNow
-            };
-            _jobs[jobId] = updatedJob;
-        }
-        return Task.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public ValueTask KeepAliveAsync(string jobId, CancellationToken ct = default)
-    {
-        // Light update to confirm worker is alive
-        if (_jobs.TryGetValue(jobId, out var job))
-        {
-            var updated = job with { LastUpdatedUtc = DateTime.UtcNow };
-            _jobs[jobId] = updated;
-        }
-        return ValueTask.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public ValueTask UpdateJobPriorityAsync(string jobId, int priority, CancellationToken ct = default)
-    {
-        if (_jobs.TryGetValue(jobId, out var job))
-        {
-            var updatedJob = job with { Priority = priority, LastUpdatedUtc = DateTime.UtcNow };
-            _jobs[jobId] = updatedJob;
-        }
-        return ValueTask.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public ValueTask<bool> IncrementJobAttemptAsync(string jobId, int attemptCount, CancellationToken ct = default)
-    {
-        if (_jobs.TryGetValue(jobId, out var job))
-        {
-            var updatedJob = job with { AttemptCount = attemptCount, LastUpdatedUtc = DateTime.UtcNow };
-            _jobs[jobId] = updatedJob;
-            return new ValueTask<bool>(true);
-        }
-        return new ValueTask<bool>(false);
-    }
-
-    /// <inheritdoc />
-    public ValueTask RescheduleJobAsync(
-        string jobId,
-        DateTime scheduledAtUtc,
-        int attemptCount,
-        string errorDetails,
-        CancellationToken ct = default)
-    {
-        if (_jobs.TryGetValue(jobId, out var job))
-        {
-            var updatedJob = job with
-            {
-                Status = JobStatus.Pending,
-                ScheduledAtUtc = scheduledAtUtc,
-                AttemptCount = attemptCount,
-                ErrorDetails = errorDetails,
-                WorkerId = null, // Release worker
-                LastUpdatedUtc = DateTime.UtcNow
-            };
-            _jobs[jobId] = updatedJob;
-        }
-        return ValueTask.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public ValueTask<IEnumerable<JobStorageDto>> FetchAndLockNextBatchAsync(string workerId, int limit, string[]? allowedQueues, CancellationToken ct = default)
-    {
-        // 1. Identify jobs ready to be processed
-        var batch = _jobs.Values
+        var now = DateTime.UtcNow;
+        
+        var candidates = _hotJobs.Values
             .Where(j => j.Status == JobStatus.Pending &&
                         (allowedQueues == null || allowedQueues.Contains(j.Queue)) &&
-                        (!j.ScheduledAtUtc.HasValue || j.ScheduledAtUtc <= DateTime.UtcNow))
+                        (!j.ScheduledAtUtc.HasValue || j.ScheduledAtUtc <= now) &&
+                        !IsQueuePaused(j.Queue))
             .OrderByDescending(j => j.Priority)
-            .ThenBy(j => j.CreatedAtUtc)
-            .Take(limit)
+            .ThenBy(j => j.ScheduledAtUtc ?? j.CreatedAtUtc)
+            .Take(batchSize)
             .ToList();
 
-        var lockedJobs = new List<JobStorageDto>();
+        var lockedJobs = new List<JobHotEntity>();
 
-        foreach (var job in batch)
+        foreach (var job in candidates)
         {
-            // 2. Lock them (Pending -> Fetched)
-            var fetchedJob = job with
+            var fetched = job with
             {
                 Status = JobStatus.Fetched,
                 WorkerId = workerId,
-                LastUpdatedUtc = DateTime.UtcNow,
-                AttemptCount = job.AttemptCount + 1
+                AttemptCount = job.AttemptCount + 1,
+                LastUpdatedUtc = now
             };
 
-            // Optimistic concurrency check (TryUpdate)
-            if (_jobs.TryUpdate(job.Id, fetchedJob, job))
+            // Optimistic concurrency
+            if (_hotJobs.TryUpdate(job.Id, fetched, job))
             {
-                lockedJobs.Add(fetchedJob);
+                lockedJobs.Add(fetched);
             }
         }
-        return new ValueTask<IEnumerable<JobStorageDto>>(lockedJobs);
+
+        return new ValueTask<IEnumerable<JobHotEntity>>(lockedJobs);
     }
 
-    /// <inheritdoc />
-    public ValueTask<IEnumerable<JobStorageDto>> GetJobsAsync(int limit, CancellationToken ct = default)
+    public ValueTask MarkAsProcessingAsync(string jobId, CancellationToken ct = default)
     {
-        var result = _jobs.Values.OrderByDescending(j => j.CreatedAtUtc).Take(limit);
-        return new ValueTask<IEnumerable<JobStorageDto>>(result);
-    }
-
-    /// <inheritdoc />
-    public ValueTask<JobCountsDto> GetJobCountsAsync(CancellationToken ct = default)
-    {
-        var values = _jobs.Values;
-        var counts = new JobCountsDto(
-            Pending: values.Count(x => x.Status == JobStatus.Pending),
-            Fetched: values.Count(x => x.Status == JobStatus.Fetched),
-            Processing: values.Count(x => x.Status == JobStatus.Processing),
-            Succeeded: values.Count(x => x.Status == JobStatus.Succeeded),
-            Failed: values.Count(x => x.Status == JobStatus.Failed),
-            Cancelled: values.Count(x => x.Status == JobStatus.Cancelled),
-            Total: values.Count
-        );
-        return new ValueTask<JobCountsDto>(counts);
-    }
-
-    /// <inheritdoc />
-    public ValueTask<IEnumerable<QueueDto>> GetQueuesAsync(CancellationToken ct = default)
-    {
-        var stats = _jobs.Values
-            .GroupBy(j => j.Queue)
-            .Select(g => new QueueDto(
-                Name: g.Key,
-                IsPaused: _queues.TryGetValue(g.Key, out var q) && q.IsPaused,
-                PendingCount: g.Count(j => j.Status == JobStatus.Pending),
-                FetchedCount: g.Count(j => j.Status == JobStatus.Fetched),
-                ProcessingCount: g.Count(j => j.Status == JobStatus.Processing),
-                FailedCount: g.Count(j => j.Status == JobStatus.Failed),
-                SucceededCount: g.Count(j => j.Status == JobStatus.Succeeded),
-                CancelledCount: g.Count(j => j.Status == JobStatus.Cancelled),
-                ZombieTimeoutSeconds: _queues.TryGetValue(g.Key, out var qi) ? qi.ZombieTimeoutSeconds : null, // <--- Map Timeout
-                FirstJobAtUtc: g.Min(j => j.StartedAtUtc),
-                LastJobAtUtc: g.Max(j => j.FinishedAtUtc)
-            ))
-            .ToList();
-
-        // Add empty queues from registry that have no jobs yet
-        foreach (var q in _queues.Values)
+        if (_hotJobs.TryGetValue(jobId, out var job))
         {
-            if (!stats.Any(s => s.Name == q.Name))
-                stats.Add(new QueueDto(q.Name, q.IsPaused, 0, 0, 0, 0, 0, 0, q.ZombieTimeoutSeconds, null, null));
-        }
-
-        // Sort: Oldest/Inactive first, Newest activity last
-        var sortedStats = stats
-            .OrderBy(x => x.LastJobAtUtc)
-            .ThenBy(x => x.Name);
-
-        return new ValueTask<IEnumerable<QueueDto>>(sortedStats);
-    }
-
-    /// <inheritdoc />
-    public ValueTask SetQueueStateAsync(string queueName, bool isPaused, CancellationToken ct = default)
-    {
-        _queues.AddOrUpdate(queueName,
-            new QueueInfo(queueName) { IsPaused = isPaused, LastUpdatedUtc = DateTime.UtcNow },
-            (key, old) => { old.IsPaused = isPaused; old.LastUpdatedUtc = DateTime.UtcNow; return old; });
-        return ValueTask.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public ValueTask UpdateQueueTimeoutAsync(string queueName, int? timeoutSeconds, CancellationToken ct = default)
-    {
-        _queues.AddOrUpdate(queueName,
-            new QueueInfo(queueName) { ZombieTimeoutSeconds = timeoutSeconds, LastUpdatedUtc = DateTime.UtcNow },
-            (key, old) => { old.ZombieTimeoutSeconds = timeoutSeconds; old.LastUpdatedUtc = DateTime.UtcNow; return old; });
-        return ValueTask.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public ValueTask<int> MarkZombiesAsync(int globalTimeoutSeconds, CancellationToken ct = default)
-    {
-        var now = DateTime.UtcNow;
-        int count = 0;
-
-        foreach (var job in _jobs.Values)
-        {
-            // Only check Processing jobs
-            if (job.Status == JobStatus.Processing)
+            var now = DateTime.UtcNow;
+            var processing = job with
             {
-                // Determine effective timeout (Queue-specific OR Global)
-                int timeout = globalTimeoutSeconds;
-                if (_queues.TryGetValue(job.Queue, out var q) && q.ZombieTimeoutSeconds.HasValue)
-                {
-                    timeout = q.ZombieTimeoutSeconds.Value;
-                }
+                Status = JobStatus.Processing,
+                StartedAtUtc = now,
+                HeartbeatUtc = now,
+                LastUpdatedUtc = now
+            };
+            _hotJobs.TryUpdate(jobId, processing, job);
+        }
+        return ValueTask.CompletedTask;
+    }
 
-                // Check heartbeat expiration
-                if (job.LastUpdatedUtc < now.AddSeconds(-timeout))
-                {
-                    var zombie = job with
-                    {
-                        Status = JobStatus.Zombie,
-                        ErrorDetails = "Zombie: Detected dead worker (In-Memory Heartbeat Expired)",
-                        WorkerId = null, // Release worker lock
-                        LastUpdatedUtc = now
-                    };
+    public ValueTask KeepAliveAsync(string jobId, CancellationToken ct = default)
+    {
+        if (_hotJobs.TryGetValue(jobId, out var job))
+        {
+            var now = DateTime.UtcNow;
+            var updated = job with { HeartbeatUtc = now, LastUpdatedUtc = now };
+            _hotJobs.TryUpdate(jobId, updated, job);
+        }
+        return ValueTask.CompletedTask;
+    }
 
-                    // Optimistic update
-                    if (_jobs.TryUpdate(job.Id, zombie, job))
+    public ValueTask<JobHotEntity?> GetJobAsync(string jobId, CancellationToken ct = default)
+    {
+        _hotJobs.TryGetValue(jobId, out var job);
+        return new ValueTask<JobHotEntity?>(job);
+    }
+
+    // ========================================================================
+    // ATOMIC TRANSITIONS (Three Pillars)
+    // ========================================================================
+
+    public ValueTask ArchiveSucceededAsync(string jobId, double? durationMs = null, CancellationToken ct = default)
+    {
+        lock (_transitionLock)
+        {
+            if (!_hotJobs.TryRemove(jobId, out var job))
+                return ValueTask.CompletedTask;
+
+            var now = DateTime.UtcNow;
+            var archived = new JobArchiveEntity(
+                Id: job.Id,
+                Queue: job.Queue,
+                Type: job.Type,
+                Payload: job.Payload,
+                Tags: job.Tags,
+                AttemptCount: job.AttemptCount,
+                WorkerId: job.WorkerId,
+                CreatedBy: job.CreatedBy,
+                LastModifiedBy: job.LastModifiedBy,
+                CreatedAtUtc: job.CreatedAtUtc,
+                StartedAtUtc: job.StartedAtUtc,
+                FinishedAtUtc: now,
+                DurationMs: durationMs ?? (job.StartedAtUtc.HasValue 
+                    ? (now - job.StartedAtUtc.Value).TotalMilliseconds 
+                    : null)
+            );
+
+            _archiveJobs[job.Id] = archived;
+            IncrementStats(job.Queue, succeeded: 1);
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask ArchiveFailedAsync(string jobId, string errorDetails, CancellationToken ct = default)
+    {
+        return MoveToDLQ(jobId, FailureReason.MaxRetriesExceeded, errorDetails);
+    }
+
+    public ValueTask ArchiveCancelledAsync(string jobId, string? cancelledBy = null, CancellationToken ct = default)
+    {
+        var error = cancelledBy != null 
+            ? $"Cancelled by admin: {cancelledBy}" 
+            : "Cancelled by admin";
+        return MoveToDLQ(jobId, FailureReason.Cancelled, error);
+    }
+
+    public ValueTask ArchiveZombieAsync(string jobId, CancellationToken ct = default)
+    {
+        return MoveToDLQ(jobId, FailureReason.Zombie, "Zombie: Worker heartbeat expired");
+    }
+
+    public ValueTask ResurrectAsync(
+        string jobId,
+        JobDataUpdateDto? updates = null,
+        string? resurrectedBy = null,
+        CancellationToken ct = default)
+    {
+        lock (_transitionLock)
+        {
+            if (!_dlqJobs.TryRemove(jobId, out var dlqJob))
+                return ValueTask.CompletedTask;
+
+            var now = DateTime.UtcNow;
+            var resurrected = new JobHotEntity(
+                Id: dlqJob.Id,
+                Queue: dlqJob.Queue,
+                Type: dlqJob.Type,
+                Payload: updates?.Payload ?? dlqJob.Payload,
+                Tags: updates?.Tags ?? dlqJob.Tags,
+                IdempotencyKey: null, // Clear idempotency on resurrection
+                Priority: updates?.Priority ?? 10,
+                Status: JobStatus.Pending,
+                AttemptCount: 0, // Reset attempts
+                WorkerId: null,
+                HeartbeatUtc: null,
+                ScheduledAtUtc: null,
+                CreatedAtUtc: dlqJob.CreatedAtUtc,
+                StartedAtUtc: null,
+                LastUpdatedUtc: now,
+                CreatedBy: dlqJob.CreatedBy,
+                LastModifiedBy: resurrectedBy
+            );
+
+            _hotJobs[dlqJob.Id] = resurrected;
+            DecrementStats(dlqJob.Queue, failed: 1);
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<int> ResurrectBatchAsync(string[] jobIds, string? resurrectedBy = null, CancellationToken ct = default)
+    {
+        int count = 0;
+        // Process in batches of 1000
+        foreach (var batch in jobIds.Chunk(1000))
+        {
+            foreach (var id in batch)
+            {
+                lock (_transitionLock)
+                {
+                    if (_dlqJobs.TryRemove(id, out var dlqJob))
                     {
+                        var now = DateTime.UtcNow;
+                        var resurrected = new JobHotEntity(
+                            Id: dlqJob.Id,
+                            Queue: dlqJob.Queue,
+                            Type: dlqJob.Type,
+                            Payload: dlqJob.Payload,
+                            Tags: dlqJob.Tags,
+                            IdempotencyKey: null,
+                            Priority: 10,
+                            Status: JobStatus.Pending,
+                            AttemptCount: 0,
+                            WorkerId: null,
+                            HeartbeatUtc: null,
+                            ScheduledAtUtc: null,
+                            CreatedAtUtc: dlqJob.CreatedAtUtc,
+                            StartedAtUtc: null,
+                            LastUpdatedUtc: now,
+                            CreatedBy: dlqJob.CreatedBy,
+                            LastModifiedBy: resurrectedBy
+                        );
+
+                        _hotJobs[dlqJob.Id] = resurrected;
+                        DecrementStats(dlqJob.Queue, failed: 1);
                         count++;
                     }
                 }
@@ -327,52 +301,471 @@ public class InMemoryJobStorage : IJobStorage
         return new ValueTask<int>(count);
     }
 
-    private void SaveJobInternal(JobStorageDto job)
+    // ========================================================================
+    // RETRY LOGIC (Stays in Hot)
+    // ========================================================================
+
+    public ValueTask RescheduleForRetryAsync(
+        string jobId,
+        DateTime scheduledAtUtc,
+        int newAttemptCount,
+        string lastError,
+        CancellationToken ct = default)
     {
-        // Simple eviction mechanism to prevent OOM
-        if (_jobs.Count >= _maxCapacity)
+        if (_hotJobs.TryGetValue(jobId, out var job))
         {
-            var jobsToRemove = _jobs.Values
-                .Where(x => x.Status == JobStatus.Succeeded || x.Status == JobStatus.Failed || x.Status == JobStatus.Cancelled)
-                .OrderBy(x => x.CreatedAtUtc)
-                .Take(1000)
-                .Select(x => x.Id)
-                .ToList();
-
-            foreach (var id in jobsToRemove) _jobs.TryRemove(id, out _);
-
-            // Hard limit fallback
-            if (_jobs.Count >= _maxCapacity)
+            var rescheduled = job with
             {
-                var oldest = _jobs.Values
-                    .OrderBy(x => x.CreatedAtUtc)
-                    .Take(100)
-                    .Select(x => x.Id);
-                foreach (var id in oldest) _jobs.TryRemove(id, out _);
+                Status = JobStatus.Pending,
+                ScheduledAtUtc = scheduledAtUtc,
+                AttemptCount = newAttemptCount,
+                WorkerId = null,
+                HeartbeatUtc = null,
+                LastUpdatedUtc = DateTime.UtcNow
+            };
+            _hotJobs.TryUpdate(jobId, rescheduled, job);
+            IncrementStats(job.Queue, retried: 1);
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    // ========================================================================
+    // DIVINE MODE (Admin Operations)
+    // ========================================================================
+
+    public ValueTask<bool> UpdateJobDataAsync(
+        string jobId,
+        JobDataUpdateDto updates,
+        string? modifiedBy = null,
+        CancellationToken ct = default)
+    {
+        if (!_hotJobs.TryGetValue(jobId, out var job))
+            return new ValueTask<bool>(false);
+
+        // Safety Gate: Only Pending jobs can be edited
+        if (job.Status != JobStatus.Pending)
+            return new ValueTask<bool>(false);
+
+        var updated = job with
+        {
+            Payload = updates.Payload ?? job.Payload,
+            Tags = updates.Tags ?? job.Tags,
+            Priority = updates.Priority ?? job.Priority,
+            LastModifiedBy = modifiedBy,
+            LastUpdatedUtc = DateTime.UtcNow
+        };
+
+        return new ValueTask<bool>(_hotJobs.TryUpdate(jobId, updated, job));
+    }
+
+    public ValueTask PurgeDLQAsync(string[] jobIds, CancellationToken ct = default)
+    {
+        foreach (var id in jobIds)
+        {
+            _dlqJobs.TryRemove(id, out _);
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<int> PurgeArchiveAsync(DateTime olderThan, CancellationToken ct = default)
+    {
+        var toRemove = _archiveJobs.Values
+            .Where(j => j.FinishedAtUtc < olderThan)
+            .Select(j => j.Id)
+            .ToList();
+
+        foreach (var id in toRemove)
+        {
+            _archiveJobs.TryRemove(id, out _);
+        }
+
+        return new ValueTask<int>(toRemove.Count);
+    }
+
+    // ========================================================================
+    // OBSERVABILITY (Dashboard)
+    // ========================================================================
+
+    public ValueTask<StatsSummaryEntity> GetSummaryStatsAsync(CancellationToken ct = default)
+    {
+        // Hybrid: Real-time counts from Hot + totals from Stats
+        var hotValues = _hotJobs.Values;
+        var statsValues = _stats.Values;
+
+        var stats = new StatsSummaryEntity(
+            Queue: null, // Aggregated across all queues
+            Pending: hotValues.Count(x => x.Status == JobStatus.Pending),
+            Fetched: hotValues.Count(x => x.Status == JobStatus.Fetched),
+            Processing: hotValues.Count(x => x.Status == JobStatus.Processing),
+            SucceededTotal: statsValues.Sum(x => x.SucceededTotal),
+            FailedTotal: statsValues.Sum(x => x.FailedTotal),
+            RetriedTotal: statsValues.Sum(x => x.RetriedTotal),
+            Total: hotValues.Count + _archiveJobs.Count + _dlqJobs.Count,
+            LastActivityUtc: statsValues.Max(x => x.LastActivityUtc)
+        );
+
+        return new ValueTask<StatsSummaryEntity>(stats);
+    }
+
+    public ValueTask<IEnumerable<StatsSummaryEntity>> GetQueueStatsAsync(CancellationToken ct = default)
+    {
+        // Per-queue stats
+        var allQueues = _queues.Keys.ToList();
+        var result = new List<StatsSummaryEntity>();
+
+        foreach (var queueName in allQueues)
+        {
+            var hotForQueue = _hotJobs.Values.Where(x => x.Queue == queueName).ToList();
+            var statForQueue = _stats.GetValueOrDefault(queueName);
+
+            var queueStat = new StatsSummaryEntity(
+                Queue: queueName,
+                Pending: hotForQueue.Count(x => x.Status == JobStatus.Pending),
+                Fetched: hotForQueue.Count(x => x.Status == JobStatus.Fetched),
+                Processing: hotForQueue.Count(x => x.Status == JobStatus.Processing),
+                SucceededTotal: statForQueue?.SucceededTotal ?? 0,
+                FailedTotal: statForQueue?.FailedTotal ?? 0,
+                RetriedTotal: statForQueue?.RetriedTotal ?? 0,
+                Total: hotForQueue.Count +
+                       _archiveJobs.Values.Count(x => x.Queue == queueName) +
+                       _dlqJobs.Values.Count(x => x.Queue == queueName),
+                LastActivityUtc: statForQueue?.LastActivityUtc
+            );
+
+            result.Add(queueStat);
+        }
+
+        return new ValueTask<IEnumerable<StatsSummaryEntity>>(result);
+    }
+
+    public ValueTask<IEnumerable<JobHotEntity>> GetActiveJobsAsync(
+        int limit = 100,
+        JobStatus? statusFilter = null,
+        string? queueFilter = null,
+        string? searchTerm = null,
+        CancellationToken ct = default)
+    {
+        var query = _hotJobs.Values.AsEnumerable();
+
+        if (statusFilter.HasValue)
+            query = query.Where(j => j.Status == statusFilter.Value);
+
+        if (!string.IsNullOrEmpty(queueFilter))
+            query = query.Where(j => j.Queue == queueFilter);
+
+        if (!string.IsNullOrEmpty(searchTerm))
+            query = query.Where(j =>
+                j.Id.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                j.Type.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                (j.Tags?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+
+        var result = query
+            .OrderByDescending(j => j.CreatedAtUtc)
+            .Take(limit)
+            .ToList();
+
+        return new ValueTask<IEnumerable<JobHotEntity>>(result);
+    }
+
+    public ValueTask<IEnumerable<JobArchiveEntity>> GetArchiveJobsAsync(
+        int limit = 100,
+        string? queueFilter = null,
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        string? tagFilter = null,
+        CancellationToken ct = default)
+    {
+        var query = _archiveJobs.Values.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(queueFilter))
+            query = query.Where(j => j.Queue == queueFilter);
+
+        if (fromDate.HasValue)
+            query = query.Where(j => j.FinishedAtUtc >= fromDate.Value);
+
+        if (toDate.HasValue)
+            query = query.Where(j => j.FinishedAtUtc <= toDate.Value);
+
+        if (!string.IsNullOrEmpty(tagFilter))
+            query = query.Where(j => j.Tags?.Contains(tagFilter, StringComparison.OrdinalIgnoreCase) ?? false);
+
+        var result = query
+            .OrderByDescending(j => j.FinishedAtUtc)
+            .Take(limit)
+            .ToList();
+
+        return new ValueTask<IEnumerable<JobArchiveEntity>>(result);
+    }
+
+    public ValueTask<IEnumerable<JobDLQEntity>> GetDLQJobsAsync(
+        int limit = 100,
+        string? queueFilter = null,
+        FailureReason? reasonFilter = null,
+        string? searchTerm = null,
+        CancellationToken ct = default)
+    {
+        var query = _dlqJobs.Values.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(queueFilter))
+            query = query.Where(j => j.Queue == queueFilter);
+
+        if (reasonFilter.HasValue)
+            query = query.Where(j => j.FailureReason == reasonFilter.Value);
+
+        if (!string.IsNullOrEmpty(searchTerm))
+            query = query.Where(j =>
+                j.Id.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                j.Type.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                (j.Tags?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (j.ErrorDetails?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+
+        var result = query
+            .OrderByDescending(j => j.FailedAtUtc)
+            .Take(limit)
+            .ToList();
+
+        return new ValueTask<IEnumerable<JobDLQEntity>>(result);
+    }
+
+    public ValueTask<JobArchiveEntity?> GetArchiveJobAsync(string jobId, CancellationToken ct = default)
+    {
+        _archiveJobs.TryGetValue(jobId, out var job);
+        return new ValueTask<JobArchiveEntity?>(job);
+    }
+
+    public ValueTask<JobDLQEntity?> GetDLQJobAsync(string jobId, CancellationToken ct = default)
+    {
+        _dlqJobs.TryGetValue(jobId, out var job);
+        return new ValueTask<JobDLQEntity?>(job);
+    }
+
+    // ========================================================================
+    // QUEUE MANAGEMENT
+    // ========================================================================
+
+    public ValueTask<IEnumerable<QueueEntity>> GetQueuesAsync(CancellationToken ct = default)
+    {
+        // Collect all unique queues from all three pillars
+        var allQueues = _hotJobs.Values.Select(j => j.Queue)
+            .Concat(_archiveJobs.Values.Select(j => j.Queue))
+            .Concat(_dlqJobs.Values.Select(j => j.Queue))
+            .Concat(_queues.Keys)
+            .Distinct();
+
+        var result = allQueues.Select(queueName =>
+        {
+            var queueData = _queues.GetOrAdd(queueName, new QueueData(queueName));
+            return new QueueEntity(
+                Name: queueName,
+                IsPaused: queueData.IsPaused,
+                IsActive: queueData.IsActive,
+                ZombieTimeoutSeconds: queueData.ZombieTimeoutSeconds,
+                LastUpdatedUtc: queueData.LastUpdatedUtc
+            );
+        }).ToList();
+
+        return new ValueTask<IEnumerable<QueueEntity>>(result);
+    }
+
+    public ValueTask SetQueuePausedAsync(string queueName, bool isPaused, CancellationToken ct = default)
+    {
+        _queues.AddOrUpdate(queueName,
+            new QueueData(queueName) { IsPaused = isPaused },
+            (_, old) => { old.IsPaused = isPaused; old.LastUpdatedUtc = DateTime.UtcNow; return old; });
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask SetQueueZombieTimeoutAsync(string queueName, int? timeoutSeconds, CancellationToken ct = default)
+    {
+        _queues.AddOrUpdate(queueName,
+            new QueueData(queueName) { ZombieTimeoutSeconds = timeoutSeconds },
+            (_, old) => { old.ZombieTimeoutSeconds = timeoutSeconds; old.LastUpdatedUtc = DateTime.UtcNow; return old; });
+        return ValueTask.CompletedTask;
+    }
+
+    // ========================================================================
+    // ZOMBIE DETECTION
+    // ========================================================================
+
+    public ValueTask<int> ArchiveZombiesAsync(int globalTimeoutSeconds, CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+        int count = 0;
+
+        var processingJobs = _hotJobs.Values
+            .Where(j => j.Status == JobStatus.Processing)
+            .ToList();
+
+        foreach (var job in processingJobs)
+        {
+            // Determine effective timeout
+            int timeout = globalTimeoutSeconds;
+            if (_queues.TryGetValue(job.Queue, out var q) && q.ZombieTimeoutSeconds.HasValue)
+                timeout = q.ZombieTimeoutSeconds.Value;
+
+            // Check heartbeat expiration
+            var heartbeat = job.HeartbeatUtc ?? job.StartedAtUtc ?? job.LastUpdatedUtc;
+            if (heartbeat < now.AddSeconds(-timeout))
+            {
+                // Move to DLQ
+                lock (_transitionLock)
+                {
+                    if (_hotJobs.TryRemove(job.Id, out var removed))
+                    {
+                        var dlqJob = new JobDLQEntity(
+                            Id: removed.Id,
+                            Queue: removed.Queue,
+                            Type: removed.Type,
+                            Payload: removed.Payload,
+                            Tags: removed.Tags,
+                            FailureReason: FailureReason.Zombie,
+                            ErrorDetails: $"Zombie: Heartbeat expired after {timeout}s",
+                            AttemptCount: removed.AttemptCount,
+                            WorkerId: removed.WorkerId,
+                            CreatedBy: removed.CreatedBy,
+                            LastModifiedBy: removed.LastModifiedBy,
+                            CreatedAtUtc: removed.CreatedAtUtc,
+                            FailedAtUtc: now
+                        );
+
+                        _dlqJobs[removed.Id] = dlqJob;
+                        IncrementStats(removed.Queue, failed: 1);
+                        count++;
+                    }
+                }
             }
         }
 
-        _jobs[job.Id] = job;
-
-        // Register queue if new
-        if (!_queues.ContainsKey(job.Queue))
-            _queues.TryAdd(job.Queue, new QueueInfo(job.Queue));
+        return new ValueTask<int>(count);
     }
 
-    /// <summary>
-    /// Internal DTO to track queue settings in memory.
-    /// </summary>
-    private class QueueInfo
+    // ========================================================================
+    // PRIVATE HELPERS
+    // ========================================================================
+
+    private ValueTask MoveToDLQ(string jobId, FailureReason reason, string errorDetails)
+    {
+        lock (_transitionLock)
+        {
+            if (!_hotJobs.TryRemove(jobId, out var job))
+                return ValueTask.CompletedTask;
+
+            var now = DateTime.UtcNow;
+            var dlqJob = new JobDLQEntity(
+                Id: job.Id,
+                Queue: job.Queue,
+                Type: job.Type,
+                Payload: job.Payload,
+                Tags: job.Tags,
+                FailureReason: reason,
+                ErrorDetails: errorDetails,
+                AttemptCount: job.AttemptCount,
+                WorkerId: job.WorkerId,
+                CreatedBy: job.CreatedBy,
+                LastModifiedBy: job.LastModifiedBy,
+                CreatedAtUtc: job.CreatedAtUtc,
+                FailedAtUtc: now
+            );
+
+            _dlqJobs[job.Id] = dlqJob;
+            IncrementStats(job.Queue, failed: 1);
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    private void EnsureQueueExists(string queue)
+    {
+        _queues.TryAdd(queue, new QueueData(queue));
+        _stats.TryAdd(queue, new StatsSummaryData(queue));
+    }
+
+    private bool IsQueuePaused(string queue)
+    {
+        return _queues.TryGetValue(queue, out var q) && q.IsPaused;
+    }
+
+    private void IncrementStats(string queue, long succeeded = 0, long failed = 0, long retried = 0)
+    {
+        _stats.AddOrUpdate(queue,
+            new StatsSummaryData(queue) 
+            { 
+                SucceededTotal = succeeded, 
+                FailedTotal = failed, 
+                RetriedTotal = retried 
+            },
+            (_, old) =>
+            {
+                old.SucceededTotal += succeeded;
+                old.FailedTotal += failed;
+                old.RetriedTotal += retried;
+                old.LastActivityUtc = DateTime.UtcNow;
+                return old;
+            });
+    }
+
+    private void DecrementStats(string queue, long failed = 0)
+    {
+        if (_stats.TryGetValue(queue, out var stats))
+        {
+            stats.FailedTotal = Math.Max(0, stats.FailedTotal - failed);
+            stats.LastActivityUtc = DateTime.UtcNow;
+        }
+    }
+
+    private void EnforceCapacity()
+    {
+        var totalCount = _hotJobs.Count + _archiveJobs.Count + _dlqJobs.Count;
+        
+        if (totalCount < _maxCapacity)
+            return;
+
+        // First: Remove old archived jobs
+        var archiveToRemove = _archiveJobs.Values
+            .OrderBy(j => j.FinishedAtUtc)
+            .Take(1000)
+            .Select(j => j.Id)
+            .ToList();
+
+        foreach (var id in archiveToRemove)
+            _archiveJobs.TryRemove(id, out _);
+
+        // If still over capacity: Remove old DLQ jobs
+        if (_hotJobs.Count + _archiveJobs.Count + _dlqJobs.Count >= _maxCapacity)
+        {
+            var dlqToRemove = _dlqJobs.Values
+                .OrderBy(j => j.FailedAtUtc)
+                .Take(500)
+                .Select(j => j.Id)
+                .ToList();
+
+            foreach (var id in dlqToRemove)
+                _dlqJobs.TryRemove(id, out _);
+        }
+    }
+
+    // ========================================================================
+    // INTERNAL DATA CLASSES
+    // ========================================================================
+
+    private class QueueData
     {
         public string Name { get; }
         public bool IsPaused { get; set; }
+        public bool IsActive { get; set; } = true;
         public int? ZombieTimeoutSeconds { get; set; }
-        public DateTime LastUpdatedUtc { get; set; }
+        public DateTime LastUpdatedUtc { get; set; } = DateTime.UtcNow;
 
-        public QueueInfo(string name)
-        {
-            Name = name;
-            LastUpdatedUtc = DateTime.UtcNow;
-        }
+        public QueueData(string name) => Name = name;
+    }
+
+    private class StatsSummaryData
+    {
+        public string Queue { get; }
+        public long SucceededTotal { get; set; }
+        public long FailedTotal { get; set; }
+        public long RetriedTotal { get; set; }
+        public DateTime? LastActivityUtc { get; set; }
+
+        public StatsSummaryData(string queue) => Queue = queue;
     }
 }

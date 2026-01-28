@@ -1,5 +1,6 @@
-﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Processing;
 using ChokaQ.Core.State;
@@ -12,6 +13,11 @@ namespace ChokaQ.Core.Workers;
 /// <summary>
 /// In-Memory Worker implementation used for development or non-persistent scenarios.
 /// Consumes jobs from System.Threading.Channels.
+/// 
+/// Three Pillars integration:
+/// - Reads from Hot table via storage
+/// - Cancellation archives to DLQ
+/// - Resurrection happens via storage.ResurrectAsync
 /// </summary>
 public class JobWorker : BackgroundService, IWorkerManager
 {
@@ -37,7 +43,7 @@ public class JobWorker : BackgroundService, IWorkerManager
     }
 
     public int ActiveWorkers { get; private set; } = 0;
-    private int _targetWorkerCount = 1; // Default
+    private int _targetWorkerCount = 1;
     public int TotalWorkers => _targetWorkerCount;
 
     public JobWorker(
@@ -62,77 +68,69 @@ public class JobWorker : BackgroundService, IWorkerManager
             concreteProcessor.CancelJob(jobId);
         }
 
-        // Also ensure state is updated if it was pending
-        _logger.LogInformation("Marking job {JobId} as Cancelled (if not already).", jobId);
-
-        // Fetch metadata to keep state consistent
+        // Fetch job from Hot table
         var job = await _storage.GetJobAsync(jobId);
+        if (job == null)
+        {
+            _logger.LogWarning("Cannot cancel job {JobId}: not found in Hot table.", jobId);
+            return;
+        }
 
-        await _stateManager.UpdateStateAsync(
-            jobId,
-            job?.Type ?? "Unknown",
-            JobStatus.Cancelled,
-            job?.AttemptCount ?? 0,
-            executionDurationMs: null,
-            createdBy: job?.CreatedBy,
-            startedAtUtc: null);
+        // Only cancel if Pending or Fetched (Processing is handled by CancelJob above)
+        if (job.Status == JobStatus.Pending || job.Status == JobStatus.Fetched)
+        {
+            _logger.LogInformation("Archiving pending job {JobId} to DLQ as Cancelled.", jobId);
+            await _stateManager.ArchiveCancelledAsync(
+                jobId, job.Type, job.Queue, "Admin cancellation");
+        }
     }
 
     public async Task RestartJobAsync(string jobId)
     {
-        var storageDto = await _storage.GetJobAsync(jobId);
-        if (storageDto == null) return;
-
-        if (storageDto.Status == JobStatus.Processing || storageDto.Status == JobStatus.Pending)
+        // First check Hot table
+        var hotJob = await _storage.GetJobAsync(jobId);
+        if (hotJob != null)
         {
-            _logger.LogWarning("Cannot restart job {JobId}: active ({Status}).", jobId, storageDto.Status);
+            if (hotJob.Status == JobStatus.Processing || hotJob.Status == JobStatus.Pending)
+            {
+                _logger.LogWarning("Cannot restart job {JobId}: still active ({Status}).", jobId, hotJob.Status);
+                return;
+            }
+        }
+
+        // Check DLQ for resurrection
+        var dlqJob = await _storage.GetDLQJobAsync(jobId);
+        if (dlqJob != null)
+        {
+            _logger.LogInformation("Resurrecting job {JobId} from DLQ...", jobId);
+            await _storage.ResurrectAsync(jobId, null, "Admin restart");
+
+            // Re-queue for processing
+            await RequeueJobFromStorage(jobId);
             return;
         }
 
-        try
+        // Check Archive for clone/restart
+        var archivedJob = await _storage.GetArchiveJobAsync(jobId);
+        if (archivedJob != null)
         {
-            _logger.LogInformation("Restarting job {JobId}...", jobId);
-
-            // 1. Reset State
-            await _storage.UpdateJobStateAsync(jobId, JobStatus.Pending);
-            await _storage.IncrementJobAttemptAsync(jobId, 0);
-
-            await _stateManager.UpdateStateAsync(
-                jobId,
-                storageDto.Type,
-                JobStatus.Pending,
-                0,
-                executionDurationMs: null,
-                createdBy: storageDto.CreatedBy,
-                startedAtUtc: null);
-
-            // 2. Re-queue logic depends on strategy
-            var jobType = Type.GetType(storageDto.Type);
-
-            // Fallback: try to find type in current AppDomain assemblies if Type.GetType fails (often needed for simple names)
-            if (jobType == null)
-            {
-                jobType = AppDomain.CurrentDomain.GetAssemblies()
-                    .SelectMany(a => a.GetTypes())
-                    .FirstOrDefault(t => t.Name == storageDto.Type);
-            }
-
-            if (jobType != null)
-            {
-                var jobObject = JsonSerializer.Deserialize(storageDto.Payload, jobType) as IChokaQJob;
-                if (jobObject != null)
-                {
-                    await _queue.RequeueAsync(jobObject);
-                }
-            }
-            else
-            {
-                _logger.LogWarning("Could not resolve type {Type} for In-Memory restart. Job is reset in DB but not in Channel.", storageDto.Type);
-            }
+            _logger.LogInformation("Cannot restart succeeded job {JobId} from Archive. Use clone functionality.", jobId);
+            return;
         }
-        catch (Exception ex)
+
+        _logger.LogWarning("Cannot restart job {JobId}: not found in any table.", jobId);
+    }
+
+    public async Task SetJobPriorityAsync(string jobId, int priority)
+    {
+        var result = await _storage.UpdateJobDataAsync(
+            jobId, 
+            new Abstractions.DTOs.JobDataUpdateDto(null, null, priority),
+            "Admin");
+
+        if (!result)
         {
-            _logger.LogError(ex, "Failed to restart job {JobId}.", jobId);
+            _logger.LogWarning("Cannot update priority for job {JobId}: not Pending or not found.", jobId);
         }
     }
 
@@ -188,27 +186,23 @@ public class JobWorker : BackgroundService, IWorkerManager
                 {
                     while (_queue.Reader.TryRead(out var job))
                     {
-                        // Since IChokaQJob doesn't know its queue, we look it up in storage.
+                        // Look up job in Hot table
                         var storageJob = await _storage.GetJobAsync(job.Id, workerCt);
-
-                        // If job vanished or invalid, skip
                         if (storageJob == null) continue;
 
+                        // Check if queue is paused
                         var queues = await _storage.GetQueuesAsync(workerCt);
                         var targetQueue = queues.FirstOrDefault(q => q.Name == storageJob.Queue);
 
                         if (targetQueue != null && targetQueue.IsPaused)
                         {
-                            // Queue is paused! Put it back at the end of the line.
+                            // Queue is paused - requeue
                             await _queue.RequeueAsync(job, workerCt);
-
-                            // Sleep briefly to avoid hot-looping (consuming CPU while requeuing same job)
                             await Task.Delay(1000, workerCt);
                             continue;
                         }
 
                         var typeKey = job.GetType().Name;
-
                         var payload = JsonSerializer.Serialize(job, job.GetType());
 
                         await _processor.ProcessJobAsync(
@@ -233,8 +227,30 @@ public class JobWorker : BackgroundService, IWorkerManager
         }
     }
 
-    public async Task SetJobPriorityAsync(string jobId, int priority)
+    private async Task RequeueJobFromStorage(string jobId)
     {
-        await _storage.UpdateJobPriorityAsync(jobId, priority);
+        var job = await _storage.GetJobAsync(jobId);
+        if (job == null) return;
+
+        // Try to reconstruct job object for channel
+        var jobType = Type.GetType(job.Type);
+        if (jobType == null)
+        {
+            jobType = AppDomain.CurrentDomain.GetAssemblies()
+                .SelectMany(a => a.GetTypes())
+                .FirstOrDefault(t => t.Name == job.Type);
+        }
+
+        if (jobType != null && job.Payload != null)
+        {
+            var jobObject = JsonSerializer.Deserialize(job.Payload, jobType) as IChokaQJob;
+            if (jobObject != null)
+            {
+                await _queue.RequeueAsync(jobObject);
+                return;
+            }
+        }
+
+        _logger.LogWarning("Could not requeue job {JobId}: type resolution failed.", jobId);
     }
 }

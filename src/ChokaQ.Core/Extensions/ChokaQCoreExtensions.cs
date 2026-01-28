@@ -1,5 +1,7 @@
-﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Resilience;
+using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Contexts;
 using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
@@ -13,16 +15,51 @@ using Microsoft.Extensions.Logging;
 
 namespace ChokaQ.Core.Extensions;
 
+/// <summary>
+/// Extension methods for registering ChokaQ services in the DI container.
+/// </summary>
 public static class ChokaQCoreExtensions
 {
+    /// <summary>
+    /// Registers ChokaQ background job processing services.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configure">Optional configuration callback for ChokaQOptions.</param>
+    /// <returns>The service collection for chaining.</returns>
+    /// <remarks>
+    /// Basic usage (Bus Mode with profiles):
+    /// <code>
+    /// services.AddChokaQ(options =>
+    /// {
+    ///     options.AddProfile&lt;MailingProfile&gt;();
+    ///     options.AddProfile&lt;ReportingProfile&gt;();
+    /// });
+    /// </code>
+    /// 
+    /// Pipe Mode (high-throughput):
+    /// <code>
+    /// services.AddChokaQ(options =>
+    /// {
+    ///     options.UsePipe&lt;GlobalPipeHandler&gt;();
+    ///     options.ConfigureInMemory(o => o.MaxCapacity = 100_000);
+    /// });
+    /// </code>
+    /// 
+    /// For SQL Server persistence, chain with AddChokaQSqlServer():
+    /// <code>
+    /// services.AddChokaQ(options => options.AddProfile&lt;MyProfile&gt;())
+    ///         .AddChokaQSqlServer(connectionString);
+    /// </code>
+    /// </remarks>
     public static IServiceCollection AddChokaQ(this IServiceCollection services, Action<ChokaQOptions>? configure = null)
     {
         var options = new ChokaQOptions();
         configure?.Invoke(options);
 
-        // Pass options to Infrastructure registration
+        // Register core infrastructure (storage, queues, processors)
         AddInfrastructure(services, options);
 
+        // Register strategy-specific services (Bus vs Pipe)
         if (options.IsPipeMode)
         {
             AddPipeStrategy(services, options);
@@ -35,13 +72,17 @@ public static class ChokaQCoreExtensions
         return services;
     }
 
+    /// <summary>
+    /// Registers core infrastructure services shared by both Bus and Pipe modes.
+    /// Uses TryAdd to allow external packages (e.g., SqlServer) to override defaults.
+    /// </summary>
     private static void AddInfrastructure(IServiceCollection services, ChokaQOptions options)
     {
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IDeduplicator, InMemoryDeduplicator>();
         services.TryAddSingleton<ICircuitBreaker, InMemoryCircuitBreaker>();
 
-        // Register InMemoryJobStorage with the configured options
+        // Register InMemoryJobStorage with the configured options (Three Pillars)
         services.TryAddSingleton<IJobStorage>(sp => new InMemoryJobStorage(options.InMemoryOptions));
         services.TryAddSingleton<IChokaQNotifier, NullNotifier>();
         services.TryAddSingleton<InMemoryQueue>();

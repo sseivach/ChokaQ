@@ -1,13 +1,21 @@
-﻿namespace ChokaQ.Core.Concurrency;
+namespace ChokaQ.Core.Concurrency;
 
 /// <summary>
 /// A wrapper around SemaphoreSlim that allows dynamic scaling (Elasticity).
 /// Supports hot-swapping concurrency limits without recreating the object.
 /// </summary>
+/// <remarks>
+/// Used by JobWorker to dynamically adjust worker count via dashboard
+/// without restarting the application.
+/// 
+/// Scale UP: Simply releases additional permits into the pool.
+/// Scale DOWN: "Burns" permits by acquiring and never releasing them.
+/// </remarks>
 public class ElasticSemaphore : IDisposable
 {
     private readonly SemaphoreSlim _semaphore;
     private readonly object _lock = new();
+    private CancellationTokenSource? _burnCts;
 
     // The logical maximum concurrency we want to enforce.
     private int _targetCapacity;
@@ -60,8 +68,9 @@ public class ElasticSemaphore : IDisposable
 
     /// <summary>
     /// Dynamically adjusts the semaphore capacity.
+    /// Thread-safe and supports being called multiple times.
     /// </summary>
-    /// <param name="newCapacity">The new target concurrency limit.</param>
+    /// <param name="newCapacity">The new target concurrency limit (minimum 1).</param>
     public void SetCapacity(int newCapacity)
     {
         if (newCapacity <= 0) newCapacity = 1;
@@ -74,19 +83,21 @@ public class ElasticSemaphore : IDisposable
 
             if (diff > 0)
             {
-                // SCALE UP:
-                // Simply release more permits into the pool.
+                // SCALE UP: Simply release more permits into the pool.
                 _semaphore.Release(diff);
             }
             else
             {
-                // SCALE DOWN:
-                // We need to remove permits. Since SemaphoreSlim doesn't have "Reduce",
-                // we spawn a background task to consume ("burn") them.
+                // SCALE DOWN: We need to remove permits. Since SemaphoreSlim 
+                // doesn't have "Reduce", spawn a background task to consume ("burn") them.
                 int permitsToBurn = Math.Abs(diff);
 
-                // Fire-and-forget burner task
-                Task.Run(async () => await BurnPermitsAsync(permitsToBurn));
+                // Cancel any previous burn operation
+                _burnCts?.Cancel();
+                _burnCts = new CancellationTokenSource();
+
+                // Background burner task with cancellation support
+                _ = BurnPermitsAsync(permitsToBurn, _burnCts.Token);
             }
 
             _targetCapacity = newCapacity;
@@ -95,23 +106,34 @@ public class ElasticSemaphore : IDisposable
 
     /// <summary>
     /// Consumes permits permanently to reduce capacity.
+    /// Supports cancellation for graceful shutdown.
     /// </summary>
-    private async Task BurnPermitsAsync(int count)
+    private async Task BurnPermitsAsync(int count, CancellationToken ct)
     {
         for (int i = 0; i < count; i++)
         {
-            // Acquire a permit...
-            await _semaphore.WaitAsync();
+            try
+            {
+                // Acquire a permit...
+                await _semaphore.WaitAsync(ct);
 
-            // ...and NEVER release it. 
-            // It is now lost to the void, effectively reducing capacity.
+                // ...and NEVER release it. 
+                // It is now lost to the void, effectively reducing capacity.
+            }
+            catch (OperationCanceledException)
+            {
+                // Shutdown requested - stop burning permits
+                break;
+            }
         }
     }
 
     public void Dispose()
     {
-        // We only hold managed resources (SemaphoreSlim), so we simply dispose of them.
-        // No Finalizer (~ElasticSemaphore) is needed, hence no GC.SuppressFinalize(this).
+        // Cancel any pending burn operations to allow graceful shutdown
+        _burnCts?.Cancel();
+        _burnCts?.Dispose();
+
         _semaphore.Dispose();
     }
 }

@@ -1,9 +1,9 @@
-﻿<div class="card cq-card shadow-sm mb-4">
+<div class="card cq-card shadow-sm mb-4">
     <div class="card-header py-2 d-flex justify-content-between align-items-center"
          style="background-color: var(--cq-panel-bg); border-bottom: 1px solid var(--cq-border);">
         <div class="d-flex align-items-center gap-2">
             <h6 class="mb-0 fw-bold small text-uppercase" style="color: var(--cq-text-muted)">
-                Queue Traffic
+                Queue Configuration
             </h6>
             @if (_queues.Any())
             {
@@ -31,7 +31,7 @@
                 }
                 else
                 {
-                    <span>No active queues found. Send a job to 'default' queue to see it here.</span>
+                    <span>No queues found. Send a job to 'default' queue to see it here.</span>
                 }
             </div>
         }
@@ -40,39 +40,48 @@
             <table class="table mb-0 text-nowrap" style="color: var(--cq-text); font-size: 0.75rem;">
                 <thead style="background-color: rgba(0,0,0,0.02); text-transform: uppercase;">
                     <tr>
-                        <th class="ps-3" style="width: 15%">Queue</th>
-                        <th class="text-center" style="width: 5%">Pause</th>
-                        <th class="text-center" style="width: 10%">Timeout (s)</th>
-                        <th class="text-end" style="width: 10%; color: var(--cq-info);">Pend</th>
-                        <th class="text-end" style="width: 10%; color: #6f42c1;">Buff</th>
-                        <th class="text-end" style="width: 10%; color: var(--cq-warning);">Proc</th>
-                        <th class="text-end" style="width: 10%; color: var(--cq-success);">Succ</th>
-                        <th class="text-end" style="width: 10%; color: var(--cq-danger);">Fail</th>
-                        <th class="text-end" style="width: 10%; color: var(--cq-text-muted);">Canc</th>
-
-                        <th class="text-end" style="width: 5%">Active</th>
+                        <th class="ps-3" style="width: 25%">Queue</th>
+                        <th class="text-center" style="width: 20%">Jobs (Succeeded / Failed)</th>
+                        <th class="text-center" style="width: 12%">Status</th>
+                        <th class="text-center" style="width: 12%">Pause/Resume</th>
+                        <th class="text-center" style="width: 15%">Zombie Timeout (s)</th>
+                        <th class="text-end" style="width: 16%">Last Updated</th>
                         <th class="text-end pe-3" style="width: 5%"></th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var q in _visibleQueues)
                     {
-                        var isActive = q.PendingCount > 0 || q.ProcessingCount > 0 || q.FetchedCount > 0;
-
+                        var stats = GetQueueStats(q.Name);
                         <tr style="border-bottom: 1px solid var(--cq-border); transition: background-color 0.3s;">
 
                             <td class="ps-3 align-middle">
                                 <span class="fw-bold font-monospace">@q.Name</span>
-                                @if (q.IsPaused)
+                            </td>
+
+                            <td class="align-middle text-center font-monospace" style="font-size: 0.8rem;">
+                                @if (stats != null)
                                 {
-                                    <span class="badge bg-danger ms-2" style="font-size: 0.6em;">PAUSED</span>
+                                    <span title="Succeeded / Failed">
+                                        <span style="color: var(--cq-success)">@stats.SucceededTotal.ToString("N0")</span> / <span style="color: var(--cq-danger)">@stats.FailedTotal.ToString("N0")</span>
+                                    </span>
                                 }
+                                else
+                                {
+                                    <span class="text-muted">0 / 0</span>
+                                }
+                            </td>
+
+                            <td class="align-middle text-center">
+                                <span class="badge" style="font-size: 0.7em; background-color: @GetStatusColor(q);">
+                                    @GetQueueStatus(q)
+                                </span>
                             </td>
 
                             <td class="align-middle text-center">
                                 <div class="form-check form-switch d-inline-block" style="min-height: 0;">
                                     <input class="form-check-input" type="checkbox"
-                                           style="width: 2em; height: 1em; margin-top: 0;"
+                                           style="width: 2.5em; height: 1.2em; margin-top: 0;"
                                            id="q_@q.Name"
                                            checked="@(!q.IsPaused)"
                                            @onchange="@(e => ToggleQueue(q.Name, (bool)e.Value!))">
@@ -81,55 +90,24 @@
 
                             <td class="align-middle text-center">
                                 <input type="number"
-                                       class="form-control form-control-sm cq-input text-center"
-                                       style="height: 22px; font-size: 0.75rem; padding: 0;"
+                                       class="form-control form-control-sm cq-input text-center mx-auto"
+                                       style="height: 26px; font-size: 0.75rem; width: 100px;"
                                        placeholder="Global (600)"
                                        value="@q.ZombieTimeoutSeconds"
                                        @onchange="@(e => UpdateTimeout(q.Name, e.Value))" />
                             </td>
 
-                            <td class="align-middle text-end font-monospace @(q.PendingCount > 0 ? "fw-bold" : "text-muted")">
-                                @q.PendingCount.ToString("N0")
-                            </td>
-
-                            <td class="align-middle text-end font-monospace @(q.FetchedCount > 0 ? "fw-bold" : "text-muted")">
-                                @q.FetchedCount.ToString("N0")
-                            </td>
-
-                            <td class="align-middle text-end font-monospace @(q.ProcessingCount > 0 ? "fw-bold" : "text-muted")">
-                                @q.ProcessingCount.ToString("N0")
-                            </td>
-
-                            <td class="align-middle text-end font-monospace @(q.SucceededCount > 0 ? "fw-bold" : "text-muted")">
-                                @q.SucceededCount.ToString("N0")
-                            </td>
-
-                            <td class="align-middle text-end font-monospace @(q.FailedCount > 0 ? "fw-bold" : "text-muted")">
-                                @q.FailedCount.ToString("N0")
-                            </td>
-
-                            <td class="align-middle text-end font-monospace @(q.CancelledCount > 0 ? "fw-bold" : "text-muted")">
-                                @q.CancelledCount.ToString("N0")
-                            </td>
-
                             <td class="align-middle text-end text-muted">
-                                @if (q.LastJobAtUtc.HasValue)
-                                {
-                                    <span>@q.LastJobAtUtc.Value.ToLocalTime().ToString("HH:mm:ss")</span>
-                                }
-                                else
-                                {
-                                    <span>-</span>
-                                }
+                                <span>@q.LastUpdatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
                             </td>
 
                             <td class="pe-3 text-end align-middle">
-                                @if (!isActive)
+                                @if (!q.IsActive)
                                 {
                                     <button class="btn btn-sm btn-link text-decoration-none text-muted p-0"
-                                            title="Hide"
+                                            title="Hide inactive queue"
                                             @onclick="() => HideQueue(q.Name)">
-                                        ✖
+                                        X
                                     </button>
                                 }
                             </td>

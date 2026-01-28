@@ -1,4 +1,5 @@
-﻿using ChokaQ.Abstractions;
+using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.Notifications;
 
 namespace ChokaQ.Core.Contexts;
 

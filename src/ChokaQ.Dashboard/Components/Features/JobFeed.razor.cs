@@ -1,27 +1,49 @@
-﻿using ChokaQ.Abstractions.Enums;
-using ChokaQ.Abstractions.DTOs;
+using ChokaQ.Abstractions.Entities;
+using ChokaQ.Abstractions.Enums;
 using ChokaQ.Dashboard.Models;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
 
 namespace ChokaQ.Dashboard.Components.Features;
 
+/// <summary>
+/// Main job feed component displaying active jobs from the Hot table.
+/// Supports filtering, searching, multi-select, and bulk operations.
+/// </summary>
+/// <remarks>
+/// Features:
+/// - Real-time updates via SignalR subscription
+/// - Status filtering via StatsCard clicks
+/// - Full-text search across Id, Type, Queue, CreatedBy
+/// - Multi-select with bulk actions (Cancel, Restart, Priority)
+/// - Virtualized rendering for large job lists (1000+ items)
+/// </remarks>
 public partial class JobFeed
 {
+    /// <summary>Jobs from Hot table, populated by parent DashboardPage.</summary>
     [Parameter] public List<JobViewModel> Jobs { get; set; } = new();
-    [Parameter] public JobCountsDto Counts { get; set; } = new(0, 0, 0, 0, 0, 0, 0);
+
+    /// <summary>Aggregated statistics for the StatsCard header.</summary>
+    [Parameter] public StatsSummaryEntity Counts { get; set; } = new(null, 0, 0, 0, 0, 0, 0, 0, null);
+
+    /// <summary>SignalR connection state for UI indicators.</summary>
     [Parameter] public bool IsConnected { get; set; }
+
+    /// <summary>Callback to clear job history in parent component.</summary>
     [Parameter] public EventCallback OnClearHistory { get; set; }
+
+    /// <summary>SignalR hub connection for sending commands to server.</summary>
     [Parameter] public HubConnection? HubConnection { get; set; }
 
+    // Inspector panel state
     private bool _isInspectorVisible;
     private string? _selectedInspectorJobId;
 
-    // Filtering State
+    // Filtering state
     private string _searchQuery = "";
     private JobStatus? _activeStatusFilter = null;
 
-    // Selection State
+    // Multi-select state for bulk operations
     private HashSet<string> _selectedJobIds = new();
     private int SelectedCount => _selectedJobIds.Count;
     private int _bulkPriorityValue = 10;
