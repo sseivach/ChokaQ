@@ -40,8 +40,8 @@
             <table class="table mb-0 text-nowrap" style="color: var(--cq-text); font-size: 0.75rem;">
                 <thead style="background-color: rgba(0,0,0,0.02); text-transform: uppercase;">
                     <tr>
-                        <th class="ps-3" style="width: 20%">Queue</th>
-                        <th class="text-center" style="width: 20%">Jobs (P/F/R | S/F)</th>
+                        <th class="ps-3" style="width: 25%">Queue</th>
+                        <th class="text-center" style="width: 20%">Jobs (Succeeded / Failed)</th>
                         <th class="text-center" style="width: 12%">Status</th>
                         <th class="text-center" style="width: 12%">Pause/Resume</th>
                         <th class="text-center" style="width: 15%">Zombie Timeout (s)</th>
@@ -59,19 +59,16 @@
                                 <span class="fw-bold font-monospace">@q.Name</span>
                             </td>
 
-                            <td class="align-middle text-center font-monospace" style="font-size: 0.7rem;">
+                            <td class="align-middle text-center font-monospace" style="font-size: 0.8rem;">
                                 @if (stats != null)
                                 {
-                                    var active = stats.Pending + stats.Fetched + stats.Processing;
-                                    <span title="Pending/Fetched/Processing | Succeeded/Failed">
-                                        <span style="color: var(--cq-info)">@stats.Pending</span>/<span style="color: var(--cq-warning)">@stats.Fetched</span>/<span style="color: var(--cq-accent)">@stats.Processing</span>
-                                        <span class="mx-1">|</span>
-                                        <span style="color: var(--cq-success)">@stats.SucceededTotal.ToString("N0")</span>/<span style="color: var(--cq-danger)">@stats.FailedTotal.ToString("N0")</span>
+                                    <span title="Succeeded / Failed">
+                                        <span style="color: var(--cq-success)">@stats.SucceededTotal.ToString("N0")</span> / <span style="color: var(--cq-danger)">@stats.FailedTotal.ToString("N0")</span>
                                     </span>
                                 }
                                 else
                                 {
-                                    <span class="text-muted">0/0/0 | 0/0</span>
+                                    <span class="text-muted">0 / 0</span>
                                 }
                             </td>
 

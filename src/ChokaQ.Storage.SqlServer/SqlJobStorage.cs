@@ -484,9 +484,11 @@ public class SqlJobStorage : IJobStorage
                 ISNULL(s.[SucceededTotal], 0) AS [SucceededTotal],
                 ISNULL(s.[FailedTotal], 0) AS [FailedTotal],
                 ISNULL(s.[RetriedTotal], 0) AS [RetriedTotal],
-                (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Queue] = q.[Name]) + 
-                (SELECT COUNT(1) FROM [{_schema}].[JobsArchive] WHERE [Queue] = q.[Name]) + 
-                (SELECT COUNT(1) FROM [{_schema}].[JobsDLQ] WHERE [Queue] = q.[Name]) AS [Total],
+                CAST(
+                    (SELECT COUNT(1) FROM [{_schema}].[JobsHot] WHERE [Queue] = q.[Name]) + 
+                    (SELECT COUNT(1) FROM [{_schema}].[JobsArchive] WHERE [Queue] = q.[Name]) + 
+                    (SELECT COUNT(1) FROM [{_schema}].[JobsDLQ] WHERE [Queue] = q.[Name])
+                AS BIGINT) AS [Total],
                 s.[LastActivityUtc]
             FROM [{_schema}].[Queues] q
             LEFT JOIN [{_schema}].[StatsSummary] s ON s.[Queue] = q.[Name]

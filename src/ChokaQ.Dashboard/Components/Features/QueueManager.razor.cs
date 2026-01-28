@@ -32,7 +32,7 @@ public partial class QueueManager : IDisposable
         if (firstRender && HubConnection != null)
         {
             // Subscribe to real-time stats updates
-            HubConnection.On("StatsUpdated", () => InvokeAsync(async () => await Refresh()}));
+            HubConnection.On("StatsUpdated", () => InvokeAsync(async () => await Refresh()));
 
             // Ensure connection is started (DashboardPage should already have it started)
             if (HubConnection.State == HubConnectionState.Disconnected)
