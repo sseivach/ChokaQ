@@ -46,7 +46,7 @@
                 <span class="small fw-bold" style="color: var(--cq-danger)">OFFLINE</span>
             }
 
-            <button class="btn btn-sm btn-outline-secondary" @onclick="OnClearHistory">
+            <button class="btn-modern" @onclick="OnClearHistory">
                 Clear
             </button>
         </div>
@@ -58,11 +58,11 @@
              style="background-color: var(--cq-bg); border-color: var(--cq-border) !important; animation: slideDown 0.2s;">
             <span class="small fw-bold text-muted">BULK ACTIONS:</span>
 
-            <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-2" @onclick="RestartSelected">
+            <button class="btn-modern btn-primary" @onclick="RestartSelected">
                 Retry All
             </button>
 
-            <button class="btn btn-sm btn-outline-danger d-flex align-items-center gap-2" @onclick="CancelSelected">
+            <button class="btn-modern" style="color: var(--cq-danger); border-color: var(--cq-danger);" @onclick="CancelSelected">
                 Cancel All
             </button>
 
@@ -70,7 +70,7 @@
                 <span class="small fw-bold text-muted">SET PRIORITY:</span>
                 <input type="number"
                        class="form-control form-control-sm cq-input" style="width: 60px;" @bind="_bulkPriorityValue" />
-                <button class="btn btn-sm btn-outline-info" @onclick="SetPrioritySelected">Apply</button>
+                <button class="btn-modern" style="font-size: 12px; padding: 4px 12px;" @onclick="SetPrioritySelected">Apply</button>
             </div>
 
             <button class="btn btn-sm btn-link text-decoration-none text-muted ms-auto" @onclick="ClearSelection">

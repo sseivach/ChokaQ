@@ -39,6 +39,8 @@ public partial class DashboardPage : IAsyncDisposable
         "kiddie" => "cq-theme-kiddie",
         "bravosix" => "cq-theme-bravosix",
         "bsod" => "cq-theme-bsod",
+        "carbon" => "cq-theme-carbon",
+        "async" => "cq-theme-async",
         _ => "cq-theme-office"
     };
 

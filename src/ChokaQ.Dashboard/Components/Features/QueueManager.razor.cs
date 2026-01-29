@@ -151,6 +151,13 @@ public partial class QueueManager : IDisposable
         return "var(--cq-success)";
     }
 
+    private string GetStatusBadgeClass(QueueEntity q)
+    {
+        if (q.IsPaused) return "badge-status badge-warning";
+        if (!q.IsActive) return "badge-status badge-secondary";
+        return "badge-status badge-success";
+    }
+
     private StatsSummaryEntity? GetQueueStats(string queueName)
     {
         return _queueStats.GetValueOrDefault(queueName);
