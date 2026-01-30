@@ -1,84 +1,84 @@
 ﻿@using ChokaQ.Abstractions.Enums
 
-<div class="d-flex gap-2 mb-3 w-100">
-    <div class="flex-1">
-        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Pending) ? "active" : "")"
+<div class="cq-flex cq-gap-0-5 cq-margin-bottom-1 cq-width-100">
+    <div class="cq-flex-1">
+        <div class="card cq-card cq-shadow-small cq-height-100 filter-card @(IsActive(JobStatus.Pending) ? "active" : "")"
              @onclick="() => Select(JobStatus.Pending)">
-            <div class="card-body">
-                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Pending</small>
-                <div class="fs-4 fw-bold mt-1" style="color: var(--cq-info)">
+            <div class="cq-padding-1">
+                <small class="cq-text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Pending</small>
+                <div class="cq-font-size-xlarge cq-font-bold cq-margin-top-0-25" style="color: var(--cq-info)">
                     @GetCount(JobStatus.Pending)
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="flex-1">
-        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Fetched) ? "active" : "")"
+    <div class="cq-flex-1">
+        <div class="card cq-card cq-shadow-small cq-height-100 filter-card @(IsActive(JobStatus.Fetched) ? "active" : "")"
              @onclick="() => Select(JobStatus.Fetched)">
-            <div class="card-body">
-                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Buffered</small>
-                <div class="fs-4 fw-bold mt-1" style="color: #6f42c1;">
+            <div class="cq-padding-1">
+                <small class="cq-text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Buffered</small>
+                <div class="cq-font-size-xlarge cq-font-bold cq-margin-top-0-25" style="color: #6f42c1;">
                     @GetCount(JobStatus.Fetched)
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="flex-1">
-        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Processing) ? "active" : "")"
+    <div class="cq-flex-1">
+        <div class="card cq-card cq-shadow-small cq-height-100 filter-card @(IsActive(JobStatus.Processing) ? "active" : "")"
              @onclick="() => Select(JobStatus.Processing)">
-            <div class="card-body">
-                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Processing</small>
-                <div class="fs-4 fw-bold mt-1" style="color: var(--cq-warning)">
+            <div class="cq-padding-1">
+                <small class="cq-text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Processing</small>
+                <div class="cq-font-size-xlarge cq-font-bold cq-margin-top-0-25" style="color: var(--cq-warning)">
                     @GetCount(JobStatus.Processing)
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="flex-1">
-        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Succeeded) ? "active" : "")"
+    <div class="cq-flex-1">
+        <div class="card cq-card cq-shadow-small cq-height-100 filter-card @(IsActive(JobStatus.Succeeded) ? "active" : "")"
              @onclick="() => Select(JobStatus.Succeeded)">
-            <div class="card-body">
-                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Succeeded</small>
-                <div class="fs-4 fw-bold mt-1" style="color: var(--cq-success)">
+            <div class="cq-padding-1">
+                <small class="cq-text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Succeeded</small>
+                <div class="cq-font-size-xlarge cq-font-bold cq-margin-top-0-25" style="color: var(--cq-success)">
                     @GetCount(JobStatus.Succeeded)
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="flex-1">
-        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Failed) ? "active" : "")"
+    <div class="cq-flex-1">
+        <div class="card cq-card cq-shadow-small cq-height-100 filter-card @(IsActive(JobStatus.Failed) ? "active" : "")"
              @onclick="() => Select(JobStatus.Failed)">
-            <div class="card-body">
-                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Failed</small>
-                <div class="fs-4 fw-bold mt-1" style="color: var(--cq-danger)">
+            <div class="cq-padding-1">
+                <small class="cq-text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Failed</small>
+                <div class="cq-font-size-xlarge cq-font-bold cq-margin-top-0-25" style="color: var(--cq-danger)">
                     @GetCount(JobStatus.Failed)
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="flex-1">
-        <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Cancelled) ? "active" : "")"
+    <div class="cq-flex-1">
+        <div class="card cq-card cq-shadow-small cq-height-100 filter-card @(IsActive(JobStatus.Cancelled) ? "active" : "")"
              @onclick="() => Select(JobStatus.Cancelled)">
-            <div class="card-body">
-                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Canceled</small>
-                <div class="fs-4 fw-bold mt-1" style="color: var(--cq-text-muted)">
+            <div class="cq-padding-1">
+                <small class="cq-text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Canceled</small>
+                <div class="cq-font-size-xlarge cq-font-bold cq-margin-top-0-25" style="color: var(--cq-text-muted)">
                     @GetCount(JobStatus.Cancelled)
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="flex-1">
-        <div class="card cq-card shadow-sm h-100 filter-card @(SelectedStatus == null ? "active" : "")"
+    <div class="cq-flex-1">
+        <div class="card cq-card cq-shadow-small cq-height-100 filter-card @(SelectedStatus == null ? "active" : "")"
              @onclick="() => OnStatusSelected.InvokeAsync(null)">
-            <div class="card-body">
-                <small class="text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Total</small>
-                <div class="fs-4 fw-bold mt-1">
+            <div class="cq-padding-1">
+                <small class="cq-text-uppercase" style="color: var(--cq-text-muted); font-size: 0.7rem;">Total</small>
+                <div class="cq-font-size-xlarge cq-font-bold cq-margin-top-0-25">
                     @Counts.Total
                 </div>
             </div>

@@ -27,7 +27,15 @@ public partial class DashboardPage : IAsyncDisposable
     private string _currentTheme = "office";
     private CircuitMonitor? _circuitMonitor;
 
+
     private const int MaxHistoryCount = 1000;
+    private JobStatus? _activeStatusFilter;
+
+    private void SetStatusFilter(JobStatus? status)
+    {
+        _activeStatusFilter = status;
+        StateHasChanged();
+    }
 
     private bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
 

@@ -2,24 +2,24 @@
 
 @if (_circuits.Any())
 {
-    <div class="card cq-card shadow-sm mb-4">
-        <div class="card-header py-2 d-flex align-items-center gap-2"
+    <div class="card cq-card cq-shadow-small cq-margin-bottom-2">
+        <div class="cq-padding-top-0-5 cq-padding-bottom-0-5 cq-flex cq-align-items-center cq-gap-0-5"
              style="background-color: var(--cq-panel-bg); border-bottom: 1px solid var(--cq-border);">
-            <h6 class="mb-0 fw-bold small text-uppercase" style="color: var(--cq-text-muted)">
+            <h6 class="cq-margin-bottom-0 cq-font-bold cq-font-size-small cq-text-uppercase" style="color: var(--cq-text-muted)">
                 System Health (Circuit Breakers)
             </h6>
         </div>
-        <div class="card-body p-2">
-            <div class="d-flex flex-wrap gap-2">
+        <div class="cq-padding-1">
+            <div class="cq-flex cq-flex-wrap cq-gap-0-5">
                 @foreach (var circuit in _circuits)
                 {
-                    <div class="d-flex align-items-center gap-2 px-3 py-1 border rounded"
-                         style="border-color: var(--cq-border) !important; background-color: @GetBgColor(circuit.Status);">
+                    <div class="cq-flex cq-align-items-center cq-gap-0-5 cq-padding-left-1 cq-padding-right-1 cq-padding-top-0-25 cq-padding-bottom-0-25 cq-border"
+                         style="border-color: var(--cq-border) !important; background-color: @GetBgColor(circuit.Status); border-radius: 4px;">
 
                         <span style="font-size: 0.8rem;">@GetIcon(circuit.Status)</span>
 
-                        <div class="d-flex flex-column" style="line-height: 1.1;">
-                            <span class="small fw-bold">@FormatName(circuit.JobType)</span>
+                        <div class="cq-flex cq-flex-column" style="line-height: 1.1;">
+                            <span class="cq-font-size-small cq-font-bold">@FormatName(circuit.JobType)</span>
 
                             @if (circuit.Status == CircuitStatus.Open && circuit.ResetAtUtc.HasValue)
                             {
@@ -38,5 +38,12 @@
                 }
             </div>
         </div>
+    </div>
+
+}
+else
+{
+    <div class="cq-card cq-padding-1 cq-text-align-center cq-text-muted">
+        <span class="cq-font-size-small">System Healthy (No active breakers)</span>
     </div>
 }

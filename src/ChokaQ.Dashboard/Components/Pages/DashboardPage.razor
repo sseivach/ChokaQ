@@ -3,39 +3,89 @@
 @using ChokaQ.Dashboard.Models
 @using Microsoft.AspNetCore.Components.Web
 
-<div class="cq-dashboard @CurrentThemeClass">
+<div class="cq-layout @CurrentThemeClass">
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div class="d-flex align-items-baseline gap-3">
-            <h5 class="mb-0 fw-bold">CHOKAQ MONITORING</h5>
-            <small style="color: var(--cq-text-muted)">v1.0.0</small>
-        </div>
-
-        <div class="d-flex align-items-center gap-2">
-            <span class="small fw-bold" style="color: var(--cq-text-muted)">THEME</span>
-            <select class="form-select form-select-sm cq-select" style="width: 160px;"
-                    value="@_currentTheme"
-                    @onchange="@(e => HandleThemeChanged(e.Value?.ToString() ?? "office"))">
-                <option value="office">Return to Office</option>
-                <option value="nightshift">Night Shift</option>
-                <option value="caviar">Black Caviar</option>
-                <option value="flashbang">Flashbang</option>
-                <option value="kiddie">Script Kiddie</option>
-                <option value="bsod">Blue Screen</option>
-                <option value="bravosix">Bravo Six</option>
-                <option value="carbon">Carbon</option>
-                <option value="async">Async</option>
-            </select>
-        </div>
+    @* Zone Q1: Sidebar *@
+    <div class="cq-zone-q1">
+        <span class="cq-placeholder">Q1</span>
     </div>
 
-    <QueueManager HubConnection="_hubConnection" />
-    <CircuitMonitor @ref="_circuitMonitor" />
-    <DashboardSettings OnSettingsApplied="HandleSettingsUpdated" />
+    @* Zone Q2: Main Area *@
+    <div class="cq-zone-q2">
+        
+        @* Zone 2: Header *@
+        <div class="cq-header">
+            <div class="cq-flex cq-align-items-baseline cq-gap-1">
+                <h5 class="cq-margin-bottom-0 cq-font-bold">CHOKAQ</h5>
+                <small style="color: var(--cq-text-muted)">v1.0.0</small>
+            </div>
+            <div class="cq-margin-left-auto">
+                <select class="cq-select" style="width: 140px;"
+                        value="@_currentTheme"
+                        @onchange="@(e => HandleThemeChanged(e.Value?.ToString() ?? "office"))">
+                    <option value="office">Return to Office</option>
+                    <option value="nightshift">Night Shift</option>
+                    <option value="caviar">Black Caviar</option>
+                    <option value="flashbang">Flashbang</option>
+                    <option value="kiddie">Script Kiddie</option>
+                    <option value="bsod">Blue Screen</option>
+                    <option value="bravosix">Bravo Six</option>
+                    <option value="carbon">Carbon</option>
+                    <option value="async">Async</option>
+                </select>
+            </div>
+        </div>
 
-    <JobFeed Jobs="_jobs"
-             Counts="_counts"
-             IsConnected="IsConnected"
-             HubConnection="_hubConnection"
-             OnClearHistory="ClearHistory" />
+        @* Zone Q3: Content Area *@
+        <div class="cq-zone-q3">
+            
+            @* Zone S1: Left Column (65%) *@
+            <div class="cq-col-s1">
+                @* Zone 5: Queue List *@
+                <div class="cq-section-queues">
+                    <QueueManager HubConnection="_hubConnection" />
+                </div>
+                
+                @* Zone 7: Stats *@
+                <div class="cq-section-stats">
+                    <StatsCard Counts="_counts" OnStatusSelected="SetStatusFilter" SelectedStatus="_activeStatusFilter" />
+                </div>
+                
+                @* Zone 9: Job Feed *@
+                <div class="cq-section-feed">
+                    <JobFeed Jobs="_jobs"
+                             Counts="_counts"
+                             IsConnected="IsConnected"
+                             HubConnection="_hubConnection"
+                             OnClearHistory="ClearHistory"
+                             ActiveStatusFilter="_activeStatusFilter" />
+                </div>
+                
+                @* Zone 10: Logs *@
+                <div class="cq-section-logs">
+                    <span class="cq-placeholder">10 (logs)</span>
+                </div>
+            </div>
+
+            @* Zone S2: Right Column (35%) *@
+            <div class="cq-col-s2">
+                @* Zone X1: Settings *@
+                <div class="cq-section-settings">
+                    <DashboardSettings OnSettingsApplied="HandleSettingsUpdated" />
+                </div>
+                
+                @* Zone X2: Circuit Monitor *@
+                <div class="cq-section-circuits">
+                    <CircuitMonitor @ref="_circuitMonitor" />
+                </div>
+                
+                @* Zone 11: Footer Reserved *@
+                <div class="cq-section-footer-res">
+                    <span class="cq-placeholder">11 (reserved)</span>
+                </div>
+            </div>
+
+        </div>
+    </div>
 </div>
+

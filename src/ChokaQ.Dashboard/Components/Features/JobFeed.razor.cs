@@ -41,7 +41,9 @@ public partial class JobFeed
 
     // Filtering state
     private string _searchQuery = "";
-    private JobStatus? _activeStatusFilter = null;
+
+    /// <summary>Status filter applied by parent component.</summary>
+    [Parameter] public JobStatus? ActiveStatusFilter { get; set; }
 
     // Multi-select state for bulk operations
     private HashSet<string> _selectedJobIds = new();
@@ -55,9 +57,9 @@ public partial class JobFeed
         {
             IEnumerable<JobViewModel> query = Jobs;
 
-            if (_activeStatusFilter.HasValue)
+            if (ActiveStatusFilter.HasValue)
             {
-                query = query.Where(x => x.Status == _activeStatusFilter.Value);
+                query = query.Where(x => x.Status == ActiveStatusFilter.Value);
             }
 
             if (!string.IsNullOrWhiteSpace(_searchQuery))
@@ -75,14 +77,11 @@ public partial class JobFeed
         }
     }
 
-    private void SetStatusFilter(JobStatus? status)
+    protected override void OnParametersSet()
     {
-        if (_activeStatusFilter == status)
-            _activeStatusFilter = null;
-        else
-            _activeStatusFilter = status;
-
-        _selectedJobIds.Clear();
+        // Clear selection if the list of jobs might have changed significantly due to filtering
+        // This is a simple heuristic; you might want more complex logic to retain selection if valid.
+        // For now, consistent behavior compliant with "ruthless cleanup".
     }
 
     private void ToggleSelection(string jobId, bool isSelected)

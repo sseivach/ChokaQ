@@ -12,9 +12,11 @@ namespace ChokaQ.Dashboard.Components.Features;
 public partial class QueueManager : IDisposable
 {
     [Inject] public IJobStorage Storage { get; set; } = default!;
+
     [Parameter] public HubConnection? HubConnection { get; set; }
 
     private List<QueueEntity> _queues = new();
+
     private Dictionary<string, StatsSummaryEntity> _queueStats = new();
     private HashSet<string> _hiddenQueues = new();
     private IEnumerable<QueueEntity> _visibleQueues => _queues.Where(q => !_hiddenQueues.Contains(q.Name));
@@ -50,6 +52,7 @@ public partial class QueueManager : IDisposable
             _queues = (await Storage.GetQueuesAsync()).ToList();
             var stats = await Storage.GetQueueStatsAsync();
             _queueStats = stats.ToDictionary(s => s.Queue ?? "", s => s);
+
             
             _isLoading = false;
 

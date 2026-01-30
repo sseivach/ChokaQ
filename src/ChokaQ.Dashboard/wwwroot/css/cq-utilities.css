@@ -1,0 +1,764 @@
+/* ==========================================
+   CHOKAQ UTILITIES - Human-Readable CSS
+   Zero Dependencies, Rem-First Approach
+   ========================================== */
+
+/* === SPACING - MARGIN === */
+.cq-margin-top-0-25 {
+    margin-top: 0.25rem;
+}
+
+/* 4px */
+.cq-margin-top-0-5 {
+    margin-top: 0.5rem;
+}
+
+/* 8px */
+.cq-margin-top-1 {
+    margin-top: 1rem;
+}
+
+/* 16px */
+.cq-margin-top-1-5 {
+    margin-top: 1.5rem;
+}
+
+/* 24px */
+.cq-margin-top-2 {
+    margin-top: 2rem;
+}
+
+/* 32px */
+.cq-margin-top-3 {
+    margin-top: 3rem;
+}
+
+/* 48px */
+
+.cq-margin-bottom-0 {
+    margin-bottom: 0;
+}
+
+.cq-margin-bottom-0-25 {
+    margin-bottom: 0.25rem;
+}
+
+/* 4px */
+.cq-margin-bottom-0-5 {
+    margin-bottom: 0.5rem;
+}
+
+/* 8px */
+.cq-margin-bottom-1 {
+    margin-bottom: 1rem;
+}
+
+/* 16px */
+.cq-margin-bottom-1-5 {
+    margin-bottom: 1.5rem;
+}
+
+/* 24px */
+.cq-margin-bottom-2 {
+    margin-bottom: 2rem;
+}
+
+/* 32px */
+.cq-margin-bottom-3 {
+    margin-bottom: 3rem;
+}
+
+/* 48px */
+
+.cq-margin-left-0-5 {
+    margin-left: 0.5rem;
+}
+
+/* 8px */
+.cq-margin-left-1 {
+    margin-left: 1rem;
+}
+
+/* 16px */
+.cq-margin-left-2 {
+    margin-left: 2rem;
+}
+
+/* 32px */
+
+.cq-margin-right-0-5 {
+    margin-right: 0.5rem;
+}
+
+/* 8px */
+.cq-margin-right-1 {
+    margin-right: 1rem;
+}
+
+/* 16px */
+.cq-margin-right-2 {
+    margin-right: 2rem;
+}
+
+/* 32px */
+
+.cq-margin-auto {
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* === SPACING - PADDING === */
+.cq-padding-0-5 {
+    padding: 0.5rem;
+}
+
+/* 8px */
+.cq-padding-1 {
+    padding: 1rem;
+}
+
+/* 16px */
+.cq-padding-1-5 {
+    padding: 1.5rem;
+}
+
+/* 24px */
+.cq-padding-2 {
+    padding: 2rem;
+}
+
+/* 32px */
+.cq-padding-3 {
+    padding: 3rem;
+}
+
+/* 48px */
+.cq-padding-4 {
+    padding: 4rem;
+}
+
+/* 64px */
+
+.cq-padding-top-0-5 {
+    padding-top: 0.5rem;
+}
+
+/* 8px */
+.cq-padding-top-1 {
+    padding-top: 1rem;
+}
+
+/* 16px */
+.cq-padding-top-2 {
+    padding-top: 2rem;
+}
+
+/* 32px */
+
+.cq-padding-bottom-0-5 {
+    padding-bottom: 0.5rem;
+}
+
+/* 8px */
+.cq-padding-bottom-1 {
+    padding-bottom: 1rem;
+}
+
+/* 16px */
+.cq-padding-bottom-2 {
+    padding-bottom: 2rem;
+}
+
+/* 32px */
+
+.cq-padding-left-0-5 {
+    padding-left: 0.5rem;
+}
+
+/* 8px */
+.cq-padding-left-1 {
+    padding-left: 1rem;
+}
+
+/* 16px */
+.cq-padding-left-2 {
+    padding-left: 2rem;
+}
+
+/* 32px */
+
+.cq-padding-right-0-5 {
+    padding-right: 0.5rem;
+}
+
+/* 8px */
+.cq-padding-right-1 {
+    padding-right: 1rem;
+}
+
+/* 16px */
+.cq-padding-right-2 {
+    padding-right: 2rem;
+}
+
+/* 32px */
+
+/* === LAYOUT - FLEXBOX === */
+.cq-flex {
+    display: flex;
+}
+
+.cq-flex-column {
+    flex-direction: column;
+}
+
+.cq-flex-row {
+    flex-direction: row;
+}
+
+.cq-flex-wrap {
+    flex-wrap: wrap;
+}
+
+.cq-flex-nowrap {
+    flex-wrap: nowrap;
+}
+
+.cq-align-items-start {
+    align-items: flex-start;
+}
+
+.cq-align-items-center {
+    align-items: center;
+}
+
+.cq-align-items-end {
+    align-items: flex-end;
+}
+
+.cq-align-items-baseline {
+    align-items: baseline;
+}
+
+.cq-align-items-stretch {
+    align-items: stretch;
+}
+
+.cq-justify-content-start {
+    justify-content: flex-start;
+}
+
+.cq-justify-content-center {
+    justify-content: center;
+}
+
+.cq-justify-content-end {
+    justify-content: flex-end;
+}
+
+.cq-justify-content-between {
+    justify-content: space-between;
+}
+
+.cq-justify-content-around {
+    justify-content: space-around;
+}
+
+.cq-gap-0-25 {
+    gap: 0.25rem;
+}
+
+/* 4px */
+.cq-gap-0-5 {
+    gap: 0.5rem;
+}
+
+/* 8px */
+.cq-gap-1 {
+    gap: 1rem;
+}
+
+/* 16px */
+.cq-gap-1-5 {
+    gap: 1.5rem;
+}
+
+/* 24px */
+.cq-gap-2 {
+    gap: 2rem;
+}
+
+/* 32px */
+.cq-gap-3 {
+    gap: 3rem;
+}
+
+/* 48px */
+
+.cq-flex-1 {
+    flex: 1;
+}
+
+.cq-flex-2 {
+    flex: 2;
+}
+
+.cq-flex-3 {
+    flex: 3;
+}
+
+/* === LAYOUT - GRID === */
+.cq-grid {
+    display: grid;
+}
+
+/* === SIZING === */
+.cq-width-100 {
+    width: 100%;
+}
+
+.cq-height-100 {
+    height: 100%;
+}
+
+/* === TYPOGRAPHY === */
+.cq-font-bold {
+    font-weight: bold;
+}
+
+.cq-font-normal {
+    font-weight: normal;
+}
+
+.cq-font-light {
+    font-weight: 300;
+}
+
+.cq-font-size-small {
+    font-size: 0.875rem;
+}
+
+/* 14px */
+.cq-font-size-normal {
+    font-size: 1rem;
+}
+
+/* 16px */
+.cq-font-size-large {
+    font-size: 1.25rem;
+}
+
+/* 20px */
+.cq-font-size-xlarge {
+    font-size: 1.5rem;
+}
+
+/* 24px */
+
+.cq-text-uppercase {
+    text-transform: uppercase;
+}
+
+.cq-text-lowercase {
+    text-transform: lowercase;
+}
+
+.cq-text-capitalize {
+    text-transform: capitalize;
+}
+
+.cq-text-align-left {
+    text-align: left;
+}
+
+.cq-text-align-center {
+    text-align: center;
+}
+
+.cq-text-align-right {
+    text-align: right;
+}
+
+.cq-text-align-end {
+    text-align: end;
+}
+
+.cq-text-nowrap {
+    white-space: nowrap;
+}
+
+/* === DISPLAY === */
+.cq-display-block {
+    display: block;
+}
+
+.cq-display-inline {
+    display: inline;
+}
+
+.cq-display-inline-block {
+    display: inline-block;
+}
+
+.cq-display-none {
+    display: none;
+}
+
+/* === SHADOWS === */
+.cq-shadow-small {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.cq-shadow-medium {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+.cq-shadow-large {
+    box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.175);
+}
+
+/* === BORDERS === */
+.cq-border {
+    border: 1px solid var(--cq-border);
+}
+
+.cq-border-top {
+    border-top: 1px solid var(--cq-border);
+}
+
+.cq-border-bottom {
+    border-bottom: 1px solid var(--cq-border);
+}
+
+.cq-border-left {
+    border-left: 1px solid var(--cq-border);
+}
+
+.cq-border-right {
+    border-right: 1px solid var(--cq-border);
+}
+
+/* === OVERFLOW === */
+.cq-overflow-auto {
+    overflow: auto;
+}
+
+.cq-overflow-hidden {
+    overflow: hidden;
+}
+
+.cq-overflow-scroll {
+    overflow: scroll;
+}
+
+.cq-overflow-y-auto {
+    overflow-y: auto;
+}
+
+.cq-overflow-x-auto {
+    overflow-x: auto;
+}
+
+.cq-margin-left-auto {
+    margin-left: auto;
+}
+
+.cq-margin-right-auto {
+    margin-right: auto;
+}
+
+.cq-align-middle {
+    vertical-align: middle;
+}
+
+.cq-text-muted {
+    color: var(--cq-text-muted);
+}
+
+.cq-text-success {
+    color: var(--cq-success);
+}
+
+.cq-text-danger {
+    color: var(--cq-danger);
+}
+
+.cq-font-monospace {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+/* === BADGES === */
+.cq-badge {
+    display: inline-block;
+    padding: 0.25em 0.5em;
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: 0.25rem;
+}
+
+/* === BACKGROUNDS === */
+.cq-bg-primary {
+    background-color: var(--cq-info);
+    color: white;
+}
+
+.cq-bg-secondary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.cq-bg-success {
+    background-color: var(--cq-success);
+    color: white;
+}
+
+.cq-bg-danger {
+    background-color: var(--cq-danger);
+    color: white;
+}
+
+.cq-bg-info {
+    background-color: var(--cq-info);
+    color: white;
+}
+
+.cq-bg-light {
+    background-color: #f8f9fa;
+    color: #212529;
+}
+
+.cq-bg-dark {
+    background-color: #212529;
+    color: white;
+}
+
+/* === BORDERS === */
+.cq-border-secondary {
+    border-color: #6c757d !important;
+}
+
+.cq-text-dark {
+    color: #212529;
+}
+
+.cq-text-light {
+    color: #f8f9fa;
+}
+
+/* === BUTTONS === */
+.cq-btn {
+    display: inline-block;
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--cq-text);
+    text-align: center;
+    text-decoration: none;
+    vertical-align: middle;
+    cursor: pointer;
+    user-select: none;
+    background-color: transparent;
+    border: 1px solid transparent;
+    padding: 0.375rem 0.75rem;
+    font-size: 1rem;
+    border-radius: 0.25rem;
+    transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.cq-btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    border-radius: 0.2rem;
+}
+
+.cq-btn-link {
+    font-weight: 400;
+    color: var(--cq-info);
+    text-decoration: none;
+}
+
+.cq-btn-link:hover {
+    text-decoration: underline;
+}
+
+.cq-btn-outline-primary {
+    color: var(--cq-info);
+    border-color: var(--cq-info);
+}
+
+.cq-btn-outline-primary:hover {
+    color: #fff;
+    background-color: var(--cq-info);
+}
+
+.cq-btn-outline-danger {
+    color: var(--cq-danger);
+    border-color: var(--cq-danger);
+}
+
+.cq-btn-outline-danger:hover {
+    color: #fff;
+    background-color: var(--cq-danger);
+}
+
+.cq-btn-outline-secondary {
+    color: var(--cq-text-muted);
+    border-color: var(--cq-text-muted);
+}
+
+.cq-btn-outline-secondary:hover {
+    color: #fff;
+    background-color: var(--cq-text-muted);
+}
+
+/* === PROGRESS === */
+.cq-progress {
+    display: flex;
+    height: 1rem;
+    overflow: hidden;
+    font-size: 0.75rem;
+    background-color: var(--cq-border);
+    border-radius: 0.25rem;
+}
+
+.cq-progress-bar {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    overflow: hidden;
+    color: #fff;
+    text-align: center;
+    white-space: nowrap;
+    background-color: var(--cq-info);
+    transition: width 0.6s ease;
+}
+
+.cq-btn-outline-success {
+    color: var(--cq-success);
+    border-color: var(--cq-success);
+}
+
+.cq-btn-outline-success:hover {
+    color: #fff;
+    background-color: var(--cq-success);
+}
+
+/* === FORMS === */
+.cq-input {
+    display: block;
+    width: 100%;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    background-color: var(--cq-panel-bg);
+    color: var(--cq-text);
+    border: 1px solid var(--cq-border);
+    border-radius: 4px;
+    transition: border-color 0.15s ease-in-out;
+}
+
+.cq-input:focus {
+    outline: none;
+    border-color: var(--cq-info);
+}
+
+.cq-select {
+    display: block;
+    width: 100%;
+    padding: 0.25rem 1.5rem 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    background-color: var(--cq-panel-bg);
+    color: var(--cq-text);
+    border: 1px solid var(--cq-border);
+    border-radius: 4px;
+    appearance: none;
+    background-image: url('data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 16 16\'%3E%3Cpath fill=\'none\' stroke=\'%23999\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M2 5l6 6 6-6\'/%3E%3C/svg%3E');
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 16px 12px;
+}
+
+.cq-checkbox {
+    width: 1em;
+    height: 1em;
+    margin-top: 0.25em;
+    vertical-align: top;
+    background-color: var(--cq-panel-bg);
+    border: 1px solid var(--cq-border);
+    appearance: none;
+    cursor: pointer;
+}
+
+.cq-checkbox:checked {
+    background-color: var(--cq-info);
+    border-color: var(--cq-info);
+}
+
+/* === TABLES === */
+.cq-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.cq-table th {
+    text-align: left;
+    padding: 12px 16px;
+    border-bottom: 2px solid var(--cq-border);
+    color: var(--cq-text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    font-weight: 600;
+    background-color: var(--cq-panel-bg);
+}
+
+.cq-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--cq-border);
+    color: var(--cq-text);
+    height: 44px;
+    font-size: 13px;
+}
+
+.cq-table tr:hover td {
+    background-color: var(--cq-panel-hover, rgba(127, 127, 127, 0.08));
+    cursor: pointer;
+}
+
+/* === TOGGLE SWITCH === */
+.cq-toggle {
+    width: 2.5em;
+    height: 1.25em;
+    background-color: var(--cq-panel-bg);
+    border: 1px solid var(--cq-border);
+    border-radius: 2em;
+    position: relative;
+    cursor: pointer;
+    appearance: none;
+    transition: background-color .15s ease-in-out;
+}
+
+.cq-toggle:checked {
+    background-color: var(--cq-success);
+    border-color: var(--cq-success);
+}
+
+.cq-toggle::before {
+    content: '';
+    position: absolute;
+    top: 0.1em;
+    left: 0.1em;
+    width: 1em;
+    height: 1em;
+    background-color: var(--cq-text-muted);
+    border-radius: 50%;
+    transition: transform .15s ease-in-out;
+}
+
+.cq-toggle:checked::before {
+    transform: translateX(1.25em);
+    background-color: #fff;
+}
