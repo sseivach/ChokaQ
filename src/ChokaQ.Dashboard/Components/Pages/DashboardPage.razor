@@ -29,30 +29,6 @@
         </div>
     </div>
 
-    @* Summary Metrics *@
-    <div class="metrics-grid mb-4">
-        <div class="metric-card">
-            <div class="metric-label">Pending</div>
-            <div class="metric-value small font-mono">@_counts.Pending.ToString("N0")</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">Processing</div>
-            <div class="metric-value small font-mono">@_counts.Processing.ToString("N0")</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">Succeeded</div>
-            <div class="metric-value small font-mono" style="color: var(--cq-success)">@_counts.SucceededTotal.ToString("N0")</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">Failed</div>
-            <div class="metric-value small font-mono" style="color: var(--cq-danger)">@_counts.FailedTotal.ToString("N0")</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">Total Jobs</div>
-            <div class="metric-value small font-mono">@_counts.Total.ToString("N0")</div>
-        </div>
-    </div>
-
     <QueueManager HubConnection="_hubConnection" />
     <CircuitMonitor @ref="_circuitMonitor" />
     <DashboardSettings OnSettingsApplied="HandleSettingsUpdated" />
