@@ -1,0 +1,155 @@
+/* ==========================================
+   DASHBOARD LAYOUT - 11 ZONES
+   CSS Grid + Flexbox, Zero Dependencies
+   ========================================== */
+
+/* Main Dashboard Container */
+.cq-layout {
+    display: grid;
+    grid-template-columns: 5% 1fr;
+    grid-template-rows:
+        5%
+        /* row 1: header */
+        18%
+        /* row 2: queues (5) - expanded */
+        10%
+        /* row 3: stats (7+X1) */
+        57%
+        /* row 4: main content (9) */
+        10%;
+    /* row 5: footer (10+11) */
+    height: 100vh;
+    width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+/* Zone 1: Sidebar */
+.cq-zone-1 {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    /* spans all rows */
+    background: var(--cq-panel-bg);
+    border-right: 1px solid var(--cq-border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 1rem;
+    gap: 0.5rem;
+}
+
+/* Zone 2: Header */
+.cq-zone-2 {
+    grid-column: 2;
+    grid-row: 1;
+    background: var(--cq-bg);
+    border-bottom: 1px solid var(--cq-border);
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+}
+
+/* Zone 5: Queue List */
+.cq-zone-5 {
+    grid-column: 2;
+    grid-row: 2;
+    background: var(--cq-panel-bg);
+    border-bottom: 1px solid var(--cq-border);
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+    gap: 0.5rem;
+    overflow-x: auto;
+}
+
+.cq-zone-5>* {
+    flex: 1;
+    width: 100%;
+}
+
+
+/* Zone 7+X1 Row */
+.cq-row-7-x1 {
+    grid-column: 2;
+    grid-row: 3;
+    display: flex;
+    border-bottom: 1px solid var(--cq-border);
+}
+
+.cq-zone-7 {
+    width: 70%;
+    background: var(--cq-bg);
+    display: flex;
+    align-items: stretch;
+    padding: 0.5rem 1rem;
+    gap: 0.5rem;
+}
+
+.cq-zone-7>* {
+    flex: 1;
+    height: 100%;
+}
+
+.cq-zone-x1 {
+    width: 30%;
+    background: var(--cq-panel-bg);
+    border-left: 1px solid var(--cq-border);
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+}
+
+/* Zone 9+X2 Row */
+.cq-row-9-x2 {
+    grid-column: 2;
+    grid-row: 4;
+    display: flex;
+}
+
+.cq-zone-9 {
+    width: 70%;
+    background: var(--cq-bg);
+}
+
+.cq-zone-x2 {
+    width: 30%;
+    background: var(--cq-panel-bg);
+    border-left: 1px solid var(--cq-border);
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+    overflow-y: auto;
+}
+
+/* Zone 10+11 Row (Footer) */
+.cq-row-10-11 {
+    grid-column: 2;
+    grid-row: 5;
+    display: flex;
+    border-top: 1px solid var(--cq-border);
+}
+
+.cq-zone-10 {
+    width: 70%;
+    background: var(--cq-panel-bg);
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+    overflow: hidden;
+}
+
+.cq-zone-11 {
+    width: 30%;
+    background: var(--cq-bg);
+    border-left: 1px solid var(--cq-border);
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+}
+
+/* Placeholder styling for reserved zones */
+.cq-placeholder {
+    color: var(--cq-text-muted);
+    font-size: 0.75rem;
+    opacity: 0.5;
+}

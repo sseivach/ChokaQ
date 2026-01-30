@@ -23,11 +23,11 @@
         <div class="inspector-body">
 
             <div class="inspector-section">
-                <div class="d-flex align-items-center justify-content-between p-3 rounded border"
-                     style="background-color: var(--cq-bg); border-color: var(--cq-border) !important;">
+                <div class="cq-flex cq-align-items-center cq-justify-content-between cq-padding-3 cq-border"
+                     style="background-color: var(--cq-bg); border-color: var(--cq-border) !important; border-radius: 4px;">
                     <div>
                         <div class="section-title" style="margin-bottom: 0;">Current Status</div>
-                        <div class="fs-5 fw-bold mt-1" style="color: @GetStatusColor()">
+                        <div class="cq-font-size-xlarge cq-font-bold cq-margin-top-0-25" style="color: @GetStatusColor()">
                             @_job.Status.ToString().ToUpper()
                         </div>
                     </div>
@@ -42,7 +42,7 @@
                 <ul class="meta-list">
                     <li>
                         <span class="meta-label">Job Type</span>
-                        <span class="meta-value text-break" style="max-width: 60%; text-align: right;">@_job.Type</span>
+                        <span class="meta-value cq-text-align-right" style="max-width: 60%; word-break: break-all;">@_job.Type</span>
                     </li>
                     <li>
                         <span class="meta-label">Target Queue</span>
@@ -90,7 +90,7 @@
             @if (!string.IsNullOrEmpty(_job.ErrorDetails))
             {
                 <div class="inspector-section">
-                    <div class="section-title text-danger">Exception Stack Trace</div>
+                    <div class="section-title cq-text-danger">Exception Stack Trace</div>
                     <div class="code-block error">
                         @_job.ErrorDetails
                     </div>

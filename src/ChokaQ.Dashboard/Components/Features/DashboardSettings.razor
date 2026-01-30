@@ -1,20 +1,20 @@
-﻿<div class="card cq-card shadow-sm mb-4">
-    <div class="card-body d-flex align-items-center gap-4 flex-wrap">
+﻿<div class="cq-height-100 cq-flex cq-align-items-center">
+    <div class="cq-width-100 cq-flex cq-align-items-center cq-gap-2 cq-flex-wrap">
 
-        <div class="d-flex align-items-center gap-2">
-            <div class="fw-bold small">WORKERS</div>
+        <div class="cq-flex cq-align-items-center cq-gap-0-5">
+            <div class="cq-font-bold cq-font-size-small">WORKERS</div>
             <input type="number"
-                   class="form-control form-control-sm cq-input"
+                   class="cq-input"
                    style="width: 70px;"
                    min="0"
                    max="100"
                    @bind="DesiredWorkers" />
-            <span class="text-muted small ms-1">(Active: @WorkerManager.ActiveWorkers)</span>
+            <span class="cq-text-muted cq-font-size-small cq-margin-left-0-5">(Active: @WorkerManager.ActiveWorkers)</span>
         </div>
 
-        <div class="d-flex align-items-center gap-2">
-            <div class="fw-bold small">RETRIES</div>
-            <select class="form-select form-select-sm cq-select" style="width: 60px;"
+        <div class="cq-flex cq-align-items-center cq-gap-0-5">
+            <div class="cq-font-bold cq-font-size-small">RETRIES</div>
+            <select class="cq-select" style="width: 60px;"
                     @bind="MaxRetries">
                 @for (int i = 1; i <= 10; i++)
                 {
@@ -23,14 +23,14 @@
             </select>
         </div>
 
-        <div class="d-flex align-items-center gap-2">
-            <div class="fw-bold small">BASE DELAY (S)</div>
-            <input type="number" class="form-control form-control-sm cq-input" style="width: 70px;"
+        <div class="cq-flex cq-align-items-center cq-gap-0-5">
+            <div class="cq-font-bold cq-font-size-small">BASE DELAY (S)</div>
+            <input type="number" class="cq-input" style="width: 70px;"
                    min="1" max="3600" @bind="RetryDelaySeconds" />
         </div>
 
-        <div class="ms-auto">
-            <button class="btn btn-sm btn-outline-success px-4" @onclick="ApplyChanges">
+        <div class="cq-margin-left-auto">
+            <button class="cq-btn cq-btn-sm cq-btn-outline-success cq-padding-left-2 cq-padding-right-2" @onclick="ApplyChanges">
                 Apply
             </button>
         </div>
