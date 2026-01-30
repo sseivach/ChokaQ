@@ -80,10 +80,10 @@
     justify-content: center;
 }
 
-    .btn-icon:hover {
-        background-color: rgba(128, 128, 128, 0.1);
-        color: var(--cq-text);
-    }
+.btn-icon:hover {
+    background-color: rgba(128, 128, 128, 0.1);
+    color: var(--cq-text);
+}
 
 /* Scrollable Body */
 .inspector-body {
@@ -123,9 +123,9 @@
     overflow-y: auto;
 }
 
-    .code-block.error {
-        border-left: 4px solid var(--cq-danger);
-    }
+.code-block.error {
+    border-left: 4px solid var(--cq-danger);
+}
 
 /* Timeline/Metadata List */
 .meta-list {
@@ -135,16 +135,16 @@
     font-size: 13px;
 }
 
-    .meta-list li {
-        display: flex;
-        justify-content: space-between;
-        padding: 0.4rem 0;
-        border-bottom: 1px solid var(--cq-border);
-    }
+.meta-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--cq-border);
+}
 
-        .meta-list li:last-child {
-            border-bottom: none;
-        }
+.meta-list li:last-child {
+    border-bottom: none;
+}
 
 .meta-label {
     color: var(--cq-text-muted);
@@ -179,9 +179,9 @@
     border: 1px solid transparent;
 }
 
-    .btn-action:hover {
-        opacity: 0.9;
-    }
+.btn-action:hover {
+    opacity: 0.9;
+}
 
 .btn-primary-action {
     background-color: var(--cq-info);
@@ -194,10 +194,10 @@
     color: var(--cq-danger);
 }
 
-    .btn-danger-action:hover {
-        background-color: var(--cq-danger);
-        color: white;
-    }
+.btn-danger-action:hover {
+    background-color: var(--cq-danger);
+    color: white;
+}
 
 /* Animations */
 @keyframes slideIn {
