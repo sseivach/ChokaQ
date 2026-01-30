@@ -1,7 +1,7 @@
 ﻿@using ChokaQ.Abstractions.Enums
 
-<div class="row mb-3 g-2 row-cols-2 row-cols-md-4 row-cols-lg-6">
-    <div class="col">
+<div class="d-flex gap-2 mb-3 w-100">
+    <div class="flex-1">
         <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Pending) ? "active" : "")"
              @onclick="() => Select(JobStatus.Pending)">
             <div class="card-body">
@@ -13,7 +13,7 @@
         </div>
     </div>
 
-    <div class="col">
+    <div class="flex-1">
         <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Fetched) ? "active" : "")"
              @onclick="() => Select(JobStatus.Fetched)">
             <div class="card-body">
@@ -25,7 +25,7 @@
         </div>
     </div>
 
-    <div class="col">
+    <div class="flex-1">
         <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Processing) ? "active" : "")"
              @onclick="() => Select(JobStatus.Processing)">
             <div class="card-body">
@@ -37,7 +37,7 @@
         </div>
     </div>
 
-    <div class="col">
+    <div class="flex-1">
         <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Succeeded) ? "active" : "")"
              @onclick="() => Select(JobStatus.Succeeded)">
             <div class="card-body">
@@ -49,7 +49,7 @@
         </div>
     </div>
 
-    <div class="col">
+    <div class="flex-1">
         <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Failed) ? "active" : "")"
              @onclick="() => Select(JobStatus.Failed)">
             <div class="card-body">
@@ -61,7 +61,7 @@
         </div>
     </div>
 
-    <div class="col">
+    <div class="flex-1">
         <div class="card cq-card shadow-sm h-100 filter-card @(IsActive(JobStatus.Cancelled) ? "active" : "")"
              @onclick="() => Select(JobStatus.Cancelled)">
             <div class="card-body">
@@ -73,7 +73,7 @@
         </div>
     </div>
 
-    <div class="col">
+    <div class="flex-1">
         <div class="card cq-card shadow-sm h-100 filter-card @(SelectedStatus == null ? "active" : "")"
              @onclick="() => OnStatusSelected.InvokeAsync(null)">
             <div class="card-body">
