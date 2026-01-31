@@ -1,4 +1,4 @@
-﻿using Dapper;
+﻿using ChokaQ.Storage.SqlServer.DataEngine;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using System.Reflection;
@@ -93,7 +93,7 @@ public class SqlInitializer
 
             try
             {
-                await connection.ExecuteAsync(new CommandDefinition(commandText, cancellationToken: ct));
+                await connection.ExecuteAsync(commandText, null, ct);
             }
             catch (SqlException ex)
             {
