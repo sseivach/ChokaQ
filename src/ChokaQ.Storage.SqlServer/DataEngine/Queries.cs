@@ -153,6 +153,8 @@ internal sealed class Queries
             DECLARE @Queue varchar(255);
             SELECT @Queue = [Queue] FROM [{schema}].[JobsHot] WHERE [Id] = @Id;
 
+            IF @Queue IS NULL RETURN;
+
             -- 1. Insert into DLQ
             INSERT INTO [{schema}].[JobsDLQ]
             ([Id], [Queue], [Type], [Payload], [Tags], [FailureReason], [ErrorDetails], [AttemptCount],
@@ -165,7 +167,7 @@ internal sealed class Queries
             -- 2. Delete from Hot
             DELETE FROM [{schema}].[JobsHot] WHERE [Id] = @Id;
 
-            -- 3. Update stats (MERGE for upsert)
+            -- 3. Update stats
             MERGE [{schema}].[StatsSummary] AS target
             USING (SELECT @Queue AS Queue) AS source
             ON target.[Queue] = source.Queue
