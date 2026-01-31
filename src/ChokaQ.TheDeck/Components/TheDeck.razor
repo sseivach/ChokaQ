@@ -1,0 +1,40 @@
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="deck-root">
+    
+    <!-- LEFT COLUMN -->
+    <div class="deck-col-main">
+        <div class="deck-row-header">
+            <HeaderLeft />
+        </div>
+        <div class="deck-row-queues">
+            <Queues />
+        </div>
+        <div class="deck-row-stats">
+            <Stats />
+        </div>
+        <div class="deck-row-matrix">
+            <JobMatrix />
+        </div>
+        <div class="deck-row-console">
+            <ConsoleLog />
+        </div>
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="deck-col-side">
+        <div class="deck-row-header">
+            <HeaderRight />
+        </div>
+        <div class="deck-row-settings">
+            <Settings />
+        </div>
+        <div class="deck-row-circuits">
+            <Circuits />
+        </div>
+        <div class="deck-row-ops">
+            <OpsPanel />
+        </div>
+    </div>
+
+</div>

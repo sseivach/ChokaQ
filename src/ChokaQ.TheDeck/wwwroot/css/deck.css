@@ -1,0 +1,71 @@
+/* ==========================================
+   THE DECK - FLEXBOX LAYOUT (STRUCTURE ONLY)
+   ========================================== */
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Root Container */
+.deck-root {
+    display: flex;
+    flex-direction: row;
+    height: 100vh;
+    width: 100vw;
+}
+
+/* Left Column (Main) */
+.deck-col-main {
+    flex: 1;
+    /* Takes all available space */
+    display: flex;
+    flex-direction: column;
+}
+
+/* Right Column (Sidebar/Tools) */
+.deck-col-side {
+    width: 25%;
+    /* Fixed width */
+    min-width: 300px;
+    display: flex;
+    flex-direction: column;
+}
+
+/* --- Row Structures --- */
+
+/* Row 1: Headers */
+.deck-row-header {
+    height: 4rem;
+    flex-shrink: 0;
+}
+
+/* Row 2: Queues/Settings */
+.deck-row-queues,
+.deck-row-settings {
+    height: 12rem;
+    flex-shrink: 0;
+}
+
+/* Row 3: Stats/Circuits (Adjusted to 5rem) */
+.deck-row-stats,
+.deck-row-circuits {
+    height: 5rem;
+    flex-shrink: 0;
+}
+
+/* Row 4: Matrix/Ops (Grow) */
+.deck-row-matrix,
+.deck-row-ops {
+    flex: 1;
+    overflow-y: auto;
+}
+
+/* Row 5: ConsoleLog (6rem) */
+.deck-row-console {
+    height: 6rem;
+    flex-shrink: 0;
+}
