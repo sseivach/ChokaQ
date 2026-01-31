@@ -155,7 +155,7 @@ public class SqlJobStorage : IJobStorage
         {
             Id = jobId,
             Reason = (int)reason,
-            Error = errorDetails
+            Error = errorDetails ?? "Unknown error (No details provided)"
         }, ct);
     }
 
