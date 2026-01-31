@@ -1,0 +1,20 @@
+@page "/"
+@using ChokaQ.TheDeck
+@using Microsoft.AspNetCore.Components.Web
+@inject ChokaQTheDeckOptions Options
+
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ChokaQ - The Deck</title>
+    <base href="@(Options.RoutePrefix.TrimEnd('/') + "/")" />
+    <link href="/_content/ChokaQ.TheDeck/css/deck.css" rel="stylesheet" />
+    <HeadOutlet />
+</head>
+<body>
+    <ChokaQ.TheDeck.Components.TheDeck @rendermode="RenderMode.InteractiveServer" />
+    <script src="/_framework/blazor.web.js"></script>
+</body>
+</html>

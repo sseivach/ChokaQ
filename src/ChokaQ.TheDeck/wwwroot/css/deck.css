@@ -8,6 +8,7 @@ body {
     padding: 0;
     height: 100vh;
     overflow: hidden;
+    /* Ensure background is applied here too if needed later */
 }
 
 /* Root Container */
@@ -16,56 +17,70 @@ body {
     flex-direction: row;
     height: 100vh;
     width: 100vw;
+
+    /* Layout Spacing */
+    padding: 2rem;
+    gap: 1rem;
+    /* Gap between Main and Side columns */
+    box-sizing: border-box;
+    /* Include padding in height/width calculation */
 }
 
 /* Left Column (Main) */
 .deck-col-main {
     flex: 1;
-    /* Takes all available space */
     display: flex;
     flex-direction: column;
+    gap: 1rem;
+    /* Gap between Rows in Main column */
 }
 
 /* Right Column (Sidebar/Tools) */
 .deck-col-side {
     width: 25%;
-    /* Fixed width */
     min-width: 300px;
     display: flex;
     flex-direction: column;
+    gap: 1rem;
+    /* Gap between Rows in Side column */
 }
 
 /* --- Row Structures --- */
 
-/* Row 1: Headers */
+/* Row 1: Headers (Height: 4rem) */
 .deck-row-header {
     height: 4rem;
     flex-shrink: 0;
+    border: 1px solid #808080;
 }
 
-/* Row 2: Queues/Settings */
+/* Row 2: Queues & Settings (Height: 16rem) */
 .deck-row-queues,
 .deck-row-settings {
-    height: 12rem;
+    height: 16rem;
     flex-shrink: 0;
+    border: 1px solid #808080;
 }
 
-/* Row 3: Stats/Circuits (Adjusted to 5rem) */
+/* Row 3: Stats & Circuits (Height: 7rem) */
 .deck-row-stats,
 .deck-row-circuits {
-    height: 5rem;
+    height: 7rem;
     flex-shrink: 0;
+    border: 1px solid #808080;
 }
 
-/* Row 4: Matrix/Ops (Grow) */
+/* Row 4: Matrix & Ops (Height: Remaining Space) */
 .deck-row-matrix,
 .deck-row-ops {
     flex: 1;
     overflow-y: auto;
+    border: 1px solid #808080;
 }
 
-/* Row 5: ConsoleLog (6rem) */
+/* Row 5: ConsoleLog (Height: 10rem) */
 .deck-row-console {
-    height: 6rem;
+    height: 10rem;
     flex-shrink: 0;
+    border: 1px solid #808080;
 }

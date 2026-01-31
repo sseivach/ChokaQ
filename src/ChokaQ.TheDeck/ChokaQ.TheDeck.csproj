@@ -12,11 +12,17 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.2" />
+
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
     <Folder Include="wwwroot\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ChokaQ.Abstractions\ChokaQ.Abstractions.csproj" />
+    <ProjectReference Include="..\ChokaQ.Core\ChokaQ.Core.csproj" />
   </ItemGroup>
 
 </Project>
