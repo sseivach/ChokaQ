@@ -1,0 +1,23 @@
+/* ==========================================
+   THEME: BLUEPRINT (Default)
+   ========================================== */
+
+:root,
+[data-theme="blueprint"] {
+    --deck-bg-color: #003366;
+    --deck-bg-image:
+        linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+    --deck-bg-size: 50px 50px;
+
+    --deck-font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    --deck-text-color: #ffffff;
+
+    --sector-bg: rgba(255, 255, 255, 0.02);
+    --sector-border-color: rgba(255, 255, 255, 0.3);
+    --sector-border-highlight: rgba(255, 255, 255, 0.4);
+    --sector-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+    --sector-backdrop: blur(1px);
+
+    --console-bg: rgba(0, 0, 0, 0.2);
+}

@@ -1,5 +1,13 @@
 /* ==========================================
-   THE DECK - BLUEPRINT THEME
+   THE DECK - MAIN STYLES
+   ========================================== */
+
+/* Import Skins */
+@import url('skins/blueprint.css');
+@import url('skins/carbon.css');
+
+/* ==========================================
+   GLOBAL STYLES
    ========================================== */
 
 html,
@@ -9,17 +17,14 @@ body {
     height: 100vh;
     overflow: hidden;
 
-    /* BLUEPRINT BACKGROUND */
-    background-color: #003366;
-    background-image:
-        linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
-    background-size: 50px 50px;
-    /* Grid cell size */
+    /* Theme Application */
+    background-color: var(--deck-bg-color);
+    background-image: var(--deck-bg-image);
+    background-size: var(--deck-bg-size);
 
-    /* TYPOGRAPHY */
-    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-    color: #ffffff;
+    /* Typography */
+    font-family: var(--deck-font-family);
+    color: var(--deck-text-color);
 }
 
 /* Root Container */
@@ -51,23 +56,23 @@ body {
     gap: 1rem;
 }
 
-/* --- SECTOR STYLING (Blueprint Style) --- */
+/* ==========================================
+   SECTOR STYLING
+   ========================================== */
+
 /* Common style for all sectors */
 .deck-sector {
-    /* Transparent to show grid, or slightly tinted */
-    background-color: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
-    backdrop-filter: blur(1px);
-    /* Optional: slight blur for readability */
+    background-color: var(--sector-bg);
+    border: 1px solid var(--sector-border-color);
+    box-shadow: var(--sector-shadow);
+    backdrop-filter: var(--sector-backdrop);
 }
 
 /* Row 1: Headers */
 .deck-row-header {
     height: 4rem;
     flex-shrink: 0;
-    border: 1px solid rgba(255, 255, 255, 0.4);
-    /* Brighter border for header */
+    border: 1px solid var(--sector-border-highlight);
 }
 
 /* Row 2: Queues & Settings */
@@ -75,7 +80,7 @@ body {
 .deck-row-settings {
     height: 16rem;
     flex-shrink: 0;
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    border: 1px solid var(--sector-border-color);
 }
 
 /* Row 3: Stats & Circuits */
@@ -83,7 +88,7 @@ body {
 .deck-row-circuits {
     height: 7rem;
     flex-shrink: 0;
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    border: 1px solid var(--sector-border-color);
 }
 
 /* Row 4: Matrix & Ops */
@@ -91,14 +96,13 @@ body {
 .deck-row-ops {
     flex: 1;
     overflow-y: auto;
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    border: 1px solid var(--sector-border-color);
 }
 
 /* Row 5: ConsoleLog */
 .deck-row-console {
     height: 10rem;
     flex-shrink: 0;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    background-color: rgba(0, 0, 0, 0.2);
-    /* Darker background for console */
+    border: 1px solid var(--sector-border-color);
+    background-color: var(--console-bg);
 }
