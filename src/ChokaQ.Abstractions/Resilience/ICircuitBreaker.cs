@@ -1,7 +1,7 @@
 ﻿using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
 
-namespace ChokaQ.Abstractions;
+namespace ChokaQ.Abstractions.Resilience;
 
 public interface ICircuitBreaker
 {

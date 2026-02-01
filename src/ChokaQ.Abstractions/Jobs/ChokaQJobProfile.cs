@@ -1,4 +1,4 @@
-﻿namespace ChokaQ.Abstractions;
+﻿namespace ChokaQ.Abstractions.Jobs;
 
 /// <summary>
 /// Base class for defining job configurations.

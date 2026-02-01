@@ -1,4 +1,4 @@
-﻿namespace ChokaQ.Abstractions;
+﻿namespace ChokaQ.Abstractions.Contexts;
 
 /// <summary>
 /// Provides context and tools for the currently executing job.

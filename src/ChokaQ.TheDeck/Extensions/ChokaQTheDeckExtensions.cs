@@ -6,7 +6,7 @@ using ChokaQ.TheDeck.Components.Layout;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace ChokaQ;
+namespace ChokaQ.TheDeck.Extensions;
 
 public static class ChokaQTheDeckExtensions
 {

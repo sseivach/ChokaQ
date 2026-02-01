@@ -1,4 +1,4 @@
-﻿namespace ChokaQ.Abstractions;
+﻿namespace ChokaQ.Abstractions.Jobs;
 
 /// <summary>
 /// Base implementation for jobs that automatically handles unique ID generation.

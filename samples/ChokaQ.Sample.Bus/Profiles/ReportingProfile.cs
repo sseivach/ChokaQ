@@ -1,4 +1,4 @@
-﻿using ChokaQ.Abstractions;
+﻿using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Sample.Bus.Jobs;
 
 namespace ChokaQ.Sample.Bus.Profiles;

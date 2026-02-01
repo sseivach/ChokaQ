@@ -1,8 +1,8 @@
-﻿using ChokaQ;
-using ChokaQ.Core.Extensions;
+﻿using ChokaQ.Core.Extensions;
 using ChokaQ.Sample.Bus.Components;
 using ChokaQ.Sample.Bus.Profiles;
 using ChokaQ.Storage.SqlServer;
+using ChokaQ.TheDeck.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 

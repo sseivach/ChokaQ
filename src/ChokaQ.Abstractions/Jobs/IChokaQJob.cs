@@ -1,4 +1,4 @@
-﻿namespace ChokaQ.Abstractions;
+﻿namespace ChokaQ.Abstractions.Jobs;
 
 /// <summary>
 /// Represents the fundamental unit of work in ChokaQ.
