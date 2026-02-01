@@ -2,8 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ChokaQ.Core\ChokaQ.Core.csproj" />
-    <ProjectReference Include="..\..\src\ChokaQ.Dashboard\ChokaQ.Dashboard.csproj" />
     <ProjectReference Include="..\..\src\ChokaQ.Storage.SqlServer\ChokaQ.Storage.SqlServer.csproj" />
+    <ProjectReference Include="..\..\src\ChokaQ.TheDeck\ChokaQ.TheDeck.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

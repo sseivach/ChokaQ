@@ -1,0 +1,226 @@
+@using Microsoft.AspNetCore.Components.Web.Virtualization
+@using ChokaQ.TheDeck.Models
+@using ChokaQ.TheDeck.Components.Shared
+@using ChokaQ.Abstractions.Enums
+@using Microsoft.AspNetCore.SignalR.Client
+
+<div style="display: flex; flex-direction: column; height: 100%;">
+    <!-- Toolbar -->
+    <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid var(--sector-border-color); margin-bottom: 0.5rem; flex-shrink: 0;">
+        <div style="display: flex; gap: 0.5rem; flex: 1; max-width: 400px; align-items: center;">
+             <div style="display: flex; border: 1px solid var(--sector-border-color); background: var(--sector-bg); flex: 1;">
+                 <span style="padding: 0.25rem 0.5rem; border-right: 1px solid var(--sector-border-color); opacity: 0.7; font-size: 0.8rem; display: flex; align-items: center;">SEARCH</span>
+                 <input type="text"
+                        style="background: transparent; border: none; color: var(--deck-text-color); padding: 0.25rem; flex: 1; min-width: 200px; outline: none; font-family: var(--deck-font-family); font-size: 0.9rem;"
+                        placeholder="ID, Type, Queue..."
+                        @bind="_searchQuery"
+                        @bind:event="oninput" />
+                 @if (!string.IsNullOrEmpty(_searchQuery))
+                 {
+                     <span style="padding: 0.25rem 0.5rem; color: var(--deck-info); font-weight: bold; font-size: 0.8rem; border-left: 1px solid var(--sector-border-color); display: flex; align-items: center;">@FilteredJobs.Count</span>
+                     <button style="background: transparent; border: none; color: var(--deck-text-color); cursor: pointer; padding: 0 0.5rem; border-left: 1px solid var(--sector-border-color);" @onclick="() => _searchQuery = string.Empty">X</button>
+                 }
+             </div>
+        </div>
+        
+        <div style="display: flex; gap: 1rem; align-items: center;">
+             @if (SelectedCount > 0)
+             {
+                 <span class="deck-badge" style="background: var(--deck-info); color: white;">@SelectedCount selected</span>
+             }
+             
+             @if (IsConnected)
+             {
+                 <span style="font-size: 0.75rem; font-weight: bold; color: var(--deck-success);">ONLINE</span>
+             }
+             else
+             {
+                 <span style="font-size: 0.75rem; font-weight: bold; color: var(--deck-danger);">OFFLINE</span>
+             }
+             
+             <button class="deck-btn" @onclick="OnClearHistory">Clear</button>
+        </div>
+    </div>
+    
+    <!-- Bulk Actions -->
+    @if (SelectedCount > 0)
+    {
+        <div style="display: flex; align-items: center; gap: 1rem; padding: 0.5rem; background: rgba(255,255,255,0.05); border-bottom: 1px solid var(--sector-border-color); margin-bottom: 0.5rem; animation: fadeIn 0.3s; flex-shrink: 0;">
+            <span style="font-size: 0.75rem; font-weight: bold; opacity: 0.7;">BULK:</span>
+            <button class="deck-btn deck-btn-primary" @onclick="RestartSelected">Retry All</button>
+            <button class="deck-btn deck-btn-danger" @onclick="CancelSelected">Cancel All</button>
+            
+            <div style="border-left: 1px solid var(--sector-border-color); padding-left: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                <span style="font-size: 0.75rem; font-weight: bold; opacity: 0.7;">PRIORITY:</span>
+                <input type="number" style="width: 50px; background: var(--sector-bg); border: 1px solid var(--sector-border-color); color: var(--deck-text-color); padding: 0.2rem;" @bind="_bulkPriorityValue" />
+                <button class="deck-btn" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" @onclick="SetPrioritySelected">Apply</button>
+            </div>
+            
+            <button class="deck-btn" style="margin-left: auto; border: none; background: transparent; text-decoration: underline; opacity: 0.7;" @onclick="ClearSelection">Deselect All</button>
+        </div>
+    }
+
+    <!-- Table -->
+    <div style="flex: 1; overflow-y: auto;">
+        <table class="deck-table">
+            <thead style="position: sticky; top: 0; background: var(--sector-bg); z-index: 10;">
+                <tr>
+                    <th style="width: 40px; text-align: center;">
+                        <input type="checkbox" checked="@IsAllVisibleSelected" @onchange="ToggleSelectAll" style="cursor: pointer;" />
+                    </th>
+                    <th style="width: 15%">ID</th>
+                    <th style="width: 10%">Queue</th>
+                    <th style="width: 15%">Type</th>
+                    <th style="width: 5%; text-align: center;">Pri</th>
+                    <th style="width: 10%">User</th>
+                    <th style="width: 10%; text-align: center;">Status</th>
+                    <th style="width: 15%; text-align: center;">Progress</th>
+                    <th style="width: 5%; text-align: center;">Att.</th>
+                    <th style="width: 5%">Duration</th>
+                    <th style="text-align: right;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <Virtualize Items="@FilteredJobs" Context="job" OverscanCount="10" ItemSize="45">
+                    <ItemContent>
+                        <JobRow @key="job.Id"
+                                Job="job"
+                                IsSelected="@_selectedJobIds.Contains(job.Id)"
+                                OnSelectionChanged="@(isSelected => ToggleSelection(job.Id, isSelected))"
+                                OnCancelRequested="HandleCancelRequest"
+                                OnRestartRequested="HandleRestartRequest"
+                                OnSelected="HandleJobSelected" />
+                    </ItemContent>
+                    <Placeholder>
+                         <tr><td colspan="11" style="text-align: center; padding: 1rem; opacity: 0.5;">Loading...</td></tr>
+                    </Placeholder>
+                    <EmptyContent>
+                         <tr><td colspan="11" style="text-align: center; padding: 2rem; opacity: 0.5;">No jobs found.</td></tr>
+                    </EmptyContent>
+                </Virtualize>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+    @("@keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }")
+</style>
+
+@code {
+    [Parameter] public List<JobViewModel> Jobs { get; set; } = new();
+    [Parameter] public bool IsConnected { get; set; }
+    [Parameter] public EventCallback OnClearHistory { get; set; }
+    [Parameter] public HubConnection? HubConnection { get; set; }
+    [Parameter] public JobStatus? ActiveStatusFilter { get; set; }
+    
+    [Parameter] public EventCallback<string> OnJobSelected { get; set; } 
+
+    private string _searchQuery = "";
+    private HashSet<string> _selectedJobIds = new();
+    private int SelectedCount => _selectedJobIds.Count;
+    private int _bulkPriorityValue = 10;
+
+    private ICollection<JobViewModel> FilteredJobs
+    {
+        get
+        {
+            IEnumerable<JobViewModel> query = Jobs;
+
+            if (ActiveStatusFilter.HasValue)
+            {
+                query = query.Where(x => x.Status == ActiveStatusFilter.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_searchQuery))
+            {
+                var term = _searchQuery.Trim();
+                query = query.Where(x =>
+                    x.Id.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    x.Type.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    x.Queue.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    (x.CreatedBy != null && x.CreatedBy.Contains(term, StringComparison.OrdinalIgnoreCase))
+                );
+            }
+
+            return query.ToList();
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+    }
+
+    private void ToggleSelection(string jobId, bool isSelected)
+    {
+        if (isSelected) _selectedJobIds.Add(jobId);
+        else _selectedJobIds.Remove(jobId);
+    }
+
+    private bool IsAllVisibleSelected => FilteredJobs.Any() && FilteredJobs.All(j => _selectedJobIds.Contains(j.Id));
+
+    private void ToggleSelectAll(ChangeEventArgs e)
+    {
+        var isChecked = (bool)(e.Value ?? false);
+        if (isChecked)
+        {
+            foreach (var job in FilteredJobs) _selectedJobIds.Add(job.Id);
+        }
+        else
+        {
+            _selectedJobIds.Clear();
+        }
+    }
+
+    private void ClearSelection() => _selectedJobIds.Clear();
+
+    private async Task HandleJobSelected(string jobId)
+    {
+        await OnJobSelected.InvokeAsync(jobId);
+    }
+
+    private async Task RestartSelected()
+    {
+        if (HubConnection is not null && IsConnected)
+        {
+            var toProcess = _selectedJobIds.ToList();
+            foreach (var id in toProcess) await HubConnection.InvokeAsync("RestartJob", id);
+            _selectedJobIds.Clear();
+        }
+    }
+
+    private async Task CancelSelected()
+    {
+        if (HubConnection is not null && IsConnected)
+        {
+            var toProcess = _selectedJobIds.ToList();
+            foreach (var id in toProcess) await HubConnection.InvokeAsync("CancelJob", id);
+            _selectedJobIds.Clear();
+        }
+    }
+
+    private async Task SetPrioritySelected()
+    {
+        if (HubConnection is not null && IsConnected)
+        {
+            var toProcess = _selectedJobIds.ToList();
+            foreach (var id in toProcess)
+            {
+                await HubConnection.InvokeAsync("SetPriority", id, _bulkPriorityValue);
+            }
+            _selectedJobIds.Clear();
+        }
+    }
+
+    private async Task HandleCancelRequest(string jobId)
+    {
+        if (HubConnection is not null && IsConnected)
+            await HubConnection.InvokeAsync("CancelJob", jobId);
+    }
+
+    private async Task HandleRestartRequest(string jobId)
+    {
+        if (HubConnection is not null && IsConnected)
+            await HubConnection.InvokeAsync("RestartJob", jobId);
+    }
+}

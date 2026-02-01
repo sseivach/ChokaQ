@@ -1,0 +1,294 @@
+@using Microsoft.AspNetCore.SignalR.Client
+@using ChokaQ.Abstractions.Storage
+@using ChokaQ.Abstractions.Entities
+@using ChokaQ.Abstractions.Enums
+@using ChokaQ.Abstractions.DTOs
+@using ChokaQ.Abstractions
+@using ChokaQ.TheDeck.Models
+@using ChokaQ.TheDeck.Components
+@using ChokaQ.TheDeck.Components.Shared
+@using Microsoft.AspNetCore.Components
+@using System.Timers
+@inject NavigationManager Navigation
+@inject ChokaQTheDeckOptions Options
+@inject IJobStorage JobStorage
+@inject ICircuitBreaker CircuitBreaker
+@implements IAsyncDisposable
+
+<div class="deck-root">
+    
+    <!-- LEFT COLUMN -->
+    <div class="deck-col-main">
+        <div class="deck-row-header">
+            <HeaderLeft />
+        </div>
+        <div class="deck-row-queues">
+            <Queues HubConnection="_hubConnection" />
+        </div>
+        <div class="deck-row-stats">
+            <Stats Counts="_counts" SelectedStatus="_activeStatusFilter" OnStatusSelected="HandleStatusSelected" />
+        </div>
+        <div class="deck-row-matrix">
+            <JobMatrix Jobs="_jobs" 
+                       IsConnected="IsConnected" 
+                       HubConnection="_hubConnection" 
+                       ActiveStatusFilter="_activeStatusFilter" 
+                       OnClearHistory="ClearHistory"
+                       OnJobSelected="HandleJobInspectorRequested" />
+        </div>
+        <div class="deck-row-console">
+            <ConsoleLog Logs="_logs" />
+        </div>
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="deck-col-side">
+        <div class="deck-row-header">
+            <HeaderRight />
+        </div>
+        <div class="deck-row-settings">
+            <Settings />
+        </div>
+        <div class="deck-row-circuits">
+            <Circuits Breakers="_circuits" />
+        </div>
+        <div class="deck-row-ops">
+            <OpsPanel @ref="_opsPanel" OnRequeue="HandleRequeueRequested" OnDelete="HandleDeleteRequested" />
+        </div>
+    </div>
+
+</div>
+
+@code {
+    private HubConnection? _hubConnection;
+    private List<JobViewModel> _jobs = new();
+    private StatsSummaryEntity _counts = new(null, 0, 0, 0, 0, 0, 0, 0, null);
+    private List<CircuitStatsDto> _circuits = new();
+    private List<LogEntry> _logs = new();
+    
+    private OpsPanel _opsPanel = default!;
+    private Timer? _uiRefreshTimer;
+    private JobStatus? _activeStatusFilter;
+    
+    private bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
+    private const int MaxHistoryCount = 1000;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+
+        _uiRefreshTimer = new Timer(2000);
+        _uiRefreshTimer.AutoReset = true;
+        _uiRefreshTimer.Elapsed += async (sender, e) => await LoadDataAsync();
+        _uiRefreshTimer.Start();
+
+        var hubPath = Options.RoutePrefix.TrimEnd('/') + "/hub";
+        var hubUrl = Navigation.ToAbsoluteUri(hubPath);
+
+        _hubConnection = new HubConnectionBuilder()
+            .WithUrl(hubUrl)
+            .WithAutomaticReconnect()
+            .Build();
+
+        RegisterHubHandlers();
+
+        await _hubConnection.StartAsync();
+        AddLog("System connected", "Success");
+    }
+
+    private void RegisterHubHandlers()
+    {
+        if (_hubConnection == null) return;
+
+        _hubConnection.On<JobUpdateDto>("JobUpdated", (dto) =>
+        {
+            InvokeAsync(() =>
+            {
+                var existing = _jobs.FirstOrDefault(j => j.Id == dto.JobId);
+                if (existing != null)
+                {
+                    existing.Status = dto.Status;
+                    existing.Attempts = dto.AttemptCount;
+                    existing.Duration = dto.DurationMs.HasValue ? TimeSpan.FromMilliseconds(dto.DurationMs.Value) : null;
+                    existing.StartedAtUtc = dto.StartedAtUtc?.ToLocalTime();
+                    existing.Queue = dto.Queue;
+                    existing.Priority = dto.Priority;
+                    
+                    if (existing.Status == JobStatus.Failed || existing.Status == JobStatus.Succeeded)
+                    {
+                        AddLog($"Job {dto.JobId.Substring(0,8)} {dto.Status}", dto.Status == JobStatus.Failed ? "Error" : "Success");
+                    }
+                }
+                else
+                {
+                    _jobs.Insert(0, new JobViewModel
+                    {
+                        Id = dto.JobId,
+                        Queue = dto.Queue,
+                        Type = dto.Type,
+                        Status = dto.Status,
+                        Attempts = dto.AttemptCount,
+                        Priority = dto.Priority,
+                        AddedAt = DateTime.Now,
+                        CreatedBy = dto.CreatedBy,
+                        StartedAtUtc = dto.StartedAtUtc?.ToLocalTime()
+                    });
+                    
+                    AddLog($"Job {dto.JobId.Substring(0,8)} enqueued", "Info");
+
+                    if (_jobs.Count > MaxHistoryCount) _jobs.RemoveAt(_jobs.Count - 1);
+                }
+                StateHasChanged();
+            });
+        });
+
+        _hubConnection.On<string, string>("JobArchived", (jobId, queue) =>
+        {
+             InvokeAsync(() =>
+             {
+                 var job = _jobs.FirstOrDefault(j => j.Id == jobId);
+                 if (job != null) job.Status = JobStatus.Succeeded;
+                 // AddLog($"Job {jobId.Substring(0,8)} archived", "Success"); // Noise reduction
+                 StateHasChanged();
+             });
+        });
+
+        _hubConnection.On<string, string, string>("JobFailed", (jobId, queue, reason) =>
+        {
+             InvokeAsync(() =>
+             {
+                 var job = _jobs.FirstOrDefault(j => j.Id == jobId);
+                 if (job != null)
+                 {
+                     job.Status = JobStatus.Failed;
+                     job.ErrorDetails = reason;
+                 }
+                 AddLog($"Job {jobId.Substring(0,8)} failed: {reason}", "Error");
+                 StateHasChanged();
+             });
+        });
+
+        _hubConnection.On("StatsUpdated", () => 
+        {
+            InvokeAsync(async () => 
+            {
+                _counts = await JobStorage.GetSummaryStatsAsync(); 
+                StateHasChanged();
+            });
+        });
+        
+        _hubConnection.On<string, int>("JobProgress", (jobId, percentage) =>
+        {
+             InvokeAsync(() =>
+             {
+                 var job = _jobs.FirstOrDefault(j => j.Id == jobId);
+                 if (job != null)
+                 {
+                     job.Progress = percentage;
+                     StateHasChanged();
+                 }
+             });
+        });
+    }
+
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            _counts = await JobStorage.GetSummaryStatsAsync();
+            _circuits = CircuitBreaker.GetCircuitStats().ToList();
+            
+            // Only load jobs initially or full refresh? 
+            // DashboardPage refreshed jobs every 2s via Timer -> LoadDataAsync.
+            // But this overrides SignalR updates if not careful (Snapshot vs Delta).
+            // DashboardPage logic replaces the list _jobs = viewModels. This resets SignalR updates if done frequently.
+            // But DashboardPage used `_jobs = viewModels` inside InvokeAsync.
+            // If we want real-time, relying on SignalR is better, but DashboardPage does polling too.
+            // I'll keep polling for consistency but maybe less frequent? Or use logic to merge?
+            // Dashboard implementation (Step 427) simply replaced _jobs. This might cause jitter.
+            // I'll adopt the same strategy for compatibility (Polling + SignalR).
+            
+            var hotJobs = await JobStorage.GetActiveJobsAsync(MaxHistoryCount);
+            var viewModels = hotJobs.Select(job => new JobViewModel
+            {
+                Id = job.Id,
+                Queue = job.Queue,
+                Type = job.Type,
+                Status = job.Status,
+                Priority = job.Priority,
+                Attempts = job.AttemptCount,
+                AddedAt = job.CreatedAtUtc.ToLocalTime(),
+                Duration = job.StartedAtUtc.HasValue ? DateTime.UtcNow - job.StartedAtUtc.Value : null,
+                CreatedBy = job.CreatedBy,
+                StartedAtUtc = job.StartedAtUtc?.ToLocalTime(),
+                Payload = job.Payload ?? "{}"
+            }).ToList();
+
+            await InvokeAsync(() =>
+            {
+                 // Merge logic if desired, or replace.
+                 // Replacement needs to preserve selection in JobMatrix if possible, but JobMatrix tracks ID.
+                 // We'll just replace for now.
+                 _jobs = viewModels;
+                 StateHasChanged();
+            });
+        }
+        catch { }
+    }
+
+    private void HandleStatusSelected(JobStatus? status)
+    {
+        _activeStatusFilter = status;
+        StateHasChanged();
+    }
+    
+    private void HandleJobInspectorRequested(string jobId)
+    {
+        _opsPanel.ShowJobInspector(jobId);
+    }
+    
+    private async Task HandleRequeueRequested(string jobId)
+    {
+        if (_hubConnection != null) await _hubConnection.InvokeAsync("RestartJob", jobId);
+    }
+
+    private async Task HandleDeleteRequested(string jobId)
+    {
+        // Delete assumes cancellation/removal? No direct Delete hub method in DashboardPage logic, but JobInspector had OnDelete.
+        // JobInspector.razor.cs had OnDelete callback but didn't implement logic? Step 377: "HandleDeleteRequest ... returns CompletedTask".
+        // Ah, DashboardPage passed `HandleDeleteRequest` to JobInspector.
+        // But DashboardPage logic (step 427) doesn't show "DeleteJob" hub method invoked.
+        // Maybe it's just closing the inspector?
+        // Wait, `JobInspector` in Dashboard had "Delete" button?
+        // I'll check `JobInspector.razor` (Step 170). Line 133: `OnDelete="HandleDeleteRequest"`.
+        // `JobFeed.razor` (Step 362) line 165: `HandleDeleteRequest` just hides inspector.
+        // So "Delete" button in Inspector was effectively "Close" or missing implementation?
+        // `JobInspector.razor.cs` (Step 377) line 21: `EventCallback<string> OnDelete`.
+        // If the backend doesn't support delete, I'll just clear the panel.
+        _opsPanel.ClearPanel();
+    }
+
+    private void ClearHistory()
+    {
+        _jobs.Clear();
+        StateHasChanged();
+    }
+    
+    private void AddLog(string message, string level)
+    {
+        _logs.Add(new LogEntry(DateTime.Now, message, level));
+        if (_logs.Count > 500) _logs.RemoveAt(0);
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_uiRefreshTimer is not null)
+        {
+            _uiRefreshTimer.Stop();
+            _uiRefreshTimer.Dispose();
+        }
+        if (_hubConnection is not null) await _hubConnection.DisposeAsync();
+        GC.SuppressFinalize(this);
+    }
+}

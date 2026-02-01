@@ -48,7 +48,7 @@ internal static class TypeMapper
         catch
         {
             // Fallback for types without parameterless constructor
-            return (T)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(type);
+            return (T)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(type);
         }
     }
 
