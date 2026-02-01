@@ -1,0 +1,20 @@
+/* ==========================================
+   THEME: CARBON
+   ========================================== */
+
+[data-theme="carbon"] {
+    --deck-bg-color: #161616;
+    --deck-bg-image: none;
+    --deck-bg-size: auto;
+
+    --deck-font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    --deck-text-color: #f4f4f4;
+
+    --sector-bg: #262626;
+    --sector-border-color: #393939;
+    --sector-border-highlight: #525252;
+    --sector-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    --sector-backdrop: none;
+
+    --console-bg: #000000;
+}
