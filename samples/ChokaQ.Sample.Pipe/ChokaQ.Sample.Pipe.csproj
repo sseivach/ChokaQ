@@ -7,10 +7,10 @@
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\ChokaQ.Abstractions\ChokaQ.Abstractions.csproj" />
-    <ProjectReference Include="..\..\src\ChokaQ.Core\ChokaQ.Core.csproj" />
-    <ProjectReference Include="..\..\src\ChokaQ.Dashboard\ChokaQ.Dashboard.csproj" />
-  </ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\..\src\ChokaQ.Abstractions\ChokaQ.Abstractions.csproj" />
+		<ProjectReference Include="..\..\src\ChokaQ.Core\ChokaQ.Core.csproj" />
+		<ProjectReference Include="..\..\src\ChokaQ.TheDeck\ChokaQ.TheDeck.csproj" />
+	</ItemGroup>
 
 </Project>

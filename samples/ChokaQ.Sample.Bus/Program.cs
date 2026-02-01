@@ -26,11 +26,6 @@ builder.Services.UseSqlServer(options =>
     options.AutoCreateSqlTable = builder.Environment.IsDevelopment();
 });
 
-// builder.Services.AddChokaQDashboard(options =>
-// {
-//     options.RoutePrefix = "/chokaq";
-// });
-
 builder.Services.AddChokaQTheDeck(options =>
 {
     options.RoutePrefix = "/chokaq";
@@ -51,7 +46,6 @@ app.UseAntiforgery();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// app.MapChokaQDashboard();
 app.MapChokaQTheDeck();
 
 app.Run();
