@@ -1,1 +1,204 @@
-<div>Queues</div>
+@using ChokaQ.Abstractions.Entities
+@using ChokaQ.Abstractions.Storage
+@using Microsoft.AspNetCore.SignalR.Client
+@inject IJobStorage Storage
+@implements IDisposable
+
+<div style="height: 100%; overflow-y: auto;">
+    @if (_isLoading)
+    {
+        <div style="display: flex; align-items: center; justify-content: center; height: 100%; opacity: 0.5;">
+            <span>Loading queues...</span>
+        </div>
+    }
+    else if (!_visibleQueues.Any())
+    {
+        <div style="display: flex; align-items: center; justify-content: center; height: 100%; opacity: 0.5;">
+             <span>No queues found. Send a job to 'default' queue to see it here.</span>
+        </div>
+    }
+    else
+    {
+        <table class="deck-table">
+            <thead>
+                <tr>
+                    <th style="width: 20%">Queue</th>
+                    <th style="width: 20%; text-align: center;">Jobs (Succeeded / Failed)</th>
+                    <th style="width: 15%; text-align: center;">Status</th>
+                    <th style="width: 15%; text-align: center;">Pause/Resume</th>
+                    <th style="width: 15%; text-align: center;">Zombie (s)</th>
+                    <th style="width: 15%; text-align: right;">Last Updated</th>
+                    <th style="width: 5%"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var q in _visibleQueues)
+                {
+                    var stats = GetQueueStats(q.Name);
+                    <tr>
+                        <td style="font-weight: bold; font-family: monospace;">@q.Name</td>
+                        <td style="text-align: center; font-family: monospace;">
+                            @if (stats != null)
+                            {
+                                <span style="color: var(--deck-success)">@stats.SucceededTotal.ToString("N0")</span>
+                                <span style="opacity: 0.5; margin: 0 0.2rem;">/</span>
+                                <span style="color: var(--deck-danger)">@stats.FailedTotal.ToString("N0")</span>
+                            }
+                            else
+                            {
+                                <span style="opacity: 0.5;">0 / 0</span>
+                            }
+                        </td>
+                        <td style="text-align: center;">
+                             <span style="font-size: 0.75rem; padding: 0.1rem 0.4rem; border: 1px solid var(--sector-border-color); color: @GetStatusColor(q);">
+                                 @GetQueueStatus(q)
+                             </span>
+                        </td>
+                        <td style="text-align: center;">
+                             <input type="checkbox" 
+                                    checked="@(!q.IsPaused)"
+                                    @onchange="@(e => ToggleQueue(q.Name, (bool)e.Value!))"
+                                    style="cursor: pointer; width: 1.2rem; height: 1.2rem;" />
+                        </td>
+                        <td style="text-align: center;">
+                            <input type="number"
+                                   style="width: 70px; background: transparent; border: 1px solid var(--sector-border-color); color: var(--deck-text-color); font-family: inherit; font-size: inherit; padding: 0.1rem; text-align: center;"
+                                   value="@q.ZombieTimeoutSeconds"
+                                   @onchange="@(e => UpdateTimeout(q.Name, e.Value))" />
+                        </td>
+                        <td style="text-align: right; opacity: 0.6; font-size: 0.75rem;">
+                            @q.LastUpdatedUtc.ToLocalTime().ToString("HH:mm:ss")
+                        </td>
+                        <td style="text-align: right;">
+                            @if (!q.IsActive)
+                            {
+                                <button class="deck-btn" style="padding: 0.1rem 0.4rem; font-size: 0.7rem;" title="Hide inactive queue" @onclick="() => HideQueue(q.Name)">X</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    [Parameter] public HubConnection? HubConnection { get; set; }
+
+    private List<QueueEntity> _queues = new();
+    private Dictionary<string, StatsSummaryEntity> _queueStats = new();
+    private HashSet<string> _hiddenQueues = new();
+    private IEnumerable<QueueEntity> _visibleQueues => _queues.Where(q => !_hiddenQueues.Contains(q.Name));
+    private System.Threading.Timer? _timer;
+    private bool _isLoading = true;
+    private bool _isFirstLoad = true;
+
+    protected override void OnInitialized()
+    {
+        _timer = new System.Threading.Timer(async _ => await Refresh(), null, 0, 2000);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && HubConnection != null)
+        {
+            HubConnection.On("StatsUpdated", () => InvokeAsync(async () => await Refresh()));
+            
+            if (HubConnection.State == HubConnectionState.Disconnected)
+            {
+                await HubConnection.StartAsync();
+            }
+        }
+    }
+
+    private async Task Refresh()
+    {
+        try
+        {
+            _queues = (await Storage.GetQueuesAsync()).ToList();
+            var stats = await Storage.GetQueueStatsAsync();
+            _queueStats = stats.ToDictionary(s => s.Queue ?? "", s => s);
+            
+            _isLoading = false;
+
+            if (_isFirstLoad)
+            {
+                foreach (var q in _queues)
+                {
+                    if (!q.IsActive) _hiddenQueues.Add(q.Name);
+                }
+                _isFirstLoad = false;
+            }
+
+            foreach (var q in _queues)
+            {
+                if (q.IsActive && _hiddenQueues.Contains(q.Name))
+                {
+                    _hiddenQueues.Remove(q.Name);
+                }
+            }
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task ToggleQueue(string name, bool isRunning)
+    {
+        var pause = !isRunning;
+        var q = _queues.FirstOrDefault(x => x.Name == name);
+        if (q != null)
+        {
+            var index = _queues.IndexOf(q);
+            _queues[index] = q with { IsPaused = pause };
+        }
+
+        if (HubConnection is not null)
+        {
+            await HubConnection.InvokeAsync("ToggleQueue", name, pause);
+            await Refresh();
+        }
+    }
+
+    private async Task UpdateTimeout(string name, object? value)
+    {
+        int? parsedValue = null;
+        if (value is string strVal && int.TryParse(strVal, out int iVal)) parsedValue = Math.Max(60, iVal);
+        else if (value is int intVal) parsedValue = Math.Max(60, intVal);
+
+        var q = _queues.FirstOrDefault(x => x.Name == name);
+        if (q != null)
+        {
+            var index = _queues.IndexOf(q);
+            _queues[index] = q with { ZombieTimeoutSeconds = parsedValue };
+        }
+
+        if (HubConnection is not null)
+        {
+            await HubConnection.InvokeAsync("UpdateQueueTimeout", name, parsedValue);
+        }
+    }
+
+    private void HideQueue(string name) => _hiddenQueues.Add(name);
+
+    private string GetQueueStatus(QueueEntity q)
+    {
+        if (q.IsPaused) return "PAUSED";
+        if (!q.IsActive) return "INACTIVE";
+        return "ACTIVE";
+    }
+
+    private string GetStatusColor(QueueEntity q)
+    {
+        if (q.IsPaused) return "var(--deck-warning)";
+        if (!q.IsActive) return "var(--deck-text-color)";
+        return "var(--deck-success)";
+    }
+
+    private StatsSummaryEntity? GetQueueStats(string queueName) => _queueStats.GetValueOrDefault(queueName);
+
+    public void Dispose() => _timer?.Dispose();
+}

@@ -1,0 +1,188 @@
+@using ChokaQ.Abstractions.Enums
+@using ChokaQ.Abstractions.Storage
+@using ChokaQ.Abstractions.Entities
+@using System.Text.Json
+@inject IJobStorage JobStorage
+
+<div style="height: 100%; display: flex; flex-direction: column;">
+    <!-- Header -->
+    <div style="flex-shrink: 0; display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem; border-bottom: 1px solid var(--sector-border-color); padding-bottom: 0.5rem;">
+        <div>
+            <div style="font-weight: bold; font-size: 1.1rem; color: var(--deck-text-color);">Job Inspector</div>
+            @if (_job != null)
+            {
+               <div style="font-family: monospace; font-size: 0.8rem; opacity: 0.7; margin-top: 0.2rem; user-select: all;">@_job.Id</div>
+            }
+        </div>
+        <button class="deck-btn" style="padding: 0.2rem 0.5rem;" @onclick="Close">Close</button>
+    </div>
+
+    @if (_job == null)
+    {
+        <div style="flex: 1; display: flex; align-items: center; justify-content: center; opacity: 0.5;">
+             <span>Loading or Job not found...</span>
+        </div>
+    }
+    else
+    {
+        <div style="flex: 1; overflow-y: auto; padding-right: 0.5rem;">
+             <!-- Status Banner -->
+             <div style="margin-bottom: 1rem; border: 1px solid var(--sector-border-color); padding: 0.5rem; border-left: 4px solid @GetStatusColor(); background: var(--sector-bg);">
+                 <div style="font-size: 0.75rem; text-transform: uppercase; opacity: 0.7;">Status</div>
+                 <div style="font-size: 1.2rem; font-weight: bold; color: @GetStatusColor();">@_job.Status.ToString().ToUpper()</div>
+                 <div style="font-size: 0.75rem; margin-top: 0.25rem;">Source: @GetSourceBadge()</div>
+             </div>
+
+             <!-- Metadata -->
+             <div style="margin-bottom: 1rem;">
+                 <div style="font-size: 0.8rem; font-weight: bold; margin-bottom: 0.5rem; text-transform: uppercase; border-bottom: 1px solid var(--sector-border-color);">Metadata</div>
+                 <ul class="deck-meta-list">
+                     <li><span class="deck-meta-label">Type</span> <span class="deck-meta-value">@_job.Type</span></li>
+                     <li><span class="deck-meta-label">Queue</span> <span class="deck-meta-value">@_job.Queue</span></li>
+                     <li><span class="deck-meta-label">Priority</span> <span class="deck-meta-value">@_job.Priority</span></li>
+                     <li><span class="deck-meta-label">Created By</span> <span class="deck-meta-value">@(_job.CreatedBy ?? "-")</span></li>
+                 </ul>
+             </div>
+
+             <!-- Timeline -->
+             <div style="margin-bottom: 1rem;">
+                 <div style="font-size: 0.8rem; font-weight: bold; margin-bottom: 0.5rem; text-transform: uppercase; border-bottom: 1px solid var(--sector-border-color);">Timeline</div>
+                 <ul class="deck-meta-list">
+                     <li><span class="deck-meta-label">Created</span> <span class="deck-meta-value">@_job.CreatedAtUtc.ToLocalTime().ToString("G")</span></li>
+                     @if (_job.StartedAtUtc.HasValue)
+                     {
+                         <li><span class="deck-meta-label">Started</span> <span class="deck-meta-value">@_job.StartedAtUtc.Value.ToLocalTime().ToString("G")</span></li>
+                     }
+                     @if (_job.FinishedAtUtc.HasValue)
+                     {
+                         <li><span class="deck-meta-label">Finished</span> <span class="deck-meta-value">@_job.FinishedAtUtc.Value.ToLocalTime().ToString("G")</span></li>
+                     }
+                     <li><span class="deck-meta-label">Attempts</span> <span class="deck-meta-value">@_job.AttemptCount</span></li>
+                 </ul>
+             </div>
+
+             <!-- Exceptions -->
+             @if (!string.IsNullOrEmpty(_job.ErrorDetails))
+             {
+                 <div style="margin-bottom: 1rem;">
+                     <div style="font-size: 0.8rem; font-weight: bold; margin-bottom: 0.5rem; text-transform: uppercase; border-bottom: 1px solid var(--sector-border-color); color: var(--deck-danger);">Exception</div>
+                     <div class="deck-code-block" style="border-color: var(--deck-danger); color: var(--deck-danger);">
+                         @_job.ErrorDetails
+                     </div>
+                 </div>
+             }
+
+             <!-- Payload -->
+             <div style="margin-bottom: 1rem;">
+                 <div style="font-size: 0.8rem; font-weight: bold; margin-bottom: 0.5rem; text-transform: uppercase; border-bottom: 1px solid var(--sector-border-color);">Payload</div>
+                 <div class="deck-code-block">
+                     @PrettyPrintJson(_job.Payload)
+                 </div>
+             </div>
+             
+             <!-- Spacer -->
+        </div>
+
+        <!-- Footer Actions -->
+        <div style="flex-shrink: 0; padding-top: 0.5rem; border-top: 1px solid var(--sector-border-color); display: flex; gap: 0.5rem; justify-content: flex-end;">
+            @if (CanRequeue)
+            {
+                <button class="deck-btn deck-btn-primary" @onclick="HandleRequeue">Requeue Job</button>
+            }
+            <button class="deck-btn deck-btn-danger" @onclick="HandleDelete">Delete</button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string? JobId { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<string> OnRestart { get; set; }
+    [Parameter] public EventCallback<string> OnDelete { get; set; }
+
+    private JobInspectorModel? _job;
+    
+    // Note: Requeue is technically Restart for DLQ.
+    private bool CanRequeue => _job?.Source == JobSource.DLQ;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrEmpty(JobId))
+        {
+            if (_job?.Id != JobId)
+            {
+                _job = await FindJobAsync(JobId);
+            }
+        }
+    }
+
+    private async Task Close() => await OnClose.InvokeAsync();
+
+    private async Task HandleRequeue()
+    {
+        if (_job != null) await OnRestart.InvokeAsync(_job.Id);
+    }
+
+    private async Task HandleDelete()
+    {
+        if (_job != null) await OnDelete.InvokeAsync(_job.Id);
+    }
+
+    // Logic from original JobInspector.razor.cs
+    private async Task<JobInspectorModel?> FindJobAsync(string jobId)
+    {
+        var hotJob = await JobStorage.GetJobAsync(jobId);
+        if (hotJob != null) return new JobInspectorModel { Id = hotJob.Id, Queue = hotJob.Queue, Type = hotJob.Type, Payload = hotJob.Payload, Status = hotJob.Status, AttemptCount = hotJob.AttemptCount, Priority = hotJob.Priority, CreatedBy = hotJob.CreatedBy, CreatedAtUtc = hotJob.CreatedAtUtc, StartedAtUtc = hotJob.StartedAtUtc, Source = JobSource.Hot };
+
+        var archiveJob = await JobStorage.GetArchiveJobAsync(jobId);
+        if (archiveJob != null) return new JobInspectorModel { Id = archiveJob.Id, Queue = archiveJob.Queue, Type = archiveJob.Type, Payload = archiveJob.Payload, Status = JobStatus.Succeeded, AttemptCount = archiveJob.AttemptCount, CreatedBy = archiveJob.CreatedBy, CreatedAtUtc = archiveJob.CreatedAtUtc, StartedAtUtc = archiveJob.StartedAtUtc, FinishedAtUtc = archiveJob.FinishedAtUtc, Source = JobSource.Archive };
+
+        var dlqJob = await JobStorage.GetDLQJobAsync(jobId);
+        if (dlqJob != null) return new JobInspectorModel { Id = dlqJob.Id, Queue = dlqJob.Queue, Type = dlqJob.Type, Payload = dlqJob.Payload, Status = JobStatus.Failed, AttemptCount = dlqJob.AttemptCount, CreatedBy = dlqJob.CreatedBy, CreatedAtUtc = dlqJob.CreatedAtUtc, ErrorDetails = dlqJob.ErrorDetails, Source = JobSource.DLQ };
+
+        return null;
+    }
+
+    private string GetStatusColor() => _job?.Status switch
+    {
+        JobStatus.Failed => "var(--deck-danger)",
+        JobStatus.Succeeded => "var(--deck-success)",
+        JobStatus.Processing => "var(--deck-warning)",
+        JobStatus.Cancelled => "var(--deck-muted)",
+        _ => "var(--deck-info)"
+    };
+
+    private string GetSourceBadge() => _job?.Source switch
+    {
+        JobSource.Hot => "HOT",
+        JobSource.Archive => "ARCHIVE",
+        JobSource.DLQ => "DLQ",
+        _ => "?"
+    };
+
+    private string PrettyPrintJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return "{}";
+        try { var doc = JsonDocument.Parse(json); return JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true }); }
+        catch { return json; }
+    }
+
+    private class JobInspectorModel
+    {
+        public string Id { get; init; } = "";
+        public string Queue { get; init; } = "";
+        public string Type { get; init; } = "";
+        public string? Payload { get; init; }
+        public JobStatus Status { get; init; }
+        public int AttemptCount { get; init; }
+        public int Priority { get; init; }
+        public string? CreatedBy { get; init; }
+        public DateTime CreatedAtUtc { get; init; }
+        public DateTime? StartedAtUtc { get; init; }
+        public DateTime? FinishedAtUtc { get; init; }
+        public string? ErrorDetails { get; init; }
+        public JobSource Source { get; init; }
+    }
+
+    private enum JobSource { Hot, Archive, DLQ }
+}

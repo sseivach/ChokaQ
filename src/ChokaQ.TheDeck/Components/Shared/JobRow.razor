@@ -1,0 +1,122 @@
+@using ChokaQ.Abstractions.Enums
+@using ChokaQ.TheDeck.Models
+
+<tr class="deck-row @(IsSelected ? "selected" : "")" @onclick="HandleRowClick" style="cursor: pointer;">
+    <td @onclick:stopPropagation="true" style="text-align: center;">
+        <input type="checkbox" checked="@IsSelected" @onchange="HandleCheckboxChange" style="cursor: pointer; width: 1.1rem; height: 1.1rem;" />
+    </td>
+    
+    <td style="font-family: monospace; font-weight: bold; color: var(--deck-info); font-size: 0.85rem;" title="@Job.Id">
+        @Job.Id.Substring(0, 8)...
+    </td>
+    
+    <td>
+        <span class="deck-badge" style="background: var(--sector-bg); border: 1px solid var(--sector-border-color); color: var(--deck-text-color);">
+            @Job.Queue
+        </span>
+    </td>
+    
+    <td>
+        <span class="deck-badge" style="background: var(--sector-border-color); color: var(--deck-text-color);">
+            @Job.Type
+        </span>
+    </td>
+    
+    <td style="text-align: center; font-weight: bold; opacity: 0.7;">
+        @Job.Priority
+    </td>
+    
+    <td>
+        <span style="font-size: 0.8rem; opacity: 0.7;">@(Job.CreatedBy ?? "System")</span>
+    </td>
+    
+    <td style="text-align: center;">
+        <span class="deck-badge" style="@GetStatusStyle()">@GetStatusLabel()</span>
+    </td>
+    
+    <td style="vertical-align: middle;">
+        @if (Job.Status == JobStatus.Processing)
+        {
+             <div class="deck-progress">
+                 <div class="deck-progress-bar" style="width: @(Job.Progress)%; background: var(--deck-info);"></div>
+             </div>
+             <div style="font-size: 0.7rem; margin-top: 2px; text-align: center;">@Job.Progress%</div>
+        }
+        else if (Job.Status == JobStatus.Succeeded)
+        {
+             <div class="deck-progress">
+                 <div class="deck-progress-bar" style="width: 100%; background: var(--deck-success);"></div>
+             </div>
+        }
+        else
+        {
+            <span style="opacity: 0.3; display: block; text-align: center;">-</span>
+        }
+    </td>
+    
+    <td style="text-align: center;">
+        @if (Job.Attempts > 1)
+        {
+            <span class="deck-badge" style="border: 1px solid var(--sector-border-color);">@Job.Attempts</span>
+        }
+        else
+        {
+             <span style="opacity: 0.5;">1</span>
+        }
+    </td>
+    
+    <td style="font-family: monospace; font-size: 0.8rem;">
+        @FormatDuration(Job.Duration)
+    </td>
+    
+    <td style="text-align: right;">
+        @if (new[] { JobStatus.Processing, JobStatus.Pending, JobStatus.Fetched }.Contains(Job.Status))
+        {
+             <button class="deck-btn deck-btn-danger" style="padding: 0.1rem 0.5rem; font-size: 0.7rem;" @onclick="CancelJob" @onclick:stopPropagation="true">Stop</button>
+        }
+        @if (new[] { JobStatus.Succeeded, JobStatus.Failed, JobStatus.Cancelled }.Contains(Job.Status))
+        {
+             <button class="deck-btn deck-btn-primary" style="padding: 0.1rem 0.5rem; font-size: 0.7rem;" @onclick="RestartJob" @onclick:stopPropagation="true">Retry</button>
+        }
+    </td>
+</tr>
+
+@code {
+    [Parameter] public required JobViewModel Job { get; set; }
+    [Parameter] public bool IsSelected { get; set; }
+
+    [Parameter] public EventCallback<string> OnCancelRequested { get; set; }
+    [Parameter] public EventCallback<string> OnRestartRequested { get; set; }
+    [Parameter] public EventCallback<string> OnSelected { get; set; }
+    [Parameter] public EventCallback<bool> OnSelectionChanged { get; set; }
+
+    private async Task CancelJob() => await OnCancelRequested.InvokeAsync(Job.Id);
+    private async Task RestartJob() => await OnRestartRequested.InvokeAsync(Job.Id);
+    private async Task HandleRowClick() => await OnSelected.InvokeAsync(Job.Id);
+
+    private async Task HandleCheckboxChange(ChangeEventArgs e)
+    {
+        var isChecked = (bool)(e.Value ?? false);
+        await OnSelectionChanged.InvokeAsync(isChecked);
+    }
+
+    private string FormatDuration(TimeSpan? duration)
+    {
+        if (!duration.HasValue || duration.Value == TimeSpan.Zero) return "-";
+        if (duration.Value.TotalSeconds < 1) return $"{duration.Value.TotalMilliseconds:F0}ms";
+        if (duration.Value.TotalMinutes < 1) return $"{duration.Value.Seconds}s {duration.Value.Milliseconds}ms";
+        return $"{duration.Value.Minutes}m {duration.Value.Seconds}s";
+    }
+
+    private string GetStatusStyle() => Job.Status switch
+    {
+        JobStatus.Processing => "color: var(--deck-warning); border: 1px solid var(--deck-warning);",
+        JobStatus.Fetched => "color: var(--deck-info); border: 1px solid var(--deck-info);",
+        JobStatus.Succeeded => "color: var(--deck-success); border: 1px solid var(--deck-success);",
+        JobStatus.Failed => "color: var(--deck-danger); border: 1px solid var(--deck-danger);",
+        JobStatus.Cancelled => "color: var(--deck-muted); border: 1px solid var(--deck-muted);",
+        _ => "color: var(--deck-text-color); border: 1px solid var(--sector-border-color);"
+    };
+
+    private string GetStatusLabel() => Job.Status.ToString().ToUpper();
+}

@@ -1,1 +1,102 @@
-<div>Stats</div>
+@using ChokaQ.Abstractions.Entities
+@using ChokaQ.Abstractions.Enums
+
+<div style="display: flex; gap: 0.5rem; height: 100%; width: 100%;">
+    
+    @* Pending *@
+    <div class="stats-card @(IsActive(JobStatus.Pending) ? "active" : "")"
+         @onclick="() => Select(JobStatus.Pending)">
+        <div class="label">PENDING</div>
+        <div class="value" style="color: var(--deck-muted);">@Counts.Pending</div>
+    </div>
+
+    @* Buffered *@
+    <div class="stats-card @(IsActive(JobStatus.Fetched) ? "active" : "")"
+         @onclick="() => Select(JobStatus.Fetched)">
+        <div class="label">BUFFERED</div>
+        <div class="value" style="color: var(--deck-info);">@Counts.Fetched</div>
+    </div>
+
+    @* Processing *@
+    <div class="stats-card @(IsActive(JobStatus.Processing) ? "active" : "")"
+         @onclick="() => Select(JobStatus.Processing)">
+        <div class="label">PROCESSING</div>
+        <div class="value" style="color: var(--deck-warning);">@Counts.Processing</div>
+    </div>
+
+    @* Succeeded *@
+    <div class="stats-card @(IsActive(JobStatus.Succeeded) ? "active" : "")"
+         @onclick="() => Select(JobStatus.Succeeded)">
+        <div class="label">SUCCEEDED</div>
+        <div class="value" style="color: var(--deck-success);">@Counts.SucceededTotal.ToString("N0")</div>
+    </div>
+
+    @* Failed *@
+    <div class="stats-card @(IsActive(JobStatus.Failed) ? "active" : "")"
+         @onclick="() => Select(JobStatus.Failed)">
+        <div class="label">FAILED</div>
+        <div class="value" style="color: var(--deck-danger);">@Counts.FailedTotal.ToString("N0")</div>
+    </div>
+
+    @* Total *@
+    <div class="stats-card @(SelectedStatus == null ? "active" : "")"
+         @onclick="() => OnStatusSelected.InvokeAsync(null)">
+        <div class="label">TOTAL</div>
+        <div class="value" style="color: var(--deck-text-color);">@Counts.Total.ToString("N0")</div>
+    </div>
+
+</div>
+
+<style>
+    .stats-card {
+        flex: 1;
+        background: var(--sector-bg);
+        border: 1px solid var(--sector-border-color);
+        padding: 0.5rem;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        transition: all 0.2s;
+    }
+
+    .stats-card:hover {
+        background: rgba(255, 255, 255, 0.05);
+        border-color: var(--sector-border-highlight);
+    }
+
+    .stats-card.active {
+        border-color: var(--sector-border-highlight);
+        background: rgba(255, 255, 255, 0.08);
+        box-shadow: inset 0 0 10px rgba(0,0,0,0.2);
+    }
+
+    .stats-card .label {
+        font-size: 0.7rem;
+        font-weight: bold;
+        color: var(--deck-text-color);
+        opacity: 0.7;
+        margin-bottom: 0.25rem;
+        text-transform: uppercase;
+    }
+
+    .stats-card .value {
+        font-size: 1.5rem;
+        font-weight: bold;
+        font-family: var(--deck-font-family);
+    }
+</style>
+
+@code {
+    [Parameter] public StatsSummaryEntity Counts { get; set; } = new(null, 0, 0, 0, 0, 0, 0, 0, null);
+    [Parameter] public JobStatus? SelectedStatus { get; set; }
+    [Parameter] public EventCallback<JobStatus?> OnStatusSelected { get; set; }
+
+    private bool IsActive(JobStatus status) => SelectedStatus == status;
+
+    private async Task Select(JobStatus status)
+    {
+        await OnStatusSelected.InvokeAsync(status);
+    }
+}

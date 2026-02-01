@@ -1,1 +1,110 @@
-<div>Circuits</div>
+@using ChokaQ.Abstractions.DTOs
+@using ChokaQ.Abstractions.Enums
+@implements IDisposable
+
+<div style="height: 100%; display: flex; flex-direction: column;">
+    <div style="font-size: 0.75rem; font-weight: bold; opacity: 0.7; margin-bottom: 0.5rem; text-transform: uppercase;">System Health (Circuit Breakers)</div>
+    
+    @if (Breakers == null || !Breakers.Any())
+    {
+        <div style="flex: 1; display: flex; align-items: center; justify-content: center; opacity: 0.5; font-size: 0.85rem;">
+            System Healthy (No active breakers)
+        </div>
+    }
+    else
+    {
+        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; overflow-y: auto;">
+            @foreach (var circuit in Breakers)
+            {
+                <div class="circuit-item" style="border-color: @GetBorderColor(circuit.Status); background: @GetBgColor(circuit.Status);">
+                    <div style="font-size: 0.85rem; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="@circuit.JobType">
+                        @FormatName(circuit.JobType)
+                    </div>
+                    <div style="font-size: 0.75rem; display: flex; justify-content: space-between; margin-top: 0.2rem;">
+                         <span style="font-weight: bold; color: @GetColor(circuit.Status)">@GetIcon(circuit.Status)</span>
+                         @if (circuit.Status == CircuitStatus.Open && circuit.ResetAtUtc.HasValue)
+                         {
+                             <span style="color: var(--deck-danger); font-family: monospace;">@GetTimeRemaining(circuit.ResetAtUtc.Value)</span>
+                         }
+                         else
+                         {
+                             <span style="opacity: 0.7;">@circuit.Status.ToString().ToUpper()</span>
+                         }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .circuit-item {
+        background: var(--sector-bg);
+        border: 1px solid var(--sector-border-color);
+        padding: 0.5rem;
+        min-width: 140px;
+        flex: 1;
+        font-family: var(--deck-font-family);
+        transition: all 0.2s;
+    }
+</style>
+
+@code {
+    [Parameter] public IEnumerable<CircuitStatsDto> Breakers { get; set; } = Enumerable.Empty<CircuitStatsDto>();
+
+    private System.Threading.Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        _timer = new System.Threading.Timer(_ => 
+        {
+            if (Breakers != null && Breakers.Any(c => c.Status == CircuitStatus.Open))
+            {
+                InvokeAsync(StateHasChanged);
+            }
+        }, null, 1000, 1000);
+    }
+
+    private string GetTimeRemaining(DateTime resetAt)
+    {
+        var remaining = resetAt - DateTime.UtcNow;
+        if (remaining.TotalSeconds <= 0) return "READY";
+        return $"{remaining.TotalSeconds:F1}s";
+    }
+
+    private string FormatName(string fullName) => fullName?.Split('.').Last() ?? "Unknown";
+
+    private string GetBorderColor(CircuitStatus status) => status switch
+    {
+        CircuitStatus.Open => "var(--deck-danger)",
+        CircuitStatus.HalfOpen => "var(--deck-warning)",
+        _ => "var(--sector-border-color)"
+    };
+
+    private string GetBgColor(CircuitStatus status) => status switch
+    {
+        CircuitStatus.Open => "rgba(220, 53, 69, 0.1)", 
+        CircuitStatus.HalfOpen => "rgba(255, 193, 7, 0.1)",
+        _ => "var(--sector-bg)"
+    };
+    
+    private string GetColor(CircuitStatus status) => status switch
+    {
+        CircuitStatus.Open => "var(--deck-danger)",
+        CircuitStatus.HalfOpen => "var(--deck-warning)",
+        _ => "var(--deck-success)"
+    };
+
+    private string GetIcon(CircuitStatus status) => status switch
+    {
+        CircuitStatus.Open => "⚡ OPEN",
+        CircuitStatus.HalfOpen => "⚠️ HALF",
+        CircuitStatus.Closed => "✓ OK",
+        _ => "?"
+    };
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+    }
+}

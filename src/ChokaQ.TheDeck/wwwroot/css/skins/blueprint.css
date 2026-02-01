@@ -15,9 +15,16 @@
 
     --sector-bg: rgba(255, 255, 255, 0.02);
     --sector-border-color: rgba(255, 255, 255, 0.3);
-    --sector-border-highlight: rgba(255, 255, 255, 0.4);
+    --sector-border-highlight: rgba(255, 255, 255, 0.8);
     --sector-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
     --sector-backdrop: blur(1px);
 
     --console-bg: rgba(0, 0, 0, 0.2);
+
+    /* Status Colors */
+    --deck-success: #28a745;
+    --deck-warning: #ffc107;
+    --deck-danger: #dc3545;
+    --deck-info: #17a2b8;
+    --deck-muted: rgba(255, 255, 255, 0.5);
 }
