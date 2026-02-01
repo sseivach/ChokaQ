@@ -1,6 +1,6 @@
-using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Resilience;
 using System.Collections.Concurrent;
 
 namespace ChokaQ.Core.Defaults;

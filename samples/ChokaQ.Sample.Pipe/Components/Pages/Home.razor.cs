@@ -1,4 +1,4 @@
-﻿using ChokaQ.Abstractions;
+﻿using ChokaQ.Abstractions.Storage;
 using ChokaQ.Sample.Pipe.Jobs;
 using Microsoft.AspNetCore.Components;
 

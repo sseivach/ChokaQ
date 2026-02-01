@@ -1,0 +1,52 @@
+@using ChokaQ.TheDeck.Components.Shared
+
+<div style="height: 100%; overflow-y: hidden; background: var(--sector-bg);">
+    @if (_activePanel == OpsPanelType.JobInspector && _selectedJobId != null)
+    {
+        <JobInspector JobId="@_selectedJobId" 
+                      OnClose="ClearPanel" 
+                      OnRestart="HandleRequeue" 
+                      OnDelete="HandleDelete" />
+    }
+    else
+    {
+        <div style="display: flex; align-items: center; justify-content: center; height: 100%; opacity: 0.5; font-family: var(--deck-font-family); color: var(--deck-text-color);">
+            <span>No active panel</span>
+        </div>
+    }
+</div>
+
+@code {
+    private OpsPanelType _activePanel = OpsPanelType.None;
+    private string? _selectedJobId;
+
+    [Parameter] public EventCallback<string> OnRequeue { get; set; }
+    [Parameter] public EventCallback<string> OnDelete { get; set; }
+
+    public void ShowJobInspector(string jobId)
+    {
+        _activePanel = OpsPanelType.JobInspector;
+        _selectedJobId = jobId;
+        StateHasChanged();
+    }
+
+    public void ClearPanel()
+    {
+        _activePanel = OpsPanelType.None;
+        _selectedJobId = null;
+        StateHasChanged();
+    }
+
+    private async Task HandleRequeue(string jobId)
+    {
+        await OnRequeue.InvokeAsync(jobId);
+    }
+
+    private async Task HandleDelete(string jobId)
+    {
+        await OnDelete.InvokeAsync(jobId);
+        ClearPanel();
+    }
+
+    private enum OpsPanelType { None, JobInspector }
+}

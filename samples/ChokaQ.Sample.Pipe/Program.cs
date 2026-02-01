@@ -1,7 +1,7 @@
-using ChokaQ;
-using ChokaQ.Core.Extensions;
+﻿using ChokaQ.Core.Extensions;
 using ChokaQ.Sample.Pipe.Components;
 using ChokaQ.Sample.Pipe.Services;
+using ChokaQ.TheDeck.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,7 +11,8 @@ builder.Services.AddRazorComponents()
 
 // --- CHOKAQ PIPE CONFIGURATION ---
 builder.Services.AddChokaQ(options => options.UsePipe<GlobalPipeHandler>());
-builder.Services.AddChokaQDashboard();
+
+builder.Services.AddChokaQTheDeck();
 
 var app = builder.Build();
 
@@ -29,7 +30,6 @@ app.UseAntiforgery();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// --- CHOKAQ DASHBOARD --
-app.MapChokaQDashboard();
+app.MapChokaQTheDeck();
 
 app.Run();

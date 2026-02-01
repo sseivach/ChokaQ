@@ -23,7 +23,7 @@ internal static class ParameterBuilder
         var modifiedSql = sql;
 
         var properties = parameters.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
-        
+
         foreach (var prop in properties)
         {
             var value = prop.GetValue(parameters);
@@ -69,14 +69,14 @@ internal static class ParameterBuilder
         {
             var indexedParamName = $"{paramName}{i}";
             paramList.Add(new SqlParameter(indexedParamName, valueList[i] ?? DBNull.Value));
-            
+
             if (i > 0) parameterNames.Append(", ");
             parameterNames.Append(indexedParamName);
         }
 
         // Replace @ParamName with (@ParamName0, @ParamName1, ...)
         var expandedSql = sql.Replace(paramName, $"({parameterNames})");
-        
+
         return (paramList.ToArray(), expandedSql);
     }
 }

@@ -1,4 +1,4 @@
-﻿using ChokaQ.Abstractions;
+﻿using ChokaQ.Abstractions.Jobs;
 using System.Text.Json;
 
 namespace ChokaQ.Sample.Pipe.Services;

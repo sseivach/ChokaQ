@@ -1,4 +1,4 @@
-﻿using ChokaQ.Abstractions;
+﻿using ChokaQ.Abstractions.Jobs;
 
 namespace ChokaQ.Sample.Pipe.Jobs;
 

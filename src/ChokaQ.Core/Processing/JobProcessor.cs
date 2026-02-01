@@ -1,4 +1,4 @@
-using ChokaQ.Abstractions;
+using ChokaQ.Abstractions.Resilience;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Execution;
 using ChokaQ.Core.State;

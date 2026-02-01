@@ -1,7 +1,7 @@
-using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.Entities;
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Storage;
+using ChokaQ.Abstractions.Workers;
 using ChokaQ.Core.Concurrency;
 using ChokaQ.Core.Processing;
 using ChokaQ.Core.State;

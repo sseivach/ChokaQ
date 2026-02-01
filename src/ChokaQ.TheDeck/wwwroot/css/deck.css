@@ -1,0 +1,280 @@
+/* ==========================================
+   THE DECK - MAIN STYLES
+   ========================================== */
+
+/* Import Skins */
+@import url('skins/blueprint.css');
+@import url('skins/carbon.css');
+
+/* ==========================================
+   GLOBAL STYLES
+   ========================================== */
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    overflow: hidden;
+
+    /* Theme Application */
+    background-color: var(--deck-bg-color);
+    background-image: var(--deck-bg-image);
+    background-size: var(--deck-bg-size);
+
+    /* Typography */
+    font-family: var(--deck-font-family);
+    color: var(--deck-text-color);
+}
+
+/* Root Container */
+.deck-root {
+    display: flex;
+    flex-direction: row;
+    height: 100vh;
+    width: 100vw;
+
+    padding: 2rem;
+    gap: 1rem;
+    box-sizing: border-box;
+}
+
+/* Left Column (Main) */
+.deck-col-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+/* Right Column (Sidebar/Tools) */
+.deck-col-side {
+    width: 25%;
+    min-width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+/* ==========================================
+   SECTOR STYLING
+   ========================================== */
+
+/* Common style for all sectors */
+.deck-sector,
+.deck-row-header,
+.deck-row-queues,
+.deck-row-settings,
+.deck-row-stats,
+.deck-row-circuits,
+.deck-row-matrix,
+.deck-row-ops,
+.deck-row-console {
+    background-color: var(--sector-bg);
+    border: 1px solid var(--sector-border-color);
+    box-shadow: var(--sector-shadow);
+    backdrop-filter: var(--sector-backdrop);
+    padding: 1rem;
+    box-sizing: border-box;
+}
+
+/* Row 1: Headers */
+.deck-row-header {
+    height: 4rem;
+    flex-shrink: 0;
+    border: 1px solid var(--sector-border-highlight);
+}
+
+/* Row 2: Queues & Settings */
+.deck-row-queues,
+.deck-row-settings {
+    height: 16rem;
+    flex-shrink: 0;
+}
+
+/* Row 3: Stats & Circuits */
+.deck-row-stats,
+.deck-row-circuits {
+    height: 7rem;
+    flex-shrink: 0;
+}
+
+/* Row 4: Matrix & Ops */
+.deck-row-matrix,
+.deck-row-ops {
+    flex: 1;
+    overflow-y: auto;
+}
+
+/* Row 5: ConsoleLog */
+.deck-row-console {
+    height: 10rem;
+    flex-shrink: 0;
+    background-color: var(--console-bg);
+}
+
+/* ==========================================
+   COMPONENT STYLES
+   ========================================== */
+
+.header-right-container {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2rem;
+}
+
+.theme-selector {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.theme-selector .label {
+    opacity: 0.7;
+    font-size: 0.8em;
+}
+
+.theme-selector select {
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--deck-text-color);
+    border: 1px solid var(--sector-border-color);
+    padding: 0.2rem 0.5rem;
+    font-family: var(--deck-font-family);
+    font-size: 0.9em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.theme-selector select:focus {
+    outline: none;
+    border-color: var(--sector-border-highlight);
+    background: rgba(0, 0, 0, 0.5);
+}
+
+/* ==========================================
+   SHARED COMPONENT STYLES
+   ========================================== */
+
+/* Buttons */
+.deck-btn {
+    background: var(--sector-bg);
+    border: 1px solid var(--sector-border-color);
+    color: var(--deck-text-color);
+    padding: 0.4rem 1rem;
+    font-family: var(--deck-font-family);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.deck-btn:hover {
+    border-color: var(--sector-border-highlight);
+}
+
+.deck-btn-primary {
+    border-color: var(--sector-border-highlight);
+}
+
+.deck-btn-danger {
+    border-color: #ff4444;
+    color: #ff4444;
+}
+
+/* Tables */
+.deck-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    font-family: var(--deck-font-family);
+    color: var(--deck-text-color);
+}
+
+.deck-table th {
+    background: rgba(0, 0, 0, 0.1);
+    border-bottom: 2px solid var(--sector-border-color);
+    padding: 0.5rem;
+    text-align: left;
+    font-weight: bold;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    opacity: 0.8;
+}
+
+.deck-table td {
+    border-bottom: 1px solid var(--sector-border-color);
+    padding: 0.5rem;
+    vertical-align: middle;
+}
+
+.deck-table tr:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.deck-table tr.selected {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Badges */
+.deck-badge {
+    display: inline-block;
+    padding: 0.15rem 0.4rem;
+    font-size: 0.75rem;
+    font-weight: bold;
+    border-radius: 2px;
+    border: 1px solid transparent;
+    text-transform: uppercase;
+}
+
+/* Progress */
+.deck-progress {
+    height: 4px;
+    background: var(--sector-border-color);
+    width: 100%;
+    margin-top: 0.25rem;
+    position: relative;
+}
+
+.deck-progress-bar {
+    height: 100%;
+    transition: width 0.3s;
+}
+
+/* Shared Meta Lists */
+.deck-meta-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.deck-meta-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid var(--sector-border-color);
+    font-size: 0.85rem;
+}
+
+.deck-meta-label {
+    font-weight: bold;
+    color: var(--deck-text-color);
+    opacity: 0.7;
+}
+
+.deck-meta-value {
+    font-family: var(--deck-font-family);
+    color: var(--deck-text-color);
+}
+
+/* Shared Code Blocks */
+.deck-code-block {
+    background: var(--console-bg);
+    border: 1px solid var(--sector-border-color);
+    padding: 0.5rem;
+    font-family: var(--deck-font-family);
+    font-size: 0.8rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}

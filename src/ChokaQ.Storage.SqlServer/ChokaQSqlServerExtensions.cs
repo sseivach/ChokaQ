@@ -1,5 +1,5 @@
-using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.Storage;
+using ChokaQ.Abstractions.Workers;
 using ChokaQ.Core.Workers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;

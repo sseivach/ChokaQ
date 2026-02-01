@@ -1,0 +1,27 @@
+/* ==========================================
+   THEME: CARBON
+   ========================================== */
+
+[data-theme="carbon"] {
+    --deck-bg-color: #161616;
+    --deck-bg-image: none;
+    --deck-bg-size: auto;
+
+    --deck-font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --deck-text-color: #f4f4f4;
+
+    --sector-bg: #262626;
+    --sector-border-color: #393939;
+    --sector-border-highlight: #ffffff;
+    --sector-shadow: none;
+    --sector-backdrop: none;
+
+    --console-bg: #161616;
+
+    /* Status Colors */
+    --deck-success: #42be65;
+    --deck-warning: #f1c21b;
+    --deck-danger: #fa4d56;
+    --deck-info: #4589ff;
+    --deck-muted: #8d8d8d;
+}

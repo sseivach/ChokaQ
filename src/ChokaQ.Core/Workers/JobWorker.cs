@@ -1,6 +1,7 @@
-using ChokaQ.Abstractions;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Storage;
+using ChokaQ.Abstractions.Workers;
 using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Processing;
 using ChokaQ.Core.State;
@@ -124,7 +125,7 @@ public class JobWorker : BackgroundService, IWorkerManager
     public async Task SetJobPriorityAsync(string jobId, int priority)
     {
         var result = await _storage.UpdateJobDataAsync(
-            jobId, 
+            jobId,
             new Abstractions.DTOs.JobDataUpdateDto(null, null, priority),
             "Admin");
 
