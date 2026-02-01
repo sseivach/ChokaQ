@@ -19,10 +19,10 @@ internal static class TypeMapper
     {
         var type = typeof(T);
         var properties = GetProperties(type);
-        
+
         // Try to find a suitable constructor
         var ctor = GetConstructor(type);
-        
+
         T instance;
         if (ctor != null && ctor.GetParameters().Length > 0)
         {

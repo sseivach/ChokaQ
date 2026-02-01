@@ -1,4 +1,4 @@
-namespace ChokaQ.Abstractions;
+namespace ChokaQ.Abstractions.Jobs;
 
 /// <summary>
 /// Defines the execution logic for a specific job type in Bus Mode.

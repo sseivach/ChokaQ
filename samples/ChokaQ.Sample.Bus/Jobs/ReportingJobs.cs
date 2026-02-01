@@ -1,4 +1,5 @@
-﻿using ChokaQ.Abstractions;
+﻿using ChokaQ.Abstractions.Contexts;
+using ChokaQ.Abstractions.Jobs;
 
 namespace ChokaQ.Sample.Bus.Jobs;
 

@@ -1,4 +1,4 @@
-﻿using ChokaQ.Abstractions;
+﻿using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Core.Defaults;
 
 namespace ChokaQ.Core;

@@ -33,15 +33,15 @@ public record JobDLQEntity(
     string Type,
     string? Payload,
     string? Tags,
-    
+
     FailureReason FailureReason,
     string? ErrorDetails,
     int AttemptCount,
-    
+
     string? WorkerId,
     string? CreatedBy,
     string? LastModifiedBy,
-    
+
     DateTime CreatedAtUtc,
     DateTime FailedAtUtc
 );

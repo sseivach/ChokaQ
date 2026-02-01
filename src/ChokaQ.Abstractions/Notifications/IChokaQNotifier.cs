@@ -1,5 +1,4 @@
 using ChokaQ.Abstractions.DTOs;
-using ChokaQ.Abstractions.Enums;
 
 namespace ChokaQ.Abstractions.Notifications;
 

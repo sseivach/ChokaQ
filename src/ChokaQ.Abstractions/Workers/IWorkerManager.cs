@@ -1,4 +1,4 @@
-﻿namespace ChokaQ.Abstractions;
+﻿namespace ChokaQ.Abstractions.Workers;
 
 public interface IWorkerManager
 {

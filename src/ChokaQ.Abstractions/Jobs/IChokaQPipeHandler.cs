@@ -1,4 +1,4 @@
-namespace ChokaQ.Abstractions;
+namespace ChokaQ.Abstractions.Jobs;
 
 /// <summary>
 /// Global handler contract for Pipe Mode (high-throughput event processing).

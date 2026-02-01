@@ -1,5 +1,4 @@
 using Microsoft.Data.SqlClient;
-using System.Data;
 
 namespace ChokaQ.Storage.SqlServer.DataEngine;
 
@@ -59,7 +58,7 @@ public static class SqlMapper
         cmd.Parameters.AddRange(sqlParams);
 
         using var reader = await cmd.ExecuteReaderAsync(ct);
-        
+
         if (await reader.ReadAsync(ct))
         {
             // Handle primitive types (string, int, etc.)
@@ -91,7 +90,7 @@ public static class SqlMapper
         cmd.Parameters.AddRange(sqlParams);
 
         using var reader = await cmd.ExecuteReaderAsync(ct);
-        
+
         if (!await reader.ReadAsync(ct))
         {
             throw new InvalidOperationException("Sequence contains no elements");
@@ -148,7 +147,7 @@ public static class SqlMapper
         cmd.Parameters.AddRange(sqlParams);
 
         var result = await cmd.ExecuteScalarAsync(ct);
-        
+
         if (result == null || result == DBNull.Value)
         {
             return default!;

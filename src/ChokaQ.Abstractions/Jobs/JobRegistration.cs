@@ -1,4 +1,4 @@
-﻿namespace ChokaQ.Abstractions
+﻿namespace ChokaQ.Abstractions.Jobs
 {
     /// <summary>
     /// DTO to hold registration info.

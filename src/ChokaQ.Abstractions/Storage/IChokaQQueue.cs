@@ -1,4 +1,6 @@
-﻿namespace ChokaQ.Abstractions;
+﻿using ChokaQ.Abstractions.Jobs;
+
+namespace ChokaQ.Abstractions.Storage;
 
 /// <summary>
 /// Defines the contract for the job queueing mechanism.
