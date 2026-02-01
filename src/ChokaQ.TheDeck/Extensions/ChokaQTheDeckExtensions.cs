@@ -1,5 +1,7 @@
 using ChokaQ.Abstractions.Notifications;
 using ChokaQ.TheDeck;
+using ChokaQ.TheDeck.Hubs;
+using ChokaQ.TheDeck.Services;
 using ChokaQ.TheDeck.Components.Layout;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,12 +24,7 @@ public static class ChokaQTheDeckExtensions
         services.AddAntiforgery();
         services.AddSignalR();
         
-        // TODO: Register ChokaQSignalRNotifier here when we move it to Core or replicate it.
-        // For now, we skip the notifier or rely on Core if it's there. 
-        // Wait, ChokaQSignalRNotifier was in Dashboard/Services. 
-        // We need to migrate that service too or TheDeck won't get updates!
-        // For this step (Skeleton), we'll skip the notifier registration to avoid compile errors 
-        // until we create the Notifier service in TheDeck.
+        services.AddSingleton<IChokaQNotifier, ChokaQSignalRNotifier>();
         
         return services;
     }
@@ -43,7 +40,7 @@ public static class ChokaQTheDeckExtensions
         app.UseStaticFiles();
         app.UseAntiforgery();
 
-        // app.MapHub<ChokaQHub>($"{path}/hub"); // Hub also needs migration
+        app.MapHub<ChokaQHub>($"{path}/hub");
 
         var dashboardGroup = app.MapGroup(path);
         dashboardGroup.MapRazorComponents<TheDeckHost>()
