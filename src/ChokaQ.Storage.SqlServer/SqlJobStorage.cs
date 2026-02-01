@@ -5,7 +5,6 @@ using ChokaQ.Abstractions.Storage;
 using ChokaQ.Storage.SqlServer.DataEngine;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
-using System.Data;
 
 namespace ChokaQ.Storage.SqlServer;
 
@@ -187,8 +186,8 @@ public class SqlJobStorage : IJobStorage
         foreach (var batch in jobIds.Chunk(1000))
         {
             var affected = await conn.ExecuteAsync(
-                _q.ResurrectBatch, 
-                new { Ids = batch, ResurrectedBy = resurrectedBy }, 
+                _q.ResurrectBatch,
+                new { Ids = batch, ResurrectedBy = resurrectedBy },
                 ct);
             total += affected / 2; // Each job = 1 INSERT + 1 DELETE
         }

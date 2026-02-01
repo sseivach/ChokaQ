@@ -9,7 +9,7 @@ internal sealed class Queries
     // ========================================================================
     // CORE OPERATIONS
     // ========================================================================
-    
+
     public readonly string CheckIdempotency;
     public readonly string EnqueueJob;
     public readonly string FetchNextBatch;
@@ -20,7 +20,7 @@ internal sealed class Queries
     // ========================================================================
     // ARCHIVE OPERATIONS
     // ========================================================================
-    
+
     public readonly string ArchiveSucceeded;
     public readonly string MoveToDLQ;
     public readonly string Resurrect;
@@ -30,7 +30,7 @@ internal sealed class Queries
     // ========================================================================
     // DIVINE MODE (Admin Operations)
     // ========================================================================
-    
+
     public readonly string UpdateJobData;
     public readonly string PurgeDLQ;
     public readonly string PurgeArchive;
@@ -38,7 +38,7 @@ internal sealed class Queries
     // ========================================================================
     // OBSERVABILITY (Dashboard)
     // ========================================================================
-    
+
     public readonly string GetSummaryStats;
     public readonly string GetQueueStats;
     public readonly string GetActiveJobs;
@@ -50,7 +50,7 @@ internal sealed class Queries
     // ========================================================================
     // QUEUE MANAGEMENT
     // ========================================================================
-    
+
     public readonly string GetQueues;
     public readonly string SetQueuePaused;
     public readonly string SetQueueZombieTimeout;
@@ -58,7 +58,7 @@ internal sealed class Queries
     // ========================================================================
     // ZOMBIE DETECTION
     // ========================================================================
-    
+
     public readonly string ArchiveZombies;
 
     public Queries(string schema)

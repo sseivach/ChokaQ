@@ -34,7 +34,7 @@ public class InMemoryJobStorage : IJobStorage
     public InMemoryJobStorage(InMemoryStorageOptions options)
     {
         _maxCapacity = options.MaxCapacity;
-        
+
         // Initialize default queue
         _queues.TryAdd("default", new QueueData("default"));
         _stats.TryAdd("default", new StatsSummaryData("default"));
@@ -99,7 +99,7 @@ public class InMemoryJobStorage : IJobStorage
         CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
-        
+
         var candidates = _hotJobs.Values
             .Where(j => j.Status == JobStatus.Pending &&
                         (allowedQueues == null || allowedQueues.Contains(j.Queue)) &&
@@ -191,8 +191,8 @@ public class InMemoryJobStorage : IJobStorage
                 CreatedAtUtc: job.CreatedAtUtc,
                 StartedAtUtc: job.StartedAtUtc,
                 FinishedAtUtc: now,
-                DurationMs: durationMs ?? (job.StartedAtUtc.HasValue 
-                    ? (now - job.StartedAtUtc.Value).TotalMilliseconds 
+                DurationMs: durationMs ?? (job.StartedAtUtc.HasValue
+                    ? (now - job.StartedAtUtc.Value).TotalMilliseconds
                     : null)
             );
 
@@ -209,8 +209,8 @@ public class InMemoryJobStorage : IJobStorage
 
     public ValueTask ArchiveCancelledAsync(string jobId, string? cancelledBy = null, CancellationToken ct = default)
     {
-        var error = cancelledBy != null 
-            ? $"Cancelled by admin: {cancelledBy}" 
+        var error = cancelledBy != null
+            ? $"Cancelled by admin: {cancelledBy}"
             : "Cancelled by admin";
         return MoveToDLQ(jobId, FailureReason.Cancelled, error);
     }
@@ -687,11 +687,11 @@ public class InMemoryJobStorage : IJobStorage
     private void IncrementStats(string queue, long succeeded = 0, long failed = 0, long retried = 0)
     {
         _stats.AddOrUpdate(queue,
-            new StatsSummaryData(queue) 
-            { 
-                SucceededTotal = succeeded, 
-                FailedTotal = failed, 
-                RetriedTotal = retried 
+            new StatsSummaryData(queue)
+            {
+                SucceededTotal = succeeded,
+                FailedTotal = failed,
+                RetriedTotal = retried
             },
             (_, old) =>
             {
@@ -715,7 +715,7 @@ public class InMemoryJobStorage : IJobStorage
     private void EnforceCapacity()
     {
         var totalCount = _hotJobs.Count + _archiveJobs.Count + _dlqJobs.Count;
-        
+
         if (totalCount < _maxCapacity)
             return;
 

@@ -125,7 +125,7 @@ public class JobWorker : BackgroundService, IWorkerManager
     public async Task SetJobPriorityAsync(string jobId, int priority)
     {
         var result = await _storage.UpdateJobDataAsync(
-            jobId, 
+            jobId,
             new Abstractions.DTOs.JobDataUpdateDto(null, null, priority),
             "Admin");
 

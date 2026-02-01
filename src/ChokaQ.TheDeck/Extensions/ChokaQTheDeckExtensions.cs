@@ -1,8 +1,7 @@
 using ChokaQ.Abstractions.Notifications;
-using ChokaQ.TheDeck;
+using ChokaQ.TheDeck.Components.Layout;
 using ChokaQ.TheDeck.Hubs;
 using ChokaQ.TheDeck.Services;
-using ChokaQ.TheDeck.Components.Layout;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -23,9 +22,9 @@ public static class ChokaQTheDeckExtensions
 
         services.AddAntiforgery();
         services.AddSignalR();
-        
+
         services.AddSingleton<IChokaQNotifier, ChokaQSignalRNotifier>();
-        
+
         return services;
     }
 
