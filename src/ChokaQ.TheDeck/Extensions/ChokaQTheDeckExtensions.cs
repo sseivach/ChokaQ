@@ -1,5 +1,5 @@
 using ChokaQ.Abstractions.Notifications;
-using ChokaQ.TheDeck.Components.Layout;
+using ChokaQ.TheDeck.UI.Layout;
 using ChokaQ.TheDeck.Hubs;
 using ChokaQ.TheDeck.Services;
 using Microsoft.AspNetCore.Builder;
