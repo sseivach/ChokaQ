@@ -74,6 +74,8 @@ body {
     border: 1px solid var(--sector-border-color);
     box-shadow: var(--sector-shadow);
     backdrop-filter: var(--sector-backdrop);
+    padding: 1rem;
+    box-sizing: border-box;
 }
 
 /* Row 1: Headers */
@@ -115,13 +117,11 @@ body {
    COMPONENT STYLES
    ========================================== */
 
-/* Header Right */
 .header-right-container {
     height: 100%;
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    padding: 0 1.5rem;
     gap: 2rem;
 }
 
