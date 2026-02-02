@@ -54,6 +54,7 @@ body {
 
 .deck__col--main {
     flex: 1;
+    /* Main panel still fills remaining space, but rows internal to it will be strict */
     min-width: 0;
 }
 
@@ -441,6 +442,8 @@ body {
 }
 
 .circuits__list {
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
@@ -452,7 +455,7 @@ body {
 }
 
 .circuits__list::-webkit-scrollbar {
-    width: 6px;
+    width: 8px !important;
 }
 
 .circuits__list::-webkit-scrollbar-track {
@@ -461,7 +464,9 @@ body {
 
 .circuits__list::-webkit-scrollbar-thumb {
     background-color: var(--sector-border-color);
-    border-radius: 3px;
+    border-radius: 4px;
+    min-height: 40px !important;
+    height: 40px !important;
 }
 
 .circuits__list::-webkit-scrollbar-thumb:hover {
@@ -561,7 +566,7 @@ body {
 }
 
 .console__list::-webkit-scrollbar {
-    width: 6px;
+    width: 8px !important;
 }
 
 .console__list::-webkit-scrollbar-track {
@@ -570,7 +575,9 @@ body {
 
 .console__list::-webkit-scrollbar-thumb {
     background-color: var(--sector-border-color);
-    border-radius: 3px;
+    border-radius: 4px;
+    min-height: 40px !important;
+    height: 40px !important;
 }
 
 .console__list::-webkit-scrollbar-thumb:hover {
@@ -995,7 +1002,8 @@ body {
 }
 
 .matrix__table-container::-webkit-scrollbar {
-    width: 6px;
+    width: 10px !important;
+    /* Slightly wider to be sure it's visible */
 }
 
 .matrix__table-container::-webkit-scrollbar-track {
@@ -1004,7 +1012,9 @@ body {
 
 .matrix__table-container::-webkit-scrollbar-thumb {
     background-color: var(--sector-border-color);
-    border-radius: 3px;
+    border-radius: 5px;
+    min-height: 40px !important;
+    height: 40px !important;
 }
 
 .matrix__table-container::-webkit-scrollbar-thumb:hover {
@@ -1131,7 +1141,7 @@ body {
 }
 
 .inspector__content::-webkit-scrollbar {
-    width: 6px;
+    width: 8px !important;
 }
 
 .inspector__content::-webkit-scrollbar-track {
@@ -1140,7 +1150,9 @@ body {
 
 .inspector__content::-webkit-scrollbar-thumb {
     background-color: var(--sector-border-color);
-    border-radius: 3px;
+    border-radius: 4px;
+    min-height: 40px !important;
+    height: 40px !important;
 }
 
 .inspector__content::-webkit-scrollbar-thumb:hover {
@@ -1275,7 +1287,7 @@ body {
 }
 
 .queues::-webkit-scrollbar {
-    width: 6px;
+    width: 8px !important;
 }
 
 .queues::-webkit-scrollbar-track {
@@ -1284,7 +1296,9 @@ body {
 
 .queues::-webkit-scrollbar-thumb {
     background-color: var(--sector-border-color);
-    border-radius: 3px;
+    border-radius: 4px;
+    min-height: 40px !important;
+    height: 40px !important;
 }
 
 .queues::-webkit-scrollbar-thumb:hover {
