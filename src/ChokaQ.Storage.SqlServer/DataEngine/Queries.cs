@@ -259,64 +259,64 @@ internal sealed class Queries
         GetSummaryStats = $@"
             SELECT 
                 CAST(NULL AS NVARCHAR(100)) AS [Queue],
-                (SELECT COUNT(1) FROM [{schema}].[JobsHot] WHERE [Status] = 0) AS [Pending],
-                (SELECT COUNT(1) FROM [{schema}].[JobsHot] WHERE [Status] = 1) AS [Fetched],
-                (SELECT COUNT(1) FROM [{schema}].[JobsHot] WHERE [Status] = 2) AS [Processing],
-                (SELECT ISNULL(SUM([SucceededTotal]), 0) FROM [{schema}].[StatsSummary]) AS [SucceededTotal],
-                (SELECT ISNULL(SUM([FailedTotal]), 0) FROM [{schema}].[StatsSummary]) AS [FailedTotal],
-                (SELECT ISNULL(SUM([RetriedTotal]), 0) FROM [{schema}].[StatsSummary]) AS [RetriedTotal],
+                (SELECT COUNT(1) FROM [{schema}].[JobsHot] WITH (NOLOCK) WHERE [Status] = 0) AS [Pending],
+                (SELECT COUNT(1) FROM [{schema}].[JobsHot] WITH (NOLOCK) WHERE [Status] = 1) AS [Fetched],
+                (SELECT COUNT(1) FROM [{schema}].[JobsHot] WITH (NOLOCK) WHERE [Status] = 2) AS [Processing],
+                (SELECT ISNULL(SUM([SucceededTotal]), 0) FROM [{schema}].[StatsSummary] WITH (NOLOCK)) AS [SucceededTotal],
+                (SELECT ISNULL(SUM([FailedTotal]), 0) FROM [{schema}].[StatsSummary] WITH (NOLOCK)) AS [FailedTotal],
+                (SELECT ISNULL(SUM([RetriedTotal]), 0) FROM [{schema}].[StatsSummary] WITH (NOLOCK)) AS [RetriedTotal],
                 CAST(
-                    (SELECT COUNT(1) FROM [{schema}].[JobsHot]) + 
-                    (SELECT COUNT(1) FROM [{schema}].[JobsArchive]) + 
-                    (SELECT COUNT(1) FROM [{schema}].[JobsDLQ]) 
+                    (SELECT COUNT(1) FROM [{schema}].[JobsHot] WITH (NOLOCK)) + 
+                    (SELECT COUNT(1) FROM [{schema}].[JobsArchive] WITH (NOLOCK)) + 
+                    (SELECT COUNT(1) FROM [{schema}].[JobsDLQ] WITH (NOLOCK)) 
                 AS BIGINT) AS [Total],
-                (SELECT MAX([LastActivityUtc]) FROM [{schema}].[StatsSummary]) AS [LastActivityUtc]";
+                (SELECT MAX([LastActivityUtc]) FROM [{schema}].[StatsSummary] WITH (NOLOCK)) AS [LastActivityUtc]";
 
         GetQueueStats = $@"
             SELECT 
                 q.[Name] AS [Queue],
-                (SELECT COUNT(1) FROM [{schema}].[JobsHot] WHERE [Queue] = q.[Name] AND [Status] = 0) AS [Pending],
-                (SELECT COUNT(1) FROM [{schema}].[JobsHot] WHERE [Queue] = q.[Name] AND [Status] = 1) AS [Fetched],
-                (SELECT COUNT(1) FROM [{schema}].[JobsHot] WHERE [Queue] = q.[Name] AND [Status] = 2) AS [Processing],
+                (SELECT COUNT(1) FROM [{schema}].[JobsHot] WITH (NOLOCK) WHERE [Queue] = q.[Name] AND [Status] = 0) AS [Pending],
+                (SELECT COUNT(1) FROM [{schema}].[JobsHot] WITH (NOLOCK) WHERE [Queue] = q.[Name] AND [Status] = 1) AS [Fetched],
+                (SELECT COUNT(1) FROM [{schema}].[JobsHot] WITH (NOLOCK) WHERE [Queue] = q.[Name] AND [Status] = 2) AS [Processing],
                 ISNULL(s.[SucceededTotal], 0) AS [SucceededTotal],
                 ISNULL(s.[FailedTotal], 0) AS [FailedTotal],
                 ISNULL(s.[RetriedTotal], 0) AS [RetriedTotal],
                 CAST(
-                    (SELECT COUNT(1) FROM [{schema}].[JobsHot] WHERE [Queue] = q.[Name]) + 
-                    (SELECT COUNT(1) FROM [{schema}].[JobsArchive] WHERE [Queue] = q.[Name]) + 
-                    (SELECT COUNT(1) FROM [{schema}].[JobsDLQ] WHERE [Queue] = q.[Name])
+                    (SELECT COUNT(1) FROM [{schema}].[JobsHot] WITH (NOLOCK) WHERE [Queue] = q.[Name]) + 
+                    (SELECT COUNT(1) FROM [{schema}].[JobsArchive] WITH (NOLOCK) WHERE [Queue] = q.[Name]) + 
+                    (SELECT COUNT(1) FROM [{schema}].[JobsDLQ] WITH (NOLOCK) WHERE [Queue] = q.[Name])
                 AS BIGINT) AS [Total],
                 s.[LastActivityUtc]
-            FROM [{schema}].[Queues] q
-            LEFT JOIN [{schema}].[StatsSummary] s ON s.[Queue] = q.[Name]
+            FROM [{schema}].[Queues] q WITH (NOLOCK)
+            LEFT JOIN [{schema}].[StatsSummary] s WITH (NOLOCK) ON s.[Queue] = q.[Name]
             ORDER BY q.[Name]";
 
         GetActiveJobs = $@"
             SELECT TOP (@Limit) * 
-            FROM [{schema}].[JobsHot] 
+            FROM [{schema}].[JobsHot] WITH (NOLOCK)
             {{WHERE_CLAUSE}}
             ORDER BY [CreatedAtUtc] DESC";
 
         GetArchiveJobs = $@"
             SELECT TOP (@Limit) * 
-            FROM [{schema}].[JobsArchive] 
+            FROM [{schema}].[JobsArchive] WITH (NOLOCK)
             {{WHERE_CLAUSE}}
             ORDER BY [FinishedAtUtc] DESC";
 
-        GetArchiveJob = $"SELECT * FROM [{schema}].[JobsArchive] WHERE [Id] = @Id";
+        GetArchiveJob = $"SELECT * FROM [{schema}].[JobsArchive] WITH (NOLOCK) WHERE [Id] = @Id";
 
         GetDLQJobs = $@"
             SELECT TOP (@Limit) * 
-            FROM [{schema}].[JobsDLQ] 
+            FROM [{schema}].[JobsDLQ] WITH (NOLOCK)
             {{WHERE_CLAUSE}}
             ORDER BY [FailedAtUtc] DESC";
 
-        GetDLQJob = $"SELECT * FROM [{schema}].[JobsDLQ] WHERE [Id] = @Id";
+        GetDLQJob = $"SELECT * FROM [{schema}].[JobsDLQ] WITH (NOLOCK) WHERE [Id] = @Id";
 
         // QUEUE MANAGEMENT
         GetQueues = $@"
             SELECT q.[Name], q.[IsPaused], q.[IsActive], q.[ZombieTimeoutSeconds], q.[LastUpdatedUtc]
-            FROM [{schema}].[Queues] q
+            FROM [{schema}].[Queues] q WITH (NOLOCK)
             ORDER BY q.[Name]";
 
         SetQueuePaused = $@"

@@ -1,21 +1,11 @@
-@using Microsoft.JSInterop
-@inject IJSRuntime JSRuntime
+@namespace ChokaQ.TheDeck.UI.Components.HeaderRight
 
-<div class="header-right-container">
-    <div class="theme-selector">
-        <span class="label">THEME_</span>
-        <select @onchange="OnThemeChanged">
+<div class="header-right">
+    <div class="header-right__selector">
+        <span class="header-right__label">THEME_</span>
+        <select class="header-right__select" @onchange="OnThemeChanged">
             <option value="blueprint">BLUEPRINT</option>
             <option value="carbon">CARBON</option>
         </select>
     </div>
 </div>
-
-@code {
-    private async Task OnThemeChanged(ChangeEventArgs e)
-    {
-        var theme = e.Value?.ToString();
-        await JSRuntime.InvokeVoidAsync("document.documentElement.setAttribute", "data-theme", theme);
-    }
-}
-
