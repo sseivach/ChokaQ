@@ -1,76 +1,23 @@
 @using ChokaQ.TheDeck.Models
-@using Microsoft.JSInterop
-@inject IJSRuntime JS
+@namespace ChokaQ.TheDeck.UI.Components.ConsoleLog
 
-<div class="deck-console-container">
-    <div style="font-size: 0.75rem; font-weight: bold; opacity: 0.7; margin-bottom: 0.5rem; text-transform: uppercase; flex-shrink: 0;">System Console</div>
-    <div class="deck-console-list">
+<section class="console">
+    <h3 class="console__title">System Console</h3>
+    <div class="console__list">
         @if (Logs.Count == 0)
         {
-            <div style="opacity: 0.3; padding: 1rem; text-align: center;">No logs available</div>
+            <div class="console__empty">No logs available</div>
         }
         else
         {
             @foreach (var log in Logs)
             {
-                <div class="console-line">
-                    <span class="timestamp">@log.Timestamp.ToString("HH:mm:ss")</span>
-                    <span class="message @log.Level.ToLower()">@log.Message</span>
+                <div class="console__line">
+                    <span class="console__timestamp">@log.Timestamp.ToString("HH:mm:ss")</span>
+                    <span class="console__message @GetMessageModifier(log.Level)">@log.Message</span>
                 </div>
             }
-            <div @ref="_bottomAnchor"></div>
+            <div @ref="_bottomAnchor" class="console__anchor"></div>
         }
     </div>
-</div>
-
-<style>
-    .deck-console-container {
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-    }
-    .deck-console-list {
-        flex: 1;
-        overflow-y: auto;
-        font-family: 'Consolas', monospace;
-        font-size: 0.8rem;
-    }
-    .console-line {
-        display: flex;
-        gap: 0.75rem;
-        padding: 0.1rem 0;
-    }
-    .timestamp {
-        color: var(--deck-text-color);
-        opacity: 0.5;
-        flex-shrink: 0;
-        min-width: 60px;
-    }
-    .message {
-        color: var(--deck-text-color);
-        word-break: break-all;
-    }
-    .message.info { color: var(--deck-info); }
-    .message.warning { color: var(--deck-warning); }
-    .message.error { color: var(--deck-danger); }
-    .message.success { color: var(--deck-success); }
-    .message.debug { color: var(--deck-muted); opacity: 0.7; }
-</style>
-
-@code {
-    [Parameter] public List<LogEntry> Logs { get; set; } = new();
-    private ElementReference _bottomAnchor;
-    private int _lastCount = 0;
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (Logs.Count > _lastCount)
-        {
-            _lastCount = Logs.Count;
-            try {
-                await JS.InvokeVoidAsync("deck.scrollToBottom", _bottomAnchor);
-            } catch {}
-        }
-    }
-}
+</section>
