@@ -187,11 +187,12 @@ body {
     font-family: var(--deck-font-family);
     font-size: 0.85rem;
     cursor: pointer;
-    transition: border-color 0.2s;
+    transition: all 0.2s;
 }
 
 .deck-btn:hover {
     border-color: var(--sector-border-highlight);
+    background: rgba(255, 255, 255, 0.05);
 }
 
 .deck-btn-primary {
@@ -980,6 +981,12 @@ body {
 .matrix__bulk-apply {
     padding: 0.2rem 0.5rem;
     font-size: 0.75rem;
+    transition: all 0.2s;
+}
+
+.matrix__bulk-apply:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--sector-border-highlight);
 }
 
 .matrix__deselect {
