@@ -31,6 +31,10 @@ public partial class TheDeck : IAsyncDisposable
     private bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
     private const int MaxHistoryCount = 1000;
 
+    private DateTime _lastStatsUpdate = DateTime.MinValue;
+    private static readonly TimeSpan StatsUpdateThrottle = TimeSpan.FromMilliseconds(1000);
+    private bool _renderPending = false;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadDataAsync();
@@ -127,10 +131,13 @@ public partial class TheDeck : IAsyncDisposable
 
         _hubConnection.On("StatsUpdated", () => 
         {
+            if (DateTime.UtcNow - _lastStatsUpdate < StatsUpdateThrottle) return;
+            
+            _lastStatsUpdate = DateTime.UtcNow;
             InvokeAsync(async () => 
             {
                 _counts = await JobStorage.GetSummaryStatsAsync(); 
-                StateHasChanged();
+                ThrottledRender();
             });
         });
         
@@ -142,7 +149,7 @@ public partial class TheDeck : IAsyncDisposable
                  if (job != null)
                  {
                      job.Progress = percentage;
-                     StateHasChanged();
+                     ThrottledRender();
                  }
              });
         });
@@ -211,7 +218,20 @@ public partial class TheDeck : IAsyncDisposable
     {
         _logs.Add(new LogEntry(DateTime.Now, message, level));
         if (_logs.Count > 500) _logs.RemoveAt(0);
-        StateHasChanged();
+        ThrottledRender();
+    }
+
+    private void ThrottledRender()
+    {
+        if (_renderPending) return;
+        _renderPending = true;
+        
+        InvokeAsync(async () => 
+        {
+            await Task.Delay(100); // Wait for more updates to arrive
+            _renderPending = false;
+            StateHasChanged();
+        });
     }
 
     public async ValueTask DisposeAsync()

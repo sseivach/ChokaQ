@@ -20,15 +20,13 @@ public partial class Queues : IDisposable
 
     protected override void OnInitialized()
     {
-        _timer = new System.Threading.Timer(async _ => await Refresh(), null, 0, 2000);
+        _timer = new System.Threading.Timer(async _ => await Refresh(), null, 0, 1000);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && HubConnection != null)
         {
-            HubConnection.On("StatsUpdated", () => InvokeAsync(async () => await Refresh()));
-            
             if (HubConnection.State == HubConnectionState.Disconnected)
             {
                 await HubConnection.StartAsync();
@@ -43,7 +41,7 @@ public partial class Queues : IDisposable
             _queues = (await Storage.GetQueuesAsync()).ToList();
             var stats = await Storage.GetQueueStatsAsync();
             _queueStats = stats.ToDictionary(s => s.Queue ?? "", s => s);
-            
+
             _isLoading = false;
 
             if (_isFirstLoad)
