@@ -114,7 +114,6 @@ body {
    ========================================== */
 
 /* Common style for all sectors */
-.deck-sector,
 .deck__row--header,
 .deck__row--queues,
 .deck__row--settings,
@@ -632,11 +631,6 @@ body {
 
 .console__message--success {
     color: var(--deck-success);
-}
-
-.console__message--debug {
-    color: var(--deck-muted);
-    opacity: 0.7;
 }
 
 .console__anchor {
@@ -1442,10 +1436,6 @@ body {
 
 .queues__status--paused {
     color: var(--deck-warning);
-}
-
-.queues__status--inactive {
-    color: var(--deck-text-color);
 }
 
 .queues__toggle-cell {
