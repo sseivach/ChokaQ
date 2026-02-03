@@ -7,6 +7,7 @@ public partial class Settings
 {
     [Inject] private IWorkerManager WorkerManager { get; set; } = default!;
     [Parameter] public EventCallback OnSettingsApplied { get; set; }
+    [Parameter] public bool IsConnected { get; set; }
 
     public int DesiredWorkers { get; set; }
     public int MaxRetries { get; set; }

@@ -22,43 +22,30 @@
                  }
              </div>
         </div>
+
+        <!-- Bulk Actions (Now inside toolbar) -->
+        @if (SelectedCount > 0)
+        {
+            <div class="matrix__bulk-actions">
+                <span class="deck-badge matrix__selection-badge">@SelectedCount selected</span>
+                <span class="matrix__bulk-label">BULK:</span>
+                <button class="deck-btn deck-btn-primary" @onclick="RestartSelected">Retry All</button>
+                <button class="deck-btn deck-btn-danger" @onclick="CancelSelected">Cancel All</button>
+                
+                <div class="matrix__bulk-priority">
+                    <span class="matrix__bulk-label">PRIORITY:</span>
+                    <input type="number" class="matrix__bulk-input" @bind="_bulkPriorityValue" />
+                    <button class="deck-btn matrix__bulk-apply" @onclick="SetPrioritySelected">Apply</button>
+                </div>
+                
+                <button class="matrix__deselect" @onclick="ClearSelection">Deselect All</button>
+            </div>
+        }
         
         <div class="matrix__controls">
-             @if (SelectedCount > 0)
-             {
-                  <span class="deck-badge matrix__selection-badge">@SelectedCount selected</span>
-             }
-             
-             @if (IsConnected)
-             {
-                  <span class="matrix__status-label matrix__status-label--online">ONLINE</span>
-             }
-             else
-             {
-                  <span class="matrix__status-label matrix__status-label--offline">OFFLINE</span>
-             }
-             
-             <button class="deck-btn" @onclick="OnClearHistory">Clear</button>
+             <button class="deck-btn" @onclick="OnClearHistory">Clear History</button>
         </div>
     </header>
-    
-    <!-- Bulk Actions -->
-    @if (SelectedCount > 0)
-    {
-        <div class="matrix__bulk-actions">
-            <span class="matrix__bulk-label">BULK:</span>
-            <button class="deck-btn deck-btn-primary" @onclick="RestartSelected">Retry All</button>
-            <button class="deck-btn deck-btn-danger" @onclick="CancelSelected">Cancel All</button>
-            
-            <div class="matrix__bulk-priority">
-                <span class="matrix__bulk-label">PRIORITY:</span>
-                <input type="number" class="matrix__bulk-input" @bind="_bulkPriorityValue" />
-                <button class="deck-btn matrix__bulk-apply" @onclick="SetPrioritySelected">Apply</button>
-            </div>
-            
-            <button class="matrix__deselect" @onclick="ClearSelection">Deselect All</button>
-        </div>
-    }
 
     <!-- Table -->
     <div class="matrix__table-container">

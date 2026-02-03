@@ -5,6 +5,18 @@
 <section class="settings">
     
     <div class="settings__row">
+        <label class="settings__label">CONNECTION</label>
+        @if (IsConnected)
+        {
+            <span class="matrix__status-label matrix__status-label--online">ONLINE</span>
+        }
+        else
+        {
+            <span class="matrix__status-label matrix__status-label--offline">OFFLINE</span>
+        }
+    </div>
+    
+    <div class="settings__row">
         <label class="settings__label">WORKERS</label>
         <input type="number"
                class="settings__input"
