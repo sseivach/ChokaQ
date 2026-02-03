@@ -13,11 +13,11 @@
     --deck-font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
     --deck-text-color: #ffffff;
 
-    --sector-bg: rgba(255, 255, 255, 0.02);
-    --sector-border-color: rgba(255, 255, 255, 0.3);
-    --sector-border-highlight: rgba(255, 255, 255, 0.8);
+    --sector-bg: #00254b;
+    --sector-border-color: rgba(255, 255, 255, 0.7);
+    --sector-border-highlight: rgba(255, 255, 255, 0.9);
     --sector-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
-    --sector-backdrop: blur(1px);
+    --sector-backdrop: blur(13px);
 
     --console-bg: rgba(0, 0, 0, 0.2);
 
