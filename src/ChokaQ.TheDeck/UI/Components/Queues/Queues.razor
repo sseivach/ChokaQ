@@ -23,10 +23,12 @@
                     <th class="queues__th queues__th--name">Queue</th>
                     <th class="queues__th queues__th--stats">Jobs (Succeeded / Failed)</th>
                     <th class="queues__th queues__th--status">Status</th>
-                    <th class="queues__th queues__th--toggle">Pause/Resume</th>
+                    <th class="queues__th queues__th--toggle">Pause / Resume</th>
                     <th class="queues__th queues__th--timeout">Zombie (s)</th>
+                    <th class="queues__th queues__th--reserv1">Reserv 1</th>
+                    <th class="queues__th queues__th--reserv2">Reserv 2</th>
                     <th class="queues__th queues__th--updated">Last Updated</th>
-                    <th class="queues__th queues__th--actions"></th>
+                    <th class="queues__th queues__th--actions">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -64,14 +66,13 @@
                                    value="@q.ZombieTimeoutSeconds"
                                    @onchange="@(e => UpdateTimeout(q.Name, e.Value))" />
                         </td>
+                        <td class="queues__reserv1-cell">---</td>
+                        <td class="queues__reserv2-cell">---</td>
                         <td class="queues__updated">
                             @q.LastUpdatedUtc.ToLocalTime().ToString("HH:mm:ss")
                         </td>
                         <td class="queues__actions">
-                            @if (!q.IsActive)
-                            {
-                                <button class="deck-btn queues__action-btn" title="Hide inactive queue" @onclick="() => HideQueue(q.Name)">X</button>
-                            }
+                            <button class="deck-btn queues__action-btn" title="Hide queue" @onclick="() => HideQueue(q.Name)">HIDE</button>
                         </td>
                     </tr>
                 }

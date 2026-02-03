@@ -27,4 +27,5 @@
     --deck-danger: #fa4d56;
     --deck-info: #4589ff;
     --deck-muted: #8d8d8d;
+    --badge-type-color: var(--deck-info);
 }
