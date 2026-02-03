@@ -39,9 +39,9 @@ public partial class Circuits : IDisposable
 
     private string GetIcon(CircuitStatus status) => status switch
     {
-        CircuitStatus.Open => "⚡ OPEN",
-        CircuitStatus.HalfOpen => "⚠️ HALF",
-        CircuitStatus.Closed => "✓ OK",
+        CircuitStatus.Open => "OPEN",
+        CircuitStatus.HalfOpen => "HALF",
+        CircuitStatus.Closed => "OK",
         _ => "?"
     };
 

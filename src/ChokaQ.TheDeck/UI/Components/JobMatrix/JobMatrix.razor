@@ -36,8 +36,6 @@
                     <input type="number" class="matrix__bulk-input" @bind="_bulkPriorityValue" />
                     <button class="deck-btn deck-btn-primary" @onclick="SetPrioritySelected">Apply</button>
                 </div>
-                
-                <button class="matrix__deselect" @onclick="ClearSelection">Deselect All</button>
             </div>
         }
         
@@ -52,7 +50,13 @@
             <thead>
                 <tr>
                     <th class="matrix__th matrix__th--checkbox">
-                        <input type="checkbox" class="matrix__checkbox-all" checked="@IsAllVisibleSelected" @onchange="ToggleSelectAll" />
+                        <div class="matrix__header-checks">
+                            <input type="checkbox" class="matrix__checkbox-all" checked="@IsAllVisibleSelected" @onchange="ToggleSelectAll" title="Select Visible" />
+                            @if (SelectedCount > 0)
+                            {
+                                <button class="matrix__deselect-all" @onclick="ClearSelection" title="Deselect All"></button>
+                            }
+                        </div>
                     </th>
                     <th class="matrix__th matrix__th--id">ID</th>
                     <th class="matrix__th matrix__th--queue">Queue</th>
