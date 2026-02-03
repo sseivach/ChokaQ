@@ -72,7 +72,8 @@
                             @q.LastUpdatedUtc.ToLocalTime().ToString("HH:mm:ss")
                         </td>
                         <td class="queues__actions">
-                            <button class="deck-btn queues__action-btn" title="Hide queue" @onclick="() => HideQueue(q.Name)">HIDE</button>
+                            <button class="deck-btn queues__action-btn" title="@(q.IsActive ? "Cannot hide active queue" : "Hide queue")" @onclick="() => HideQueue(q.Name)" disabled="@q.IsActive">HIDE</button>
+                            <button class="deck-btn queues__action-btn deck-btn-danger" title="@(q.IsActive ? "Cannot delete active queue" : "Delete queue")" @onclick="() => DeleteQueue(q.Name)" disabled="@q.IsActive" style="margin-left: 0.5rem;">DEL</button>
                         </td>
                     </tr>
                 }

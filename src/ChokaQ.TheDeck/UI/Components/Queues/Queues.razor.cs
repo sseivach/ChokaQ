@@ -106,6 +106,7 @@ public partial class Queues : IDisposable
     }
 
     private void HideQueue(string name) => _hiddenQueues.Add(name);
+    private void DeleteQueue(string name) => Console.WriteLine($"DELETE {name} (Not Implemented)");
 
     private string GetQueueStatus(QueueEntity q)
     {

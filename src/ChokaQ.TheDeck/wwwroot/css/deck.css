@@ -205,6 +205,14 @@ body {
     color: #ff4444;
 }
 
+.deck-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    color: var(--deck-muted);
+    border-color: var(--sector-border-color);
+    background: transparent;
+}
+
 /* Tables */
 .deck-table {
     width: 100%;
@@ -842,7 +850,7 @@ body {
 
 .job-row__action-btn {
     padding: 0.1rem 0.5rem;
-    font-size: 1rem;
+    font-size: 0.9rem;
     font-weight: bold;
     text-transform: uppercase;
     line-height: 1;
@@ -1486,7 +1494,7 @@ body {
 .queues__updated {
     text-align: right;
     opacity: 0.6;
-    font-size: 0.75rem;
+    font-size: 0.9rem;
 }
 
 .deck-table .queues__actions {
@@ -1496,7 +1504,7 @@ body {
 
 .queues__action-btn {
     padding: 0.1rem 0.5rem;
-    font-size: 1rem;
+    font-size: 0.9rem;
     font-weight: bold;
     text-transform: uppercase;
     line-height: 1;
