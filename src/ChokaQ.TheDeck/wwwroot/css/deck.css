@@ -196,12 +196,15 @@ body {
 }
 
 .deck-btn-primary {
-    border-color: var(--sector-border-highlight);
+    border-color: var(--deck-info);
+    color: var(--deck-text-color);
+    background: rgba(69, 137, 255, 0.25);
 }
 
 .deck-btn-danger {
     border-color: #ff4444;
-    color: #ff4444;
+    color: var(--deck-text-color);
+    background: rgba(255, 68, 68, 0.25);
 }
 
 .deck-btn:disabled {
@@ -971,29 +974,24 @@ body {
 }
 
 .matrix__bulk-priority {
-    border-left: 1px solid var(--sector-border-color);
-    padding-left: 1rem;
     display: flex;
     align-items: center;
     gap: 0.5rem;
 }
 
 .matrix__bulk-input {
-    width: 50px;
+    width: 60px;
     background: var(--sector-bg);
     border: 1px solid var(--sector-border-color);
     color: var(--deck-text-color);
-    padding: 0.2rem;
+    padding: 0.4rem;
+    font-size: 0.85rem;
+    font-family: var(--deck-font-family);
+    outline: none;
 }
 
-.matrix__bulk-apply {
-    padding: 0.2rem 0.5rem;
-    font-size: 0.75rem;
-}
-
-.matrix__bulk-apply:hover {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: var(--sector-border-highlight);
+.matrix__bulk-priority .deck-btn {
+    margin-left: 0.5rem;
 }
 
 .matrix__deselect {
