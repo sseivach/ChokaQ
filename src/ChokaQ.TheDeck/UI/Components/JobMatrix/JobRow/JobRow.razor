@@ -11,15 +11,11 @@
     </td>
     
     <td class="job-row__cell job-row__cell--queue">
-        <span class="job-row__badge job-row__badge--queue">
-            @Job.Queue
-        </span>
+        @Job.Queue
     </td>
     
     <td class="job-row__cell job-row__cell--type">
-        <span class="job-row__badge job-row__badge--type">
-            @Job.Type
-        </span>
+        @Job.Type
     </td>
     
     <td class="job-row__cell job-row__cell--priority">
@@ -55,14 +51,7 @@
     </td>
     
     <td class="job-row__cell job-row__cell--attempts">
-        @if (Job.Attempts > 1)
-        {
-            <span class="job-row__badge job-row__badge--attempts">@Job.Attempts</span>
-        }
-        else
-        {
-             <span class="job-row__cell--dim">1</span>
-        }
+        <span class="job-row__badge job-row__badge--attempts @GetAttemptsModifier()">@Job.Attempts</span>
     </td>
     
     <td class="job-row__cell job-row__cell--duration">

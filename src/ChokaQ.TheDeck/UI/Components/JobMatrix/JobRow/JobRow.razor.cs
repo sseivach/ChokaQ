@@ -42,5 +42,12 @@ public partial class JobRow
         _ => ""
     };
 
+    private string GetAttemptsModifier() => Job.Attempts switch
+    {
+        <= 1 => "",
+        2 => "job-row__badge--attempts-warning",
+        _ => "job-row__badge--attempts-danger"
+    };
+
     private string GetStatusLabel() => Job.Status.ToString().ToUpper();
 }

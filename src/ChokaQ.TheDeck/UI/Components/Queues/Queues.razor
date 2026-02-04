@@ -101,17 +101,18 @@
                                 <button class="deck-btn queues__action-btn deck-btn-primary"
                                         title="Restore queue"
                                         @onclick="() => ActivateQueue(q.Name)">
-                                    RESTORE
+                                    UNHIDE
                                 </button>
                             }
 
-                            <button class="deck-btn queues__action-btn deck-btn-danger"
-                                    title="@(q.IsActive ? "Cannot delete active queue" : "Delete queue")"
-                                    @onclick="() => DeleteQueue(q.Name)"
-                                    disabled="@q.IsActive"
-                                    disabled="@q.IsActive">
-                                DEL
-                            </button>
+                            @if (!q.IsActive)
+                            {
+                                <button class="deck-btn queues__action-btn deck-btn-danger queues__action-btn--delete"
+                                        title="Delete queue"
+                                        @onclick="() => DeleteQueue(q.Name)">
+                                    DELETE
+                                </button>
+                            }
                         </td>
                     </tr>
                 }
