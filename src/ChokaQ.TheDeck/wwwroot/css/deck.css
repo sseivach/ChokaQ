@@ -853,6 +853,10 @@ input[type="checkbox"]:checked::after {
     background: var(--deck-success);
 }
 
+.job-row__progress-bar--full {
+    width: 100%;
+}
+
 .job-row__progress-text {
     font-size: 0.7rem;
     margin-top: 2px;
@@ -1480,6 +1484,28 @@ input[type="checkbox"]:checked::after {
 .queues__name {
     font-weight: bold;
     font-family: monospace;
+}
+
+.queues__name--inactive {
+    opacity: 0.5;
+}
+
+.queues__show-hidden-label-container {
+    margin-top: 1rem;
+    display: inline-block;
+    cursor: pointer;
+}
+
+.queues__show-hidden-label {
+    font-weight: normal;
+    font-size: 0.75em;
+    margin-left: 10px;
+    cursor: pointer;
+    opacity: 0.8;
+}
+
+.queues__action-btn+.queues__action-btn {
+    margin-left: 0.5rem;
 }
 
 .queues__stats {

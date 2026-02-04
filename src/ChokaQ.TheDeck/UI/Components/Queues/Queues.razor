@@ -9,10 +9,14 @@
             <span>Loading queues...</span>
         </div>
     }
-    else if (!VisibleQueues.Any())
+    else if (!VisibleQueues.Any() && !_showInactive)
     {
         <div class="queues__empty">
             <span>No active queues found. Send a job to 'default' queue to see it here.</span>
+            <br />
+            <label class="queues__show-hidden-label-container">
+                <input type="checkbox" @bind="_showInactive" /> Show Hidden Queues
+            </label>
         </div>
     }
     else
@@ -20,7 +24,12 @@
         <table class="deck-table queues__table">
             <thead>
                 <tr>
-                    <th class="queues__th queues__th--name">Queue</th>
+                    <th class="queues__th queues__th--name">
+                        Queue
+                        <label class="queues__show-hidden-label">
+                            <input type="checkbox" @bind="_showInactive" /> Show Hidden
+                        </label>
+                    </th>
                     <th class="queues__th queues__th--stats">Jobs (Succeeded / Failed)</th>
                     <th class="queues__th queues__th--status">Status</th>
                     <th class="queues__th queues__th--toggle">Pause / Resume</th>
@@ -36,7 +45,7 @@
                 {
                     var stats = GetQueueStats(q.Name);
                     <tr>
-                        <td class="queues__name">@q.Name</td>
+                        <td class="queues__name @(!q.IsActive ? "queues__name--inactive" : "")">@q.Name</td>
 
                         <td class="queues__stats">
                             @if (stats != null)
@@ -79,19 +88,28 @@
                         </td>
 
                         <td class="queues__actions">
- 
-                            <button class="deck-btn queues__action-btn"
-                                    title="@(q.IsActive ? "Hide queue (Deactivate)" : "Queue Hidden")"
-                                    @onclick="() => DeactivateQueue(q.Name)"
-                                    disabled="@(!q.IsActive)">
-                                HIDE
-                            </button>
+                            @if (q.IsActive)
+                            {
+                                <button class="deck-btn queues__action-btn"
+                                        title="Hide queue (Deactivate)"
+                                        @onclick="() => DeactivateQueue(q.Name)">
+                                    HIDE
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="deck-btn queues__action-btn deck-btn-primary"
+                                        title="Restore queue"
+                                        @onclick="() => ActivateQueue(q.Name)">
+                                    RESTORE
+                                </button>
+                            }
 
                             <button class="deck-btn queues__action-btn deck-btn-danger"
                                     title="@(q.IsActive ? "Cannot delete active queue" : "Delete queue")"
                                     @onclick="() => DeleteQueue(q.Name)"
                                     disabled="@q.IsActive"
-                                    style="margin-left: 0.5rem;">
+                                    disabled="@q.IsActive">
                                 DEL
                             </button>
                         </td>
