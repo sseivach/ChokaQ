@@ -260,6 +260,11 @@ public interface IJobStorage
         int? timeoutSeconds,
         CancellationToken ct = default);
 
+    ValueTask SetQueueActiveAsync(
+        string queueName, 
+        bool isActive, 
+        CancellationToken ct = default);
+
     // ========================================================================
     // ZOMBIE DETECTION
     // ========================================================================

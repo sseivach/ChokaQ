@@ -75,4 +75,10 @@ public class ChokaQHub : Hub
         var updates = new JobDataUpdateDto(newPayload, newTags, newPriority);
         return await _storage.UpdateJobDataAsync(jobId, updates, "TheDeck Admin");
     }
+
+    public async Task SetQueueActive(string queueName, bool isActive)
+    {
+        _logger.LogInformation("TheDeck: SetQueueActive {Queue} -> {Active}", queueName, isActive);
+        await _storage.SetQueueActiveAsync(queueName, isActive);
+    }
 }

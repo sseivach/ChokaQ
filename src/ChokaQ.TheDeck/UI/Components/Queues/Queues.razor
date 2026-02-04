@@ -9,10 +9,10 @@
             <span>Loading queues...</span>
         </div>
     }
-    else if (!_visibleQueues.Any())
+    else if (!VisibleQueues.Any())
     {
         <div class="queues__empty">
-             <span>No queues found. Send a job to 'default' queue to see it here.</span>
+            <span>No active queues found. Send a job to 'default' queue to see it here.</span>
         </div>
     }
     else
@@ -32,11 +32,12 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach (var q in _visibleQueues)
+                @foreach (var q in VisibleQueues)
                 {
                     var stats = GetQueueStats(q.Name);
                     <tr>
                         <td class="queues__name">@q.Name</td>
+
                         <td class="queues__stats">
                             @if (stats != null)
                             {
@@ -49,31 +50,50 @@
                                 <span class="queues__stats-empty">0 / 0</span>
                             }
                         </td>
+
                         <td class="queues__status-cell">
-                             <span class="queues__status @GetStatusModifier(q)">
-                                 @GetQueueStatus(q)
-                             </span>
+                            <span class="queues__status @GetStatusModifier(q)">
+                                @GetQueueStatus(q)
+                            </span>
                         </td>
+
                         <td class="queues__toggle-cell">
-                             <input type="checkbox" 
-                                    class="queues__toggle"
-                                    checked="@(!q.IsPaused)"
-                                    @onchange="@(e => ToggleQueue(q.Name, (bool)e.Value!))" />
+                            <input type="checkbox"
+                                   class="queues__toggle"
+                                   checked="@(!q.IsPaused)"
+                                   @onchange="@(e => ToggleQueue(q.Name, (bool)e.Value!))" />
                         </td>
+
                         <td class="queues__timeout-cell">
                             <input type="number"
                                    class="queues__timeout-input"
                                    value="@q.ZombieTimeoutSeconds"
                                    @onchange="@(e => UpdateTimeout(q.Name, e.Value))" />
                         </td>
+
                         <td class="queues__reserv1-cell">---</td>
                         <td class="queues__reserv2-cell">---</td>
+
                         <td class="queues__updated">
                             @q.LastUpdatedUtc.ToLocalTime().ToString("HH:mm:ss")
                         </td>
+
                         <td class="queues__actions">
-                            <button class="deck-btn queues__action-btn" title="@(q.IsActive ? "Cannot hide active queue" : "Hide queue")" @onclick="() => HideQueue(q.Name)" disabled="@q.IsActive">HIDE</button>
-                            <button class="deck-btn queues__action-btn deck-btn-danger" title="@(q.IsActive ? "Cannot delete active queue" : "Delete queue")" @onclick="() => DeleteQueue(q.Name)" disabled="@q.IsActive" style="margin-left: 0.5rem;">DEL</button>
+ 
+                            <button class="deck-btn queues__action-btn"
+                                    title="@(q.IsActive ? "Hide queue (Deactivate)" : "Queue Hidden")"
+                                    @onclick="() => DeactivateQueue(q.Name)"
+                                    disabled="@(!q.IsActive)">
+                                HIDE
+                            </button>
+
+                            <button class="deck-btn queues__action-btn deck-btn-danger"
+                                    title="@(q.IsActive ? "Cannot delete active queue" : "Delete queue")"
+                                    @onclick="() => DeleteQueue(q.Name)"
+                                    disabled="@q.IsActive"
+                                    style="margin-left: 0.5rem;">
+                                DEL
+                            </button>
                         </td>
                     </tr>
                 }

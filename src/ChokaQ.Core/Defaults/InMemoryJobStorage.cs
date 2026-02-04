@@ -583,6 +583,14 @@ public class InMemoryJobStorage : IJobStorage
         return ValueTask.CompletedTask;
     }
 
+    public ValueTask SetQueueActiveAsync(string queueName, bool isActive, CancellationToken ct = default)
+    {
+        _queues.AddOrUpdate(queueName,
+            new QueueData(queueName) { IsActive = isActive },
+            (_, old) => { old.IsActive = isActive; old.LastUpdatedUtc = DateTime.UtcNow; return old; });
+        return ValueTask.CompletedTask;
+    }
+
     // ========================================================================
     // ZOMBIE DETECTION
     // ========================================================================

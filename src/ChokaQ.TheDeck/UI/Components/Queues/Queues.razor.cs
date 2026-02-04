@@ -12,14 +12,17 @@ public partial class Queues : IDisposable
 
     private List<QueueEntity> _queues = new();
     private Dictionary<string, StatsSummaryEntity> _queueStats = new();
-    private HashSet<string> _hiddenQueues = new();
-    private IEnumerable<QueueEntity> _visibleQueues => _queues.Where(q => !_hiddenQueues.Contains(q.Name));
+    private bool _showInactive = false;
+
+    private IEnumerable<QueueEntity> VisibleQueues =>
+        _showInactive ? _queues : _queues.Where(q => q.IsActive);
+
     private System.Threading.Timer? _timer;
     private bool _isLoading = true;
-    private bool _isFirstLoad = true;
 
     protected override void OnInitialized()
     {
+        // Poll for updates every second
         _timer = new System.Threading.Timer(async _ => await Refresh(), null, 0, 1000);
     }
 
@@ -44,22 +47,8 @@ public partial class Queues : IDisposable
 
             _isLoading = false;
 
-            if (_isFirstLoad)
-            {
-                foreach (var q in _queues)
-                {
-                    if (!q.IsActive) _hiddenQueues.Add(q.Name);
-                }
-                _isFirstLoad = false;
-            }
-
-            foreach (var q in _queues)
-            {
-                if (q.IsActive && _hiddenQueues.Contains(q.Name))
-                {
-                    _hiddenQueues.Remove(q.Name);
-                }
-            }
+            // We rely solely on the database state (IsActive flag).
+            // No local hiding logic required.
 
             await InvokeAsync(StateHasChanged);
         }
@@ -72,6 +61,8 @@ public partial class Queues : IDisposable
     private async Task ToggleQueue(string name, bool isRunning)
     {
         var pause = !isRunning;
+
+        // Optimistic UI update
         var q = _queues.FirstOrDefault(x => x.Name == name);
         if (q != null)
         {
@@ -105,9 +96,22 @@ public partial class Queues : IDisposable
         }
     }
 
-    private void HideQueue(string name) => _hiddenQueues.Add(name);
-    private void DeleteQueue(string name) => Console.WriteLine($"DELETE {name} (Not Implemented)");
+    /// <summary>
+    /// Performs a Soft Delete (Deactivation) on the queue.
+    /// </summary>
+    private async Task DeactivateQueue(string name)
+    {
+        if (HubConnection is not null)
+        {
+            // Send command to DB: Set IsActive = false
+            await HubConnection.InvokeAsync("SetQueueActive", name, false);
 
+            // Force immediate refresh to remove the queue from the UI list
+            await Refresh();
+        }
+    }
+
+    private void DeleteQueue(string name) => Console.WriteLine($"DELETE {name} (Not Implemented)");
     private string GetQueueStatus(QueueEntity q)
     {
         if (q.IsPaused) return "PAUSED";

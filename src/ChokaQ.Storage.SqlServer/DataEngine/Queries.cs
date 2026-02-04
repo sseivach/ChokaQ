@@ -54,6 +54,7 @@ internal sealed class Queries
     public readonly string GetQueues;
     public readonly string SetQueuePaused;
     public readonly string SetQueueZombieTimeout;
+    public readonly string SetQueueActive;
 
     // ========================================================================
     // ZOMBIE DETECTION
@@ -336,6 +337,12 @@ internal sealed class Queries
             WHEN NOT MATCHED THEN 
                 INSERT ([Name], [IsPaused], [IsActive], [ZombieTimeoutSeconds], [LastUpdatedUtc]) 
                 VALUES (@Name, 0, 1, @Timeout, SYSUTCDATETIME());";
+
+        SetQueueActive = $@"
+            UPDATE [{schema}].[Queues]
+            SET [IsActive] = @IsActive, 
+                [LastUpdatedUtc] = SYSUTCDATETIME()
+            WHERE [Name] = @Name";
 
         // ZOMBIE DETECTION
         ArchiveZombies = $@"

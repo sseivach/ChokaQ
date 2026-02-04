@@ -384,6 +384,12 @@ public class SqlJobStorage : IJobStorage
         await conn.ExecuteAsync(_q.SetQueueZombieTimeout, new { Name = queueName, Timeout = timeoutSeconds }, ct);
     }
 
+    public async ValueTask SetQueueActiveAsync(string queueName, bool isActive, CancellationToken ct = default)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+        await conn.ExecuteAsync(_q.SetQueueActive, new { Name = queueName, IsActive = isActive }, ct);
+    }
+
     // ========================================================================
     // ZOMBIE DETECTION
     // ========================================================================
