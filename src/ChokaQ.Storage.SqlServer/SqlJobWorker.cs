@@ -7,6 +7,7 @@ using ChokaQ.Core.Processing;
 using ChokaQ.Core.State;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 
 namespace ChokaQ.Storage.SqlServer;
@@ -32,6 +33,9 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
 
     // Encapsulates the logic for dynamic scaling (Permit Burning / Minting)
     private readonly ElasticSemaphore _concurrencyLimiter;
+
+    // Shared cache for queue states. Updated by Fetcher, read by Processor.
+    private readonly ConcurrentDictionary<string, bool> _queuePauseCache = new();
 
     /// <summary>
     /// Gets the number of currently executing jobs.
@@ -101,6 +105,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
 
     /// <summary>
     /// The "Supplier". Keeps the local buffer full of work from JobsHot table.
+    /// Updates the local queue pause cache.
     /// </summary>
     private async Task FetcherLoopAsync(CancellationToken ct)
     {
@@ -117,8 +122,16 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                 int batchSize = Math.Min(20, 100 - _prefetchBuffer.Reader.Count);
                 if (batchSize <= 0) batchSize = 1;
 
-                // Get active queues
+                // Get queue settings from DB
                 var queues = await _storage.GetQueuesAsync(ct);
+
+                // Update local cache for the Processor loop
+                foreach (var q in queues)
+                {
+                    _queuePauseCache[q.Name] = q.IsPaused;
+                }
+
+                // Filter only active queues for fetching
                 var activeQueues = queues.Where(q => !q.IsPaused).Select(q => q.Name).ToArray();
 
                 if (activeQueues.Length == 0)
@@ -159,6 +172,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
 
     /// <summary>
     /// The "Consumer". Orchestrates parallel execution limited by ElasticSemaphore.
+    /// Handles immediate release of jobs if the queue becomes paused while the job is in the buffer.
     /// </summary>
     private async Task ProcessorLoopAsync(CancellationToken ct)
     {
@@ -166,6 +180,21 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
         {
             await foreach (var job in _prefetchBuffer.Reader.ReadAllAsync(ct))
             {
+                // 1. Check if the queue is paused
+                // If paused, we RELEASE the job back to the DB immediately.
+                // We do NOT wait here, to avoid blocking the buffer for other active queues.
+                if (_queuePauseCache.TryGetValue(job.Queue, out var isPaused) && isPaused)
+                {
+                    _logger.LogDebug("Queue {Queue} is paused. Releasing job {JobId} back to DB.", job.Queue, job.Id);
+
+                    // Revert status to Pending, decrement attempts, clear workerId
+                    await _storage.ReleaseJobAsync(job.Id, ct);
+
+                    // Skip execution, immediately process next item in buffer
+                    continue;
+                }
+
+                // 2. Wait for concurrency slot
                 await _concurrencyLimiter.WaitAsync(ct);
 
                 _ = Task.Run(async () =>

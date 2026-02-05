@@ -23,6 +23,15 @@
              </div>
         </div>
 
+        <!-- Date Filters (New Row) -->
+        <div class="matrix__toolbar-row matrix__toolbar-row--filters">
+            <span class="matrix__filter-label">FROM</span>
+            <input type="date" class="matrix__date-input" @bind="_dateFrom" />
+            <span class="matrix__filter-label">TO</span>
+            <input type="date" class="matrix__date-input" @bind="_dateTo" />
+            <button class="deck-btn deck-btn-primary" @onclick="LoadHistory">Load History</button>
+        </div>
+
         <!-- Bulk Actions (Now inside toolbar) -->
         @if (SelectedCount > 0)
         {

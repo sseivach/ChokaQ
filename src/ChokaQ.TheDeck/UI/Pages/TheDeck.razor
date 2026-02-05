@@ -16,7 +16,7 @@
     <!-- Left column: Main activity -->
     <div class="deck__col deck__col--main">
         <header class="deck__row deck__row--header">
-            <HeaderLeft />
+            <HeaderLeft IsConnected="@IsConnected" />
         </header>
 
         <section class="deck__row deck__row--queues">
@@ -30,9 +30,10 @@
         <section class="deck__row deck__row--matrix">
             <JobMatrix Jobs="_jobs" 
                        IsConnected="IsConnected" 
+                       OnClearHistory="ClearHistory"
+                       OnLoadHistory="LoadHistoryAsync"
                        HubConnection="_hubConnection" 
                        ActiveStatusFilter="_activeStatusFilter" 
-                       OnClearHistory="ClearHistory"
                        OnJobSelected="HandleJobInspectorRequested" />
         </section>
 
@@ -48,7 +49,7 @@
         </header>
 
         <section class="deck__row deck__row--settings">
-            <Settings IsConnected="IsConnected" />
+            <Settings IsConnected="IsConnected" OnLog="HandleLog" />
         </section>
 
         <section class="deck__row deck__row--circuits">

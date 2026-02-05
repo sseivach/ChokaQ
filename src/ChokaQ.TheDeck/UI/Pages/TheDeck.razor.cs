@@ -161,7 +161,16 @@ public partial class TheDeck : IAsyncDisposable
         {
             _counts = await JobStorage.GetSummaryStatsAsync();
             _circuits = CircuitBreaker.GetCircuitStats().ToList();
-            
+
+            if (_activeStatusFilter == JobStatus.Succeeded ||
+                _activeStatusFilter == JobStatus.Failed ||
+                _activeStatusFilter == JobStatus.Cancelled)
+            {
+                // just refresh counters when viewing history
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+
             var hotJobs = await JobStorage.GetActiveJobsAsync(MaxHistoryCount);
             var viewModels = hotJobs.Select(job => new JobViewModel
             {
@@ -187,12 +196,22 @@ public partial class TheDeck : IAsyncDisposable
         catch { }
     }
 
-    private void HandleStatusSelected(JobStatus? status)
+    private async Task HandleStatusSelected(JobStatus? status)
     {
         _activeStatusFilter = status;
+
+        if (status == JobStatus.Failed || status == JobStatus.Succeeded || status == JobStatus.Cancelled)
+        {
+            await LoadHistoryAsync((null, null));
+        }
+        else
+        {
+            await LoadDataAsync();
+        }
+
         StateHasChanged();
     }
-    
+
     private void HandleJobInspectorRequested(string jobId)
     {
         _opsPanel.ShowJobInspector(jobId);
@@ -213,12 +232,90 @@ public partial class TheDeck : IAsyncDisposable
         _jobs.Clear();
         StateHasChanged();
     }
-    
+
+    private async Task LoadHistoryAsync((DateTime?, DateTime?) dateRange)
+    {
+        var (fromDate, toDate) = dateRange;
+        var newJobs = new List<JobViewModel>();
+
+        try
+        {
+            // Succeeded
+            if (!_activeStatusFilter.HasValue || _activeStatusFilter == JobStatus.Succeeded)
+            {
+                var archiveJobs = await JobStorage.GetArchiveJobsAsync(
+                    limit: MaxHistoryCount,
+                    fromDate: fromDate,
+                    toDate: toDate);
+
+                newJobs.AddRange(archiveJobs.Select(j => new JobViewModel
+                {
+                    Id = j.Id,
+                    Queue = j.Queue,
+                    Type = j.Type,
+                    Status = JobStatus.Succeeded,
+                    Priority = 0,
+                    Attempts = j.AttemptCount,
+                    AddedAt = j.CreatedAtUtc.ToLocalTime(),
+                    Duration = j.DurationMs.HasValue ? TimeSpan.FromMilliseconds(j.DurationMs.Value) : null,
+                    CreatedBy = j.CreatedBy,
+                    StartedAtUtc = j.StartedAtUtc?.ToLocalTime(),
+                    Payload = j.Payload ?? "{}"
+                }));
+            }
+
+            // Failed/Cancelled
+            if (!_activeStatusFilter.HasValue ||
+                 _activeStatusFilter == JobStatus.Failed ||
+                 _activeStatusFilter == JobStatus.Cancelled)
+            {
+                var dlqJobs = await JobStorage.GetDLQJobsAsync(
+                    limit: MaxHistoryCount,
+                    fromDate: fromDate,
+                    toDate: toDate);
+
+                newJobs.AddRange(dlqJobs.Select(j => new JobViewModel
+                {
+                    Id = j.Id,
+                    Queue = j.Queue,
+                    Type = j.Type,
+                    Status = JobStatus.Failed, // or Cancelled
+                    Priority = 0,
+                    Attempts = j.AttemptCount,
+                    AddedAt = j.CreatedAtUtc.ToLocalTime(),
+                    Duration = null,
+                    CreatedBy = j.CreatedBy,
+                    StartedAtUtc = null,
+                    Payload = j.Payload ?? "{}"
+                }));
+            }
+
+            var sorted = newJobs.OrderByDescending(j => j.AddedAt).ToList();
+
+            await InvokeAsync(() =>
+            {
+                _jobs = sorted;
+                StateHasChanged();
+            });
+
+            AddLog($"Loaded {sorted.Count} historical jobs", "Info");
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Error loading history: {ex.Message}", "Error");
+        }
+    }
+
     private void AddLog(string message, string level)
     {
         _logs.Add(new LogEntry(DateTime.Now, message, level));
         if (_logs.Count > 500) _logs.RemoveAt(0);
         ThrottledRender();
+    }
+
+    private void HandleLog((string Message, string Level) log)
+    {
+        AddLog(log.Message, log.Level);
     }
 
     private void ThrottledRender()

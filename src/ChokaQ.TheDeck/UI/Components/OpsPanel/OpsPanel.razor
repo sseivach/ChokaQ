@@ -1,4 +1,5 @@
 @using ChokaQ.TheDeck.UI.Components.OpsPanel.JobInspector
+@using ChokaQ.TheDeck.UI.Components.OpsPanel.JobEditor
 @namespace ChokaQ.TheDeck.UI.Components.OpsPanel
 
 <aside class="ops-panel">
@@ -7,7 +8,14 @@
         <JobInspector JobId="@_selectedJobId" 
                       OnClose="ClearPanel" 
                       OnRestart="HandleRequeue" 
-                      OnDelete="HandleDelete" />
+                      OnDelete="HandleDelete"
+                      OnEdit="HandleEdit" />
+    }
+    else if (_activePanel == OpsPanelType.JobEditor && _editorModel != null)
+    {
+        <JobEditor Job="@_editorModel"
+                   OnClose="ClearPanel"
+                   OnSaved="HandleJobSaved" />
     }
     else
     {

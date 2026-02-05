@@ -11,7 +11,13 @@
                <div class="inspector__id">@_job.Id</div>
             }
         </div>
-        <button class="deck-btn inspector__close-btn" @onclick="Close">Close</button>
+        <div class="inspector__header-actions">
+            @if (CanEdit)
+            {
+                <button class="deck-btn deck-btn-primary" @onclick="HandleEdit">Edit</button>
+            }
+            <button class="deck-btn inspector__close-btn" @onclick="Close">Close</button>
+        </div>
     </header>
 
     @if (_job == null)

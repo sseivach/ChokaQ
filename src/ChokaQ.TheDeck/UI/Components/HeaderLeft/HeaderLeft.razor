@@ -8,4 +8,16 @@
     <div class="header-left__subtitle">
         THE DECK
     </div>
+    
+    <div class="header-left__connection">
+        <span class="header-left__connection-label">CONNECTION</span>
+        @if (IsConnected)
+        {
+            <span class="matrix__status-label matrix__status-label--online">ONLINE</span>
+        }
+        else
+        {
+            <span class="matrix__status-label matrix__status-label--offline">OFFLINE</span>
+        }
+    </div>
 </header>

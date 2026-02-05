@@ -125,6 +125,15 @@ public interface IJobStorage
         string? resurrectedBy = null,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Releases a fetched job back to the queue (Pending status) without processing it.
+    /// This is used when a queue is paused, but the worker has already buffered the job.
+    /// The attempt count should be decremented or preserved, not incremented.
+    /// </summary>
+    /// <param name="jobId">The unique job identifier.</param>
+    /// <param name="ct">Cancellation token.</param>
+    ValueTask ReleaseJobAsync(string jobId, CancellationToken ct = default);
+
     // ========================================================================
     // RETRY LOGIC (Stays in Hot)
     // ========================================================================
@@ -173,6 +182,16 @@ public interface IJobStorage
         DateTime olderThan,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Updates job data in DLQ without resurrecting it.
+    /// Note: Priority cannot be updated in DLQ as it is a scheduling property.
+    /// </summary>
+    ValueTask<bool> UpdateDLQJobDataAsync(
+        string jobId,
+        JobDataUpdateDto updates,
+        string? modifiedBy = null,
+        CancellationToken ct = default);
+
     // ========================================================================
     // OBSERVABILITY (Dashboard)
     // ========================================================================
@@ -218,11 +237,15 @@ public interface IJobStorage
     /// <param name="queueFilter">Filter by queue name.</param>
     /// <param name="reasonFilter">Filter by failure reason (Cancelled, Zombie, etc.).</param>
     /// <param name="searchTerm">Search in Id, Type, Tags, ErrorDetails.</param>
+    /// <param name="fromDate">Filter jobs created on or after this date.</param>
+    /// <param name="toDate">Filter jobs created on or before this date.</param>
     ValueTask<IEnumerable<JobDLQEntity>> GetDLQJobsAsync(
         int limit = 100,
         string? queueFilter = null,
         FailureReason? reasonFilter = null,
         string? searchTerm = null,
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
         CancellationToken ct = default);
 
     /// <summary>

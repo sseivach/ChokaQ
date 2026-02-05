@@ -1,6 +1,6 @@
-using ChokaQ.Abstractions.Entities;
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Storage;
+using ChokaQ.TheDeck.Enums;
 using Microsoft.AspNetCore.Components;
 using System.Text.Json;
 
@@ -12,11 +12,13 @@ public partial class JobInspector
     [Parameter] public EventCallback OnClose { get; set; }
     [Parameter] public EventCallback<string> OnRestart { get; set; }
     [Parameter] public EventCallback<string> OnDelete { get; set; }
+    [Parameter] public EventCallback<JobEditorModel> OnEdit { get; set; }
 
     [Inject] private IJobStorage JobStorage { get; set; } = default!;
 
     private JobInspectorModel? _job;
     private bool CanRequeue => _job?.Source == JobSource.DLQ;
+    private bool CanEdit => _job != null && (_job.Status == JobStatus.Pending || _job.Source == JobSource.DLQ);
 
     protected override async Task OnParametersSetAsync()
     {
@@ -39,6 +41,23 @@ public partial class JobInspector
     private async Task HandleDelete()
     {
         if (_job != null) await OnDelete.InvokeAsync(_job.Id);
+    }
+
+    private async Task HandleEdit()
+    {
+        if (_job == null) return;
+
+        var editorModel = new JobEditorModel
+        {
+            Id = _job.Id,
+            Queue = _job.Queue,
+            Type = _job.Type,
+            Payload = _job.Payload,
+            Priority = _job.Priority,
+            Source = _job.Source
+        };
+
+        await OnEdit.InvokeAsync(editorModel);
     }
 
     private async Task<JobInspectorModel?> FindJobAsync(string jobId)
@@ -96,5 +115,13 @@ public partial class JobInspector
         public JobSource Source { get; init; }
     }
 
-    private enum JobSource { Hot, Archive, DLQ }
+    public record JobEditorModel
+    {
+        public required string Id { get; init; }
+        public required string Queue { get; init; }
+        public required string Type { get; init; }
+        public string? Payload { get; init; }
+        public required int Priority { get; init; }
+        public required JobSource Source { get; init; }
+    }
 }

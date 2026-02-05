@@ -16,6 +16,9 @@ public partial class Queues : IDisposable
     // UI Toggle state
     private bool _showInactive = false;
 
+    // SignalR connection state
+    private bool IsConnected => HubConnection?.State == HubConnectionState.Connected;
+
     // Filters queues based on the toggle state
     private IEnumerable<QueueEntity> VisibleQueues =>
         _showInactive ? _queues : _queues.Where(q => q.IsActive);
@@ -66,7 +69,7 @@ public partial class Queues : IDisposable
             _queues[index] = q with { IsPaused = pause };
         }
 
-        if (HubConnection is not null)
+        if (HubConnection is not null && IsConnected)
         {
             await HubConnection.InvokeAsync("ToggleQueue", name, pause);
             await Refresh();
@@ -86,7 +89,7 @@ public partial class Queues : IDisposable
             _queues[index] = q with { ZombieTimeoutSeconds = parsedValue };
         }
 
-        if (HubConnection is not null)
+        if (HubConnection is not null && IsConnected)
         {
             await HubConnection.InvokeAsync("UpdateQueueTimeout", name, parsedValue);
         }
@@ -95,7 +98,7 @@ public partial class Queues : IDisposable
     // Soft Delete (Deactivate)
     private async Task DeactivateQueue(string name)
     {
-        if (HubConnection is not null)
+        if (HubConnection is not null && IsConnected)
         {
             await HubConnection.InvokeAsync("SetQueueActive", name, false);
             await Refresh();
@@ -105,7 +108,7 @@ public partial class Queues : IDisposable
     // Restore (Activate)
     private async Task ActivateQueue(string name)
     {
-        if (HubConnection is not null)
+        if (HubConnection is not null && IsConnected)
         {
             await HubConnection.InvokeAsync("SetQueueActive", name, true);
             await Refresh();

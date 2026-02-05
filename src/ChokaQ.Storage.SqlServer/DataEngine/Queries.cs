@@ -16,6 +16,7 @@ internal sealed class Queries
     public readonly string MarkAsProcessing;
     public readonly string KeepAlive;
     public readonly string GetJob;
+    public readonly string ReleaseJob;
 
     // ========================================================================
     // ARCHIVE OPERATIONS
@@ -34,6 +35,7 @@ internal sealed class Queries
     public readonly string UpdateJobData;
     public readonly string PurgeDLQ;
     public readonly string PurgeArchive;
+    public readonly string UpdateDLQData;
 
     // ========================================================================
     // OBSERVABILITY (Dashboard)
@@ -121,6 +123,16 @@ internal sealed class Queries
             WHERE [Id] = @Id";
 
         GetJob = $"SELECT * FROM [{schema}].[JobsHot] WHERE [Id] = @Id";
+
+        // Reverts a job from Fetched (1) to Pending (0).
+        // Decrements AttemptCount because the execution did not actually start.
+        ReleaseJob = $@"
+            UPDATE [{schema}].[JobsHot]
+            SET [Status] = 0,
+                [WorkerId] = NULL,
+                [AttemptCount] = CASE WHEN [AttemptCount] > 0 THEN [AttemptCount] - 1 ELSE 0 END,
+                [LastUpdatedUtc] = SYSUTCDATETIME()
+            WHERE [Id] = @Id;";
 
         // ARCHIVE OPERATIONS
         ArchiveSucceeded = $@"
@@ -252,9 +264,46 @@ internal sealed class Queries
                 [LastUpdatedUtc] = SYSUTCDATETIME()
             WHERE [Id] = @Id AND [Status] = 0";
 
-        PurgeDLQ = $"DELETE FROM [{schema}].[JobsDLQ] WHERE [Id] IN @Ids";
+        PurgeDLQ = $@"
+            DELETE FROM [{schema}].[JobsDLQ] 
+            WHERE [Id] IN @Ids;
 
-        PurgeArchive = $"DELETE FROM [{schema}].[JobsArchive] WHERE [FinishedAtUtc] < @CutOff";
+            UPDATE s
+            SET s.[FailedTotal] = (
+                SELECT COUNT(1) 
+                FROM [{schema}].[JobsDLQ] d WITH (NOLOCK)
+                WHERE d.[Queue] = s.[Queue]
+            ),
+            s.[LastActivityUtc] = SYSUTCDATETIME()
+            FROM [{schema}].[StatsSummary] s;";
+
+
+        PurgeArchive = $@"
+            DECLARE @DeletedIds TABLE (Id nvarchar(50));
+
+            DELETE FROM [{schema}].[JobsArchive] 
+            OUTPUT deleted.Id INTO @DeletedIds
+            WHERE [FinishedAtUtc] < @CutOff;
+
+            IF NOT EXISTS (SELECT 1 FROM @DeletedIds) RETURN;
+
+            SET NOCOUNT ON; 
+
+            UPDATE s
+            SET s.[SucceededTotal] = (
+                SELECT COUNT(1) 
+                FROM [{schema}].[JobsArchive] a WITH (NOLOCK)
+                WHERE a.[Queue] = s.[Queue]
+            ),
+            s.[LastActivityUtc] = SYSUTCDATETIME()
+            FROM [{schema}].[StatsSummary] s;";
+
+        UpdateDLQData = $@"
+            UPDATE [{schema}].[JobsDLQ]
+            SET [Payload] = ISNULL(@Payload, [Payload]),
+                [Tags] = ISNULL(@Tags, [Tags]),
+                [LastModifiedBy] = @ModifiedBy
+            WHERE [Id] = @Id";
 
         // OBSERVABILITY
         GetSummaryStats = $@"

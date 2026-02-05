@@ -195,6 +195,12 @@ public class SqlJobStorage : IJobStorage
         return total;
     }
 
+    public async ValueTask ReleaseJobAsync(string jobId, CancellationToken ct = default)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+        await conn.ExecuteAsync(_q.ReleaseJob, new { Id = jobId }, ct);
+    }
+
     // ========================================================================
     // RETRY LOGIC (Stays in Hot)
     // ========================================================================
@@ -252,6 +258,26 @@ public class SqlJobStorage : IJobStorage
     {
         await using var conn = await OpenConnectionAsync(ct);
         return await conn.ExecuteAsync(_q.PurgeArchive, new { CutOff = olderThan }, ct);
+    }
+
+    public async ValueTask<bool> UpdateDLQJobDataAsync(
+        string jobId,
+        JobDataUpdateDto updates,
+        string? modifiedBy = null,
+        CancellationToken ct = default)
+    {
+        if (updates.Payload == null && updates.Tags == null) return false;
+
+        await using var conn = await OpenConnectionAsync(ct);
+        var affected = await conn.ExecuteAsync(_q.UpdateDLQData, new
+        {
+            Id = jobId,
+            updates.Payload,
+            updates.Tags,
+            ModifiedBy = modifiedBy
+        }, ct);
+
+        return affected > 0;
     }
 
     // ========================================================================
@@ -329,6 +355,8 @@ public class SqlJobStorage : IJobStorage
         string? queueFilter = null,
         FailureReason? reasonFilter = null,
         string? searchTerm = null,
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
         CancellationToken ct = default)
     {
         await using var conn = await OpenConnectionAsync(ct);
@@ -336,6 +364,8 @@ public class SqlJobStorage : IJobStorage
         var where = "WHERE 1=1";
         if (!string.IsNullOrEmpty(queueFilter)) where += " AND [Queue] = @Queue";
         if (reasonFilter.HasValue) where += " AND [FailureReason] = @Reason";
+        if (fromDate.HasValue) where += " AND [CreatedAtUtc] >= @FromDate";
+        if (toDate.HasValue) where += " AND [CreatedAtUtc] <= @ToDate";
         if (!string.IsNullOrEmpty(searchTerm))
             where += " AND ([Id] LIKE @Search OR [Type] LIKE @Search OR [Tags] LIKE @Search OR [ErrorDetails] LIKE @Search)";
 
@@ -346,6 +376,8 @@ public class SqlJobStorage : IJobStorage
             Limit = limit,
             Queue = queueFilter,
             Reason = reasonFilter.HasValue ? (int)reasonFilter.Value : (int?)null,
+            FromDate = fromDate,
+            ToDate = toDate,
             Search = $"%{searchTerm}%"
         }, ct);
     }

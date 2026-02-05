@@ -301,6 +301,24 @@ public class InMemoryJobStorage : IJobStorage
         return new ValueTask<int>(count);
     }
 
+    public ValueTask ReleaseJobAsync(string jobId, CancellationToken ct = default)
+    {
+        // In-Memory implementation logic (simplified):
+        // Revert status to Pending so other workers/threads can pick it up.
+        if (_hotJobs.TryGetValue(jobId, out var job))
+        {
+            var released = job with
+            {
+                Status = JobStatus.Pending,
+                WorkerId = null,
+                AttemptCount = Math.Max(0, job.AttemptCount - 1),
+                LastUpdatedUtc = DateTime.UtcNow
+            };
+            _hotJobs.TryUpdate(jobId, released, job);
+        }
+        return ValueTask.CompletedTask;
+    }
+
     // ========================================================================
     // RETRY LOGIC (Stays in Hot)
     // ========================================================================
@@ -380,6 +398,29 @@ public class InMemoryJobStorage : IJobStorage
         }
 
         return new ValueTask<int>(toRemove.Count);
+    }
+
+    public ValueTask<bool> UpdateDLQJobDataAsync(
+        string jobId,
+        JobDataUpdateDto updates,
+        string? modifiedBy = null,
+        CancellationToken ct = default)
+    {
+        if (!_dlqJobs.TryGetValue(jobId, out var job))
+        {
+            return new ValueTask<bool>(false);
+        }
+
+        var updatedJob = job with
+        {
+            Payload = updates.Payload ?? job.Payload,
+            Tags = updates.Tags ?? job.Tags,
+            LastModifiedBy = modifiedBy
+        };
+
+        var success = _dlqJobs.TryUpdate(jobId, updatedJob, job);
+
+        return new ValueTask<bool>(success);
     }
 
     // ========================================================================
@@ -502,6 +543,8 @@ public class InMemoryJobStorage : IJobStorage
         string? queueFilter = null,
         FailureReason? reasonFilter = null,
         string? searchTerm = null,
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
         CancellationToken ct = default)
     {
         var query = _dlqJobs.Values.AsEnumerable();
@@ -511,6 +554,12 @@ public class InMemoryJobStorage : IJobStorage
 
         if (reasonFilter.HasValue)
             query = query.Where(j => j.FailureReason == reasonFilter.Value);
+
+        if (fromDate.HasValue)
+            query = query.Where(j => j.CreatedAtUtc >= fromDate.Value);
+
+        if (toDate.HasValue)
+            query = query.Where(j => j.CreatedAtUtc <= toDate.Value);
 
         if (!string.IsNullOrEmpty(searchTerm))
             query = query.Where(j =>

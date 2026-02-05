@@ -34,7 +34,7 @@
                     <th class="queues__th queues__th--status">Status</th>
                     <th class="queues__th queues__th--toggle">Pause / Resume</th>
                     <th class="queues__th queues__th--timeout">Zombie (s)</th>
-                    <th class="queues__th queues__th--reserv1">Reserv 1</th>
+                    <th class="queues__th queues__th--reserv1">Active (Buf / Pen)</th>
                     <th class="queues__th queues__th--reserv2">Reserv 2</th>
                     <th class="queues__th queues__th--updated">Last Updated</th>
                     <th class="queues__th queues__th--actions">Actions</th>
@@ -67,10 +67,12 @@
                         </td>
 
                         <td class="queues__toggle-cell">
-                            <input type="checkbox"
-                                   class="queues__toggle"
-                                   checked="@(!q.IsPaused)"
-                                   @onchange="@(e => ToggleQueue(q.Name, (bool)e.Value!))" />
+                            <label class="deck-switch">
+                                <input type="checkbox"
+                                       checked="@(!q.IsPaused)"
+                                       @onchange="@(e => ToggleQueue(q.Name, (bool)e.Value!))" />
+                                <span class="deck-switch__slider"></span>
+                            </label>
                         </td>
 
                         <td class="queues__timeout-cell">
@@ -80,7 +82,19 @@
                                    @onchange="@(e => UpdateTimeout(q.Name, e.Value))" />
                         </td>
 
-                        <td class="queues__reserv1-cell">---</td>
+                        <td class="queues__stats">
+                            @if (stats != null)
+                            {
+                                <span class="queues__stats-buffered" title="Buffered (Fetched)">@stats.Fetched.ToString("N0")</span>
+                                <span class="queues__stats-sep">/</span>
+                                <span class="queues__stats-pending" title="Pending">@stats.Pending.ToString("N0")</span>
+                            }
+                            else
+                            {
+                                <span class="queues__stats-empty">-</span>
+                            }
+                        </td>
+
                         <td class="queues__reserv2-cell">---</td>
 
                         <td class="queues__updated">

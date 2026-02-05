@@ -10,11 +10,14 @@ public partial class JobMatrix
     [Parameter] public List<JobViewModel> Jobs { get; set; } = new();
     [Parameter] public bool IsConnected { get; set; }
     [Parameter] public EventCallback OnClearHistory { get; set; }
+    [Parameter] public EventCallback<(DateTime?, DateTime?)> OnLoadHistory { get; set; }
     [Parameter] public HubConnection? HubConnection { get; set; }
     [Parameter] public JobStatus? ActiveStatusFilter { get; set; }
     [Parameter] public EventCallback<string> OnJobSelected { get; set; }
 
     private string _searchQuery = "";
+    private DateTime? _dateFrom;
+    private DateTime? _dateTo;
     private HashSet<string> _selectedJobIds = new();
     private int SelectedCount => _selectedJobIds.Count;
     private int _bulkPriorityValue = 10;
@@ -116,5 +119,10 @@ public partial class JobMatrix
     {
         if (HubConnection is not null && IsConnected)
             await HubConnection.InvokeAsync("RestartJob", jobId);
+    }
+
+    private async Task LoadHistory()
+    {
+        await OnLoadHistory.InvokeAsync((_dateFrom, _dateTo));
     }
 }

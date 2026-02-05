@@ -1,0 +1,67 @@
+@namespace ChokaQ.TheDeck.UI.Components.OpsPanel.JobEditor
+
+<section class="editor">
+    <!-- Header -->
+    <header class="editor__header">
+        <div class="editor__title-group">
+            <h2 class="editor__title">Edit Job</h2>
+            @if (Job != null)
+            {
+               <div class="editor__id">@Job.Id</div>
+            }
+        </div>
+        <div class="editor__header-actions">
+            <button class="deck-btn deck-btn-primary" 
+                    @onclick="SaveChangesAsync" 
+                    disabled="@_isSaving">
+                @(_isSaving ? "Saving..." : "Save")
+            </button>
+            <button class="deck-btn" @onclick="CancelAsync">Cancel</button>
+        </div>
+    </header>
+
+    @if (Job == null)
+    {
+        <div class="editor__loading">
+             <span>No job selected...</span>
+        </div>
+    }
+    else
+    {
+        <div class="editor__content">
+             <!-- Metadata (Read-only) -->
+             <div class="editor__section">
+                 <h3 class="editor__section-title">Metadata</h3>
+                 <ul class="deck-meta-list">
+                     <li><span class="deck-meta-label">Type</span> <span class="deck-meta-value">@Job.Type</span></li>
+                     <li><span class="deck-meta-label">Queue</span> <span class="deck-meta-value">@Job.Queue</span></li>
+                     <li>
+                         <span class="deck-meta-label">Priority</span>
+                         <input type="number" 
+                                class="editor__priority-input" 
+                                min="0" 
+                                max="100" 
+                                @bind="_editPriority" />
+                     </li>
+                 </ul>
+             </div>
+
+             <!-- Payload Editor -->
+             <div class="editor__section">
+                 <h3 class="editor__section-title">Payload (JSON)</h3>
+                 <textarea class="editor__payload-textarea" 
+                           rows="15" 
+                           @bind="_editPayload"
+                           spellcheck="false"></textarea>
+             </div>
+
+             <!-- Error Message -->
+             @if (!string.IsNullOrEmpty(_errorMessage))
+             {
+                 <div class="editor__error">
+                     <strong>⚠️ Error:</strong> @_errorMessage
+                 </div>
+             }
+        </div>
+    }
+</section>
