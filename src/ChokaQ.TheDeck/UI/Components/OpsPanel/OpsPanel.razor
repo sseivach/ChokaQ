@@ -1,6 +1,7 @@
 @using ChokaQ.TheDeck.Enums
 @using ChokaQ.TheDeck.UI.Components.OpsPanel.JobInspector
 @using ChokaQ.TheDeck.UI.Components.OpsPanel.JobEditor
+@using ChokaQ.TheDeck.UI.Components.OpsPanel.HistoryFilter
 @namespace ChokaQ.TheDeck.UI.Components.OpsPanel
 
 <aside class="ops-panel">
@@ -43,11 +44,11 @@
         @switch (_activeTab)
         {
             case OpsTab.HistoryFilter:
-                <div class="ops-panel__placeholder">
-                    <h3>HISTORY FILTERS</h3>
-                    <p>Component coming in Stage 3...</p>
-                    <p>Context: @CurrentContext</p>
-                </div>
+                <HistoryFilter Context="@CurrentContext"
+                               TotalItems="@TotalItems"
+                               CurrentPage="@CurrentPage"
+                               PageSize="@PageSize"
+                               OnLoadRequest="HandleLoadRequest" />
                 break;
 
             case OpsTab.JobInspector:
