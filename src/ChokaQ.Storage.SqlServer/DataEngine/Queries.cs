@@ -64,6 +64,15 @@ internal sealed class Queries
 
     public readonly string ArchiveZombies;
 
+    // ========================================================================
+    // HISTORY
+    // ========================================================================
+
+    public readonly string GetArchivePaged;
+    public readonly string GetArchiveCount;
+    public readonly string GetDLQPaged;
+    public readonly string GetDLQCount;
+
     public Queries(string schema)
     {
         // CORE OPERATIONS
@@ -432,5 +441,30 @@ internal sealed class Queries
             ) counts ON counts.Queue = s.[Queue];
 
             SELECT COUNT(*) FROM @ZombieIds;";
+
+        // HISTORY - 1. ARCHIVE PAGED
+        // Note: {ORDER_BY} and {WHERE_CLAUSE} are replaced at runtime in SqlJobStorage
+        GetArchivePaged = $@"
+            SELECT * FROM [{schema}].[JobsArchive] WITH (NOLOCK)
+            {{WHERE_CLAUSE}}
+            {{ORDER_BY}}
+            OFFSET @Offset ROWS FETCH NEXT @Limit ROWS ONLY";
+
+        GetArchiveCount = $@"
+            SELECT COUNT(1) 
+            FROM [{schema}].[JobsArchive] WITH (NOLOCK)
+            {{WHERE_CLAUSE}}";
+
+        // HISTORY - 2. DLQ PAGED
+        GetDLQPaged = $@"
+            SELECT * FROM [{schema}].[JobsDLQ] WITH (NOLOCK)
+            {{WHERE_CLAUSE}}
+            {{ORDER_BY}}
+            OFFSET @Offset ROWS FETCH NEXT @Limit ROWS ONLY";
+
+        GetDLQCount = $@"
+            SELECT COUNT(1) 
+            FROM [{schema}].[JobsDLQ] WITH (NOLOCK)
+            {{WHERE_CLAUSE}}";
     }
 }

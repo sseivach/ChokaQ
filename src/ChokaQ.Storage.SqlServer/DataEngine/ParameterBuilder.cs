@@ -22,28 +22,41 @@ internal static class ParameterBuilder
         var paramList = new List<SqlParameter>();
         var modifiedSql = sql;
 
-        var properties = parameters.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
-
-        foreach (var prop in properties)
+        if (parameters is IDictionary<string, object?> dict)
         {
-            var value = prop.GetValue(parameters);
-            var paramName = "@" + prop.Name;
-
-            // Handle array/enumerable parameters (for IN clauses)
-            if (value is IEnumerable enumerable and not string)
+            foreach (var kvp in dict)
             {
-                var (expandedParams, expandedSql) = ExpandArrayParameter(paramName, enumerable, modifiedSql);
-                paramList.AddRange(expandedParams);
-                modifiedSql = expandedSql;
+                ProcessParameter(kvp.Key, kvp.Value, ref modifiedSql, paramList);
             }
-            else
+        }
+        else
+        {
+            var properties = parameters.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            foreach (var prop in properties)
             {
-                // Regular parameter
-                paramList.Add(new SqlParameter(paramName, value ?? DBNull.Value));
+                var value = prop.GetValue(parameters);
+                ProcessParameter(prop.Name, value, ref modifiedSql, paramList);
             }
         }
 
         return (paramList.ToArray(), modifiedSql);
+    }
+
+    private static void ProcessParameter(string name, object? value, ref string sql, List<SqlParameter> paramList)
+    {
+        var paramName = name.StartsWith("@") ? name : "@" + name;
+
+        // Handle array/enumerable parameters (for IN clauses)
+        if (value is IEnumerable enumerable and not string)
+        {
+            var (expandedParams, expandedSql) = ExpandArrayParameter(paramName, enumerable, sql);
+            paramList.AddRange(expandedParams);
+            sql = expandedSql;
+        }
+        else
+        {
+            paramList.Add(new SqlParameter(paramName, value ?? DBNull.Value));
+        }
     }
 
     private static (SqlParameter[], string) ExpandArrayParameter(string paramName, IEnumerable values, string sql)
@@ -58,12 +71,10 @@ internal static class ParameterBuilder
 
         if (valueList.Count == 0)
         {
-            // Empty array - replace with (SELECT NULL WHERE 1=0) to ensure no matches
             var modifiedSql = sql.Replace(paramName, "(SELECT NULL WHERE 1=0)");
             return (Array.Empty<SqlParameter>(), modifiedSql);
         }
 
-        // Generate @ParamName0, @ParamName1, etc.
         var parameterNames = new StringBuilder();
         for (int i = 0; i < valueList.Count; i++)
         {
@@ -74,9 +85,7 @@ internal static class ParameterBuilder
             parameterNames.Append(indexedParamName);
         }
 
-        // Replace @ParamName with (@ParamName0, @ParamName1, ...)
         var expandedSql = sql.Replace(paramName, $"({parameterNames})");
-
         return (paramList.ToArray(), expandedSql);
     }
 }

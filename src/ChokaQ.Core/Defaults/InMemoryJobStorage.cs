@@ -697,6 +697,76 @@ public class InMemoryJobStorage : IJobStorage
     }
 
     // ========================================================================
+    // HISTORY
+    // ========================================================================
+
+    public ValueTask<PagedResult<JobArchiveEntity>> GetArchivePagedAsync(
+        HistoryFilterDto filter,
+        CancellationToken ct = default)
+    {
+        var query = _archiveJobs.Values.AsEnumerable();
+
+        // 1. Filter
+        if (!string.IsNullOrEmpty(filter.Queue))
+            query = query.Where(x => x.Queue == filter.Queue);
+
+        if (filter.FromUtc.HasValue)
+            query = query.Where(x => x.FinishedAtUtc >= filter.FromUtc);
+
+        if (filter.ToUtc.HasValue)
+            query = query.Where(x => x.FinishedAtUtc <= filter.ToUtc);
+
+        if (!string.IsNullOrEmpty(filter.SearchTerm))
+            query = query.Where(x => x.Id.Contains(filter.SearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                                     x.Type.Contains(filter.SearchTerm, StringComparison.OrdinalIgnoreCase));
+
+        // 2. Sort
+        if (filter.SortDescending)
+            query = query.OrderByDescending(x => x.FinishedAtUtc); // Simplified sort
+        else
+            query = query.OrderBy(x => x.FinishedAtUtc);
+
+        var total = query.Count();
+
+        // 3. Page
+        var items = query
+            .Skip((filter.PageNumber - 1) * filter.PageSize)
+            .Take(filter.PageSize)
+            .ToList();
+
+        return new ValueTask<PagedResult<JobArchiveEntity>>(
+            new PagedResult<JobArchiveEntity>(items, total, filter.PageNumber, filter.PageSize));
+    }
+
+    public ValueTask<PagedResult<JobDLQEntity>> GetDLQPagedAsync(
+        HistoryFilterDto filter,
+        CancellationToken ct = default)
+    {
+        var query = _dlqJobs.Values.AsEnumerable();
+
+        // Similar filters...
+        if (!string.IsNullOrEmpty(filter.Queue))
+            query = query.Where(x => x.Queue == filter.Queue);
+
+        if (filter.FromUtc.HasValue)
+            query = query.Where(x => x.CreatedAtUtc >= filter.FromUtc); // DLQ usually uses Created or Failed
+
+        if (!string.IsNullOrEmpty(filter.SearchTerm))
+            query = query.Where(x => x.Id.Contains(filter.SearchTerm, StringComparison.OrdinalIgnoreCase));
+
+        var total = query.Count();
+
+        var items = query
+            .OrderByDescending(x => x.FailedAtUtc)
+            .Skip((filter.PageNumber - 1) * filter.PageSize)
+            .Take(filter.PageSize)
+            .ToList();
+
+        return new ValueTask<PagedResult<JobDLQEntity>>(
+            new PagedResult<JobDLQEntity>(items, total, filter.PageNumber, filter.PageSize));
+    }
+
+    // ========================================================================
     // PRIVATE HELPERS
     // ========================================================================
 
