@@ -536,7 +536,7 @@ public class SqlJobStorage : IJobStorage
         return (sb.ToString(), p);
     }
 
-    // Helper to merge two anonymous objects or dictionaries into one dictionary for Dapper
+    // Helper to merge two anonymous objects or dictionaries into one dictionary
     private Dictionary<string, object?> MergeParams(Dictionary<string, object?> first, object second)
     {
         var result = new Dictionary<string, object?>(first);

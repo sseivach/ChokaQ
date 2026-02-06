@@ -1800,9 +1800,6 @@ input[type="checkbox"]:checked::after {
     color: var(--deck-muted);
 }
 
-/* ==========================================
-   COMPONENT: Toggle Switch (Robust Version)
-   ========================================== */
 .deck-switch {
     position: relative;
     display: inline-block;
@@ -1857,4 +1854,83 @@ input[type="checkbox"]:checked::after {
 
 .deck-switch input:focus + .deck-switch__slider {
     box-shadow: 0 0 1px var(--deck-info);
+}
+
+.ops-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.ops-panel__tabs {
+    display: flex;
+    background: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid var(--sector-border-color);
+    flex-shrink: 0;
+    height: 32px;
+}
+
+.ops-panel__tab {
+    background: transparent;
+    border: none;
+    border-right: 1px solid var(--sector-border-color);
+    color: var(--deck-text-color);
+    font-family: var(--deck-font-family);
+    font-size: 0.75rem;
+    font-weight: bold;
+    padding: 0 1rem;
+    cursor: pointer;
+    opacity: 0.7;
+    height: 100%;
+    text-transform: uppercase;
+    transition: all 0.2s;
+}
+
+    .ops-panel__tab:hover {
+        background: rgba(255, 255, 255, 0.05);
+        opacity: 1;
+    }
+
+.ops-panel__tab--active {
+    background: var(--sector-bg);
+    color: var(--deck-info);
+    opacity: 1;
+    border-bottom: 2px solid var(--deck-info);
+}
+
+.ops-panel__tab-spacer {
+    flex: 1;
+}
+
+.ops-panel__close {
+    background: transparent;
+    border: none;
+    color: var(--deck-text-color);
+    width: 32px;
+    cursor: pointer;
+    opacity: 0.5;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+    .ops-panel__close:hover {
+        background: var(--deck-danger);
+        color: white;
+        opacity: 1;
+    }
+
+.ops-panel__body {
+    flex: 1;
+    overflow-y: hidden;
+    position: relative;
+    background: var(--sector-bg);
+}
+
+.ops-panel__placeholder {
+    padding: 2rem;
+    text-align: center;
+    opacity: 0.5;
+    font-family: monospace;
 }

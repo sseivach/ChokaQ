@@ -1,26 +1,80 @@
+@using ChokaQ.TheDeck.Enums
 @using ChokaQ.TheDeck.UI.Components.OpsPanel.JobInspector
 @using ChokaQ.TheDeck.UI.Components.OpsPanel.JobEditor
 @namespace ChokaQ.TheDeck.UI.Components.OpsPanel
 
 <aside class="ops-panel">
-    @if (_activePanel == OpsPanelType.JobInspector && _selectedJobId != null)
+
+    @if (_activeTab != OpsTab.None)
     {
-        <JobInspector JobId="@_selectedJobId" 
-                      OnClose="ClearPanel" 
-                      OnRestart="HandleRequeue" 
-                      OnDelete="HandleDelete"
-                      OnEdit="HandleEdit" />
+        <header class="ops-panel__tabs">
+
+            @if (IsHistoryMode)
+            {
+                <button class="ops-panel__tab @(_activeTab == OpsTab.HistoryFilter ? "ops-panel__tab--active" : "")"
+                        @onclick="() => SwitchTab(OpsTab.HistoryFilter)">
+                    FILTERS
+                </button>
+            }
+
+            @if (_selectedJobId != null)
+            {
+                <button class="ops-panel__tab @(_activeTab == OpsTab.JobInspector ? "ops-panel__tab--active" : "")"
+                        @onclick="() => SwitchTab(OpsTab.JobInspector)">
+                    INSPECTOR
+                </button>
+            }
+
+            @if (_editorModel != null)
+            {
+                <button class="ops-panel__tab @(_activeTab == OpsTab.JobEditor ? "ops-panel__tab--active" : "")"
+                        @onclick="() => SwitchTab(OpsTab.JobEditor)">
+                    EDITOR
+                </button>
+            }
+
+            <div class="ops-panel__tab-spacer"></div>
+
+            <button class="ops-panel__close" @onclick="ClearPanel" title="Close Panel / Back to Filters">?</button>
+        </header>
     }
-    else if (_activePanel == OpsPanelType.JobEditor && _editorModel != null)
-    {
-        <JobEditor Job="@_editorModel"
-                   OnClose="ClearPanel"
-                   OnSaved="HandleJobSaved" />
-    }
-    else
-    {
-        <div class="ops-panel__empty">
-            <span>No active panel</span>
-        </div>
-    }
+
+    <div class="ops-panel__body">
+        @switch (_activeTab)
+        {
+            case OpsTab.HistoryFilter:
+                <div class="ops-panel__placeholder">
+                    <h3>HISTORY FILTERS</h3>
+                    <p>Component coming in Stage 3...</p>
+                    <p>Context: @CurrentContext</p>
+                </div>
+                break;
+
+            case OpsTab.JobInspector:
+                @if (_selectedJobId != null)
+                {
+                    <JobInspector JobId="@_selectedJobId"
+                                  OnClose="HandleInspectorClose"
+                                  OnRestart="HandleRequeue"
+                                  OnDelete="HandleDelete"
+                                  OnEdit="HandleEdit" />
+                }
+                break;
+
+            case OpsTab.JobEditor:
+                @if (_editorModel != null)
+                {
+                    <JobEditor Job="@_editorModel"
+                               OnClose="HandleEditorCancel"
+                               OnSaved="HandleJobSaved" />
+                }
+                break;
+
+            default:
+                <div class="ops-panel__empty">
+                    <span>No active panel</span>
+                </div>
+                break;
+        }
+    </div>
 </aside>
