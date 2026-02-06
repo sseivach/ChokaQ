@@ -1,4 +1,4 @@
-@page "/the-deck"
+@page "/chokaq"
 @using ChokaQ.TheDeck.UI.Components.HeaderLeft
 @using ChokaQ.TheDeck.UI.Components.HeaderRight
 @using ChokaQ.TheDeck.UI.Components.Stats
@@ -12,8 +12,7 @@
 @implements IAsyncDisposable
 
 <main class="deck">
-    
-    <!-- Left column: Main activity -->
+
     <div class="deck__col deck__col--main">
         <header class="deck__row deck__row--header">
             <HeaderLeft IsConnected="@IsConnected" />
@@ -28,12 +27,12 @@
         </nav>
 
         <section class="deck__row deck__row--matrix">
-            <JobMatrix Jobs="_jobs" 
-                       IsConnected="IsConnected" 
-                       OnClearHistory="ClearHistory"
-                       OnLoadHistory="LoadHistoryAsync"
-                       HubConnection="_hubConnection" 
-                       ActiveStatusFilter="_activeStatusFilter" 
+            <JobMatrix Jobs="_jobs"
+                       IsConnected="IsConnected"
+                       IsHistoryMode="_isHistoryMode"
+                       OnModeToggle="HandleModeToggle"
+                       HubConnection="_hubConnection"
+                       ActiveStatusFilter="_activeStatusFilter"
                        OnJobSelected="HandleJobInspectorRequested" />
         </section>
 
@@ -42,7 +41,6 @@
         </footer>
     </div>
 
-    <!-- Right column: Sidebar/Ops -->
     <aside class="deck__col deck__col--side">
         <header class="deck__row deck__row--header">
             <HeaderRight />
@@ -57,7 +55,15 @@
         </section>
 
         <section class="deck__row deck__row--ops">
-            <OpsPanel @ref="_opsPanel" OnRequeue="HandleRequeueRequested" OnDelete="HandleDeleteRequested" />
+            <OpsPanel @ref="_opsPanel"
+                      IsHistoryMode="_isHistoryMode"
+                      CurrentContext="_currentContext"
+                      TotalItems="_historyTotalItems"
+                      CurrentPage="_historyPageNumber"
+                      PageSize="_historyPageSize"
+                      OnLoadRequest="HandleHistoryLoadRequest"
+                      OnRequeue="HandleRequeueRequested"
+                      OnDelete="HandleDeleteRequested" />
         </section>
     </aside>
 

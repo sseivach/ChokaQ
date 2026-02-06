@@ -2065,3 +2065,54 @@ input[type="checkbox"] {
     opacity: 0.5;
     font-style: italic;
 }
+
+/* ==========================================
+   COMPONENT STYLES: Mode Toggle (Matrix)
+   ========================================== */
+
+.matrix__mode-toggle {
+    display: flex;
+    background: var(--sector-border-color);
+    padding: 2px;
+    border-radius: 4px;
+    gap: 1px;
+}
+
+    /* Base button override for toggle */
+    .matrix__mode-toggle .deck-btn {
+        border: none;
+        background: transparent;
+        opacity: 0.6;
+        padding: 0.3rem 1rem;
+        transition: all 0.2s;
+    }
+
+        .matrix__mode-toggle .deck-btn:hover {
+            opacity: 1;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+/* Active State: LIVE (Green) */
+.deck-btn-live {
+    background-color: var(--deck-success) !important;
+    color: white !important;
+    opacity: 1 !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+/* Active State: HISTORY (Orange) */
+.deck-btn-history {
+    background-color: var(--deck-warning) !important;
+    color: black !important;
+    opacity: 1 !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.matrix__search-placeholder {
+    font-style: italic;
+    opacity: 0.5;
+    font-size: 0.85rem;
+    color: var(--deck-text-color);
+    display: flex;
+    align-items: center;
+}

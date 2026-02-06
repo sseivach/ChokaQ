@@ -14,6 +14,8 @@ public partial class JobMatrix
     [Parameter] public HubConnection? HubConnection { get; set; }
     [Parameter] public JobStatus? ActiveStatusFilter { get; set; }
     [Parameter] public EventCallback<string> OnJobSelected { get; set; }
+    [Parameter] public bool IsHistoryMode { get; set; }
+    [Parameter] public EventCallback<bool> OnModeToggle { get; set; }
 
     private string _searchQuery = "";
     private DateTime? _dateFrom;
@@ -124,5 +126,13 @@ public partial class JobMatrix
     private async Task LoadHistory()
     {
         await OnLoadHistory.InvokeAsync((_dateFrom, _dateTo));
+    }
+
+    private async Task ToggleMode(bool isHistory)
+    {
+        if (IsHistoryMode != isHistory)
+        {
+            await OnModeToggle.InvokeAsync(isHistory);
+        }
     }
 }
