@@ -16,6 +16,11 @@ public partial class JobMatrix
     [Parameter] public EventCallback<string> OnJobSelected { get; set; }
     [Parameter] public bool IsHistoryMode { get; set; }
     [Parameter] public EventCallback<bool> OnModeToggle { get; set; }
+    /// <summary>
+    /// Event fired when an action (Retry/Cancel) is performed, 
+    /// signaling the parent to reload data (crucial for History Mode).
+    /// </summary>
+    [Parameter] public EventCallback OnRefreshRequested { get; set; }
 
     private string _searchQuery = "";
     private DateTime? _dateFrom;
@@ -85,6 +90,8 @@ public partial class JobMatrix
             var toProcess = _selectedJobIds.ToList();
             foreach (var id in toProcess) await HubConnection.InvokeAsync("RestartJob", id);
             _selectedJobIds.Clear();
+
+            await OnRefreshRequested.InvokeAsync();
         }
     }
 
@@ -95,37 +102,27 @@ public partial class JobMatrix
             var toProcess = _selectedJobIds.ToList();
             foreach (var id in toProcess) await HubConnection.InvokeAsync("CancelJob", id);
             _selectedJobIds.Clear();
-        }
-    }
 
-    private async Task SetPrioritySelected()
-    {
-        if (HubConnection is not null && IsConnected)
-        {
-            var toProcess = _selectedJobIds.ToList();
-            foreach (var id in toProcess)
-            {
-                await HubConnection.InvokeAsync("SetPriority", id, _bulkPriorityValue);
-            }
-            _selectedJobIds.Clear();
+            await OnRefreshRequested.InvokeAsync();
         }
     }
 
     private async Task HandleCancelRequest(string jobId)
     {
         if (HubConnection is not null && IsConnected)
+        {
             await HubConnection.InvokeAsync("CancelJob", jobId);
+            await OnRefreshRequested.InvokeAsync();
+        }
     }
 
     private async Task HandleRestartRequest(string jobId)
     {
         if (HubConnection is not null && IsConnected)
+        {
             await HubConnection.InvokeAsync("RestartJob", jobId);
-    }
-
-    private async Task LoadHistory()
-    {
-        await OnLoadHistory.InvokeAsync((_dateFrom, _dateTo));
+            await OnRefreshRequested.InvokeAsync();
+        }
     }
 
     private async Task ToggleMode(bool isHistory)

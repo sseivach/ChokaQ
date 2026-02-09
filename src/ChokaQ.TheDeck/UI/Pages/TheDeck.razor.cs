@@ -48,6 +48,8 @@ public partial class TheDeck : IAsyncDisposable
     private static readonly TimeSpan StatsUpdateThrottle = TimeSpan.FromMilliseconds(1000);
     private bool _renderPending = false;
 
+    private HistoryFilterDto? _lastHistoryFilter;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadDataAsync();
@@ -113,6 +115,8 @@ public partial class TheDeck : IAsyncDisposable
     /// </summary>
     private async Task HandleHistoryLoadRequest(HistoryFilterDto filter)
     {
+        _lastHistoryFilter = filter;
+
         try
         {
             List<JobViewModel> viewModels;
@@ -147,6 +151,24 @@ public partial class TheDeck : IAsyncDisposable
         catch (Exception ex)
         {
             AddLog($"Error loading history: {ex.Message}", "Error");
+        }
+    }
+
+    /// <summary>
+    /// Called when JobMatrix reports a change (Retry/Cancel clicked).
+    /// </summary>
+    private async Task HandleDataRefreshRequest()
+    {
+        if (_isHistoryMode && _lastHistoryFilter != null)
+        {
+            // Small delay to allow SQL Transaction (Resurrect) to commit
+            await Task.Delay(100);
+            await HandleHistoryLoadRequest(_lastHistoryFilter);
+        }
+        else if (!_isHistoryMode)
+        {
+            // In Live mode, just force an immediate timer tick
+            await LoadDataAsync();
         }
     }
 
@@ -227,16 +249,17 @@ public partial class TheDeck : IAsyncDisposable
     {
         if (_hubConnection != null) await _hubConnection.InvokeAsync("ResurrectJob", jobId, null, null);
         AddLog($"Resurrect request sent for {jobId}", "Info");
+
+        await HandleDataRefreshRequest();
     }
 
     private async Task HandleDeleteRequested(string jobId)
     {
         if (_hubConnection != null) await _hubConnection.InvokeAsync("PurgeDLQ", new[] { jobId });
         _opsPanel.ClearPanel();
-
-        // If we are in history view, ideally we should reload the page, 
-        // but for now we let the user click Load again to refresh.
         AddLog($"Delete request sent for {jobId}", "Warning");
+
+        await HandleDataRefreshRequest();
     }
 
     // --- Mappers (Entity -> ViewModel) ---

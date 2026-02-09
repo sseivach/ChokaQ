@@ -12,7 +12,7 @@
 @implements IAsyncDisposable
 
 <main class="deck">
-
+    
     <div class="deck__col deck__col--main">
         <header class="deck__row deck__row--header">
             <HeaderLeft IsConnected="@IsConnected" />
@@ -27,13 +27,14 @@
         </nav>
 
         <section class="deck__row deck__row--matrix">
-            <JobMatrix Jobs="_jobs"
-                       IsConnected="IsConnected"
-                       IsHistoryMode="_isHistoryMode"
+            <JobMatrix Jobs="_jobs" 
+                       IsConnected="IsConnected" 
+                       IsHistoryMode="_isHistoryMode" 
                        OnModeToggle="HandleModeToggle"
-                       HubConnection="_hubConnection"
-                       ActiveStatusFilter="_activeStatusFilter"
-                       OnJobSelected="HandleJobInspectorRequested" />
+                       HubConnection="_hubConnection" 
+                       ActiveStatusFilter="_activeStatusFilter" 
+                       OnJobSelected="HandleJobInspectorRequested"
+                       OnRefreshRequested="HandleDataRefreshRequest" />
         </section>
 
         <footer class="deck__row deck__row--console">
@@ -55,14 +56,14 @@
         </section>
 
         <section class="deck__row deck__row--ops">
-            <OpsPanel @ref="_opsPanel"
+            <OpsPanel @ref="_opsPanel" 
                       IsHistoryMode="_isHistoryMode"
                       CurrentContext="_currentContext"
                       TotalItems="_historyTotalItems"
                       CurrentPage="_historyPageNumber"
                       PageSize="_historyPageSize"
                       OnLoadRequest="HandleHistoryLoadRequest"
-                      OnRequeue="HandleRequeueRequested"
+                      OnRequeue="HandleRequeueRequested" 
                       OnDelete="HandleDeleteRequested" />
         </section>
     </aside>
