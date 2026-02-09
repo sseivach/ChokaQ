@@ -3,79 +3,62 @@
 @namespace ChokaQ.TheDeck.UI.Components.Settings
 
 <section class="settings">
-    
-    
-    <div class="settings__row">
-        <label class="settings__label">WORKER LIMIT</label>
+    <div class="settings__grid">
+        <!-- Left Column: Engine settings -->
+        <div class="settings__col">
+            <div class="settings__row">
+                <label class="settings__label">WORKER LIMIT</label>
+                <input type="number" class="settings__input" min="0" max="100" @bind="DesiredWorkers" />
+                <span class="settings__info" style="@(WorkerManager.ActiveWorkers > 0 ? "color: var(--deck-success); font-weight: bold;" : "")">
+                    (Busy: @WorkerManager.ActiveWorkers)
+                </span>
+            </div>
 
-        <input type="number"
-               class="settings__input"
-               min="0"
-               max="100"
-               @bind="DesiredWorkers" />
+            <div class="settings__row">
+                <label class="settings__label">MAX RETRIES</label>
+                <select class="settings__select" @bind="MaxRetries">
+                    @for (int i = 1; i <= 10; i++)
+                    {
+                        <option value="@i">@i</option>
+                    }
+                </select>
+            </div>
 
-        <span class="settings__info"
-              style="@(WorkerManager.ActiveWorkers > 0 ? "color: var(--deck-success); font-weight: bold;" : "")">
-            (Busy: @WorkerManager.ActiveWorkers)
-        </span>
-    </div>
+            <div class="settings__row">
+                <label class="settings__label">RETRY DELAY (S)</label>
+                <input type="number" class="settings__input" min="1" max="3600" @bind="RetryDelaySeconds" />
+            </div>
 
-    <div class="settings__row">
-        <label class="settings__label">RETRIES</label>
-        <select class="settings__select" @bind="MaxRetries">
-            @for (int i = 1; i <= 10; i++)
-            {
-                <option value="@i">@i</option>
-            }
-        </select>
-    </div>
-
-    <div class="settings__row">
-        <label class="settings__label">BASE DELAY (S)</label>
-        <input type="number"
-               class="settings__input"
-               min="1"
-               max="3600"
-               @bind="RetryDelaySeconds" />
-    </div>
-
-    <div class="settings__actions">
-        <button class="deck-btn deck-btn-primary" @onclick="ApplyChanges">
-            Apply
-        </button>
-    </div>
-
-    <div class="settings__danger-zone">
-
-        <!-- Archive Purge Section -->
-        <div class="settings__row">
-            <label class="settings__label">ARCHIVE HISTORY (DAYS)</label>
-            <input type="number" 
-                   class="settings__input" 
-                   min="1" 
-                   max="365" 
-                   @bind="_archiveRetentionDays" />
-            <button class="deck-btn deck-btn-danger" 
-                    @onclick="PurgeArchiveAsync" 
-                    disabled="@_isPurgingArchive">
-                @(_isPurgingArchive ? "Purging..." : "Purge History")
-            </button>
+            <div class="settings__actions">
+                <button class="deck-btn deck-btn-primary" @onclick="ApplyChanges">
+                    APPLY
+                </button>
+            </div>
         </div>
 
-        <!-- DLQ Purge Section -->
-        <div class="settings__row" style="margin-top: 1rem;">
-            <label class="settings__label">DLQ HISTORY (DAYS)</label>
-            <input type="number" 
-                   class="settings__input" 
-                   min="1" 
-                   max="365" 
-                   @bind="_dlqRetentionDays" />
-            <button class="deck-btn deck-btn-danger" 
-                    @onclick="PurgeDLQAsync" 
-                    disabled="@_isPurgingDLQ">
-                @(_isPurgingDLQ ? "Purging..." : "Purge DLQ")
-            </button>
+        <div class="settings__divider"></div>
+
+        <!-- Right Column: History maintenance -->
+        <div class="settings__col">
+            <div class="settings__row">
+                <label class="settings__label">ARCHIVE HISTORY (D)</label>
+                <input type="number" class="settings__input" min="1" max="365" @bind="_archiveRetentionDays" />
+            </div>
+            <div class="settings__actions">
+                <button class="deck-btn deck-btn-danger" @onclick="PurgeArchiveAsync" disabled="@_isPurgingArchive">
+                    @(_isPurgingArchive ? "..." : "PURGE ARCHIVE")
+                </button>
+            </div>
+
+            <div class="settings__row" style="margin-top: 1rem;">
+                <label class="settings__label">DLQ HISTORY (D)</label>
+                <input type="number" class="settings__input" min="1" max="365" @bind="_dlqRetentionDays" />
+            </div>
+            <div class="settings__actions">
+                <button class="deck-btn deck-btn-danger" @onclick="PurgeDLQAsync" disabled="@_isPurgingDLQ">
+                    @(_isPurgingDLQ ? "..." : "PURGE DLQ")
+                </button>
+            </div>
         </div>
     </div>
-
 </section>

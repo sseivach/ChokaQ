@@ -26,9 +26,6 @@
                 <tr>
                     <th class="queues__th queues__th--name">
                         Queue
-                        <label class="queues__show-hidden-label">
-                            <input type="checkbox" @bind="_showInactive" /> Show Hidden
-                        </label>
                     </th>
                     <th class="queues__th queues__th--stats">Jobs (Succeeded / Failed)</th>
                     <th class="queues__th queues__th--status">Status</th>
@@ -37,7 +34,11 @@
                     <th class="queues__th queues__th--reserv1">Active (Buf / Pen)</th>
                     <th class="queues__th queues__th--reserv2">Reserv 2</th>
                     <th class="queues__th queues__th--updated">Last Updated</th>
-                    <th class="queues__th queues__th--actions">Actions</th>
+                    <th class="queues__th queues__th--actions">
+                         <label class="queues__show-hidden-label">
+                            <input type="checkbox" @bind="_showInactive" /> SHOW HIDDEN
+                        </label>
+                    </th>
                 </tr>
             </thead>
             <tbody>
