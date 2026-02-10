@@ -8,28 +8,21 @@
     <header class="matrix__toolbar">
         <div class="matrix__toolbar-col matrix__toolbar-col--left">
             <div class="matrix__search-container">
-            @if (!IsHistoryMode)
-            {
-                <div class="matrix__search-box">
+                <div class="matrix__search-box @(IsHistoryMode ? "matrix__search-box--disabled" : "")">
                     <span class="matrix__search-label">SEARCH</span>
                     <input type="text"
                            class="matrix__search-input"
                            placeholder=""
                            @bind="_searchQuery"
-                           @bind:event="oninput" />
+                           @bind:event="oninput"
+                           disabled="@IsHistoryMode" />
                     @if (!string.IsNullOrEmpty(_searchQuery))
                     {
                         <span class="matrix__search-count">@FilteredJobs.Count</span>
                         <button class="matrix__search-clear" @onclick="() => _searchQuery = string.Empty">✕</button>
                     }
                 </div>
-            }
-            else
-            {
-                <div class="matrix__search-placeholder">
-                    <span>← Use Filters in OpsPanel</span>
-                </div>
-            }
+
             </div>
         </div>
 
