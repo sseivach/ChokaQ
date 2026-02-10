@@ -163,4 +163,6 @@ await queue.EnqueueAsync(new SendEmailJob("user@example.com"), priority: 10);
 
 ## License
 
-Apache License 2.0
+Copyright © 2026 Sergei Seivach
+
+This project is licensed under the [Apache License 2.0](LICENSE).
