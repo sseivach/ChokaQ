@@ -1,140 +1,166 @@
-# 🍫 ChokaQ
+# ChokaQ
 
 ![.NET 10](https://img.shields.io/badge/.NET-10.0%20-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+![License](https://img.shields.io/badge/License-Apache_2.0-green)
+![Blazor](https://img.shields.io/badge/UI-Blazor%20Server-purple)
 ![Status](https://img.shields.io/badge/status-Active%20Development-orange)
 
 **Current Status:** Work in Progress / Proof of Concept
 
-**ChokaQ** is a lightweight, high-performance background job engine designed for .NET 10.
-It bridges the gap between simple in-memory `Channel<T>` implementations and complex Enterprise Service Bus solutions.
-
-**Zero Dependencies Policy:**
-* The **Core** engine is strictly dependency-free.
-* The optional **SQL Storage** provider utilizes **Dapper** (micro-ORM) for maximum performance and efficiency.
+**ChokaQ** is a high-performance, strictly **zero-dependency** background job engine designed for .NET 10. It bridges the gap between simple in-memory channels and heavy message brokers, offering atomic reliability backed by SQL Server without the overhead of Entity Framework or any other third-party ORM.
 
 ---
 
-## 🧠 Architecture: The 2x2 Matrix
+## Strategic Architecture
 
-ChokaQ is built upon a modular architecture. You select the **Processing Strategy** (The Brain) and the **Storage Strategy** (The Memory).
-While you may mix these as required, we have curated two reference modes for optimal performance.
+ChokaQ implements a **2x2 matrix architecture**, allowing developers to choose between volatile memory for speed and persistent SQL storage for reliability, combined with either typed Bus processing or raw Pipe processing.
 
-| | **In-Memory Storage** (Volatile) | **SQL Server Storage** (Persistent) |
-| :--- | :--- | :--- |
-| **Pipe Strategy**<br>*(Raw JSON / Events)* | 🚀 **Rocket Mode**<br>Logs, metrics, fire-and-forget.<br>Maximum throughput; data resides in RAM. | **Integration Mode**<br>Collection of raw events into an external database for analytics. |
-| **Bus Strategy**<br>*(Typed Jobs / Profiles)* | **Dev Sandbox**<br>Development of business logic without database infrastructure. | 🚌 **Enterprise Mode**<br>Business transactions, reports, notifications.<br>High reliability: retries, history, and resilience to restarts. |
+### Processing Modes
+1.  **Bus Mode:** Strongly typed jobs with dedicated handlers, Dependency Injection scopes, and profiles. Best for complex business logic.
+2.  **Pipe Mode:** High-throughput processing of raw payloads via a single global handler. Best for telemetry, logs, and event streams.
 
----
 
-## 🚀 Quick Start (Samples)
-
-The `/samples` directory contains two complete projects demonstrating best practices.
-
-### 1. Rocket Mode (`ChokaQ.Sample.Pipe`)
-*Ideal for: Logs, metrics, and notifications where minor data loss is acceptable.*
-
-* **Type:** Pipe (Raw Payloads)
-* **Storage:** RAM (System.Threading.Channels)
-* **Feature:** Zero database dependency. Instant startup and execution.
-
-**How to Run:**
-1.  Open `ChokaQ.sln`.
-2.  Set `ChokaQ.Sample.Pipe` as the startup project.
-3.  Press **F5**.
-4.  The launcher will open in your browser. Click "Fire Into Pipe".
-5.  The Dashboard is available via the button or at `/chokaq`.
+### Storage Modes
+1.  **In-Memory:** Zero-config RAM storage using System.Threading.Channels.
+2.  **SQL Server:** Persistent storage using a custom lightweight ADO.NET wrapper (SqlMapper).
 
 ---
 
-### 2. Enterprise Mode (`ChokaQ.Sample.Bus`)
-*Ideal for: Critical workloads, billing, and report generation.*
+## Data Architecture: The Three Pillars
 
-* **Type:** Bus (Typed DTOs + Profiles)
-* **Storage:** SQL Server (Dapper + Polling)
-* **Feature:** Complete reliability. Data is persisted in SQL. The database schema is automatically managed.
+To guarantee consistent performance regardless of historical data volume, data is physically separated into three atomic tiers:
 
-**How to Run:**
-1.  Ensure a SQL Server instance is available (LocalDB or Docker).
-2.  Create an **empty** database named `ChokaQDb`:
-    ```sql
-    CREATE DATABASE [ChokaQDb];
-    ```
-3.  Verify the connection string in the `appsettings.json` file of the `ChokaQ.Sample.Bus` project.
-4.  Press **F5**.
-    * The application will automatically create the `chokaq` schema, tables, and indexes.
-    * Workers will commence polling.
-5.  Generate jobs via the UI, stop the application, and restart it to verify that pending jobs resume execution.
+1.  **JobsHot (Active):**
+    * Stores only Pending, Fetched, and Processing jobs.
+    * Uses row-level locking (UPDLOCK, READPAST) for high-concurrency fetching without deadlocks.
+
+2.  **JobsArchive (History):**
+    * Stores successfully completed jobs.
+    * Uses SQL Page Compression.
+    * Optimized for analytical filtering (Date, Queue, Type).
+
+3.  **JobsDLQ (Dead Letter Queue):**
+    * Stores failed (MaxRetriesExceeded), cancelled, or zombie jobs.
+    * Supports manual payload editing and resurrection.
 
 ---
 
-## ⚙️ Configuration in Code
+## Technical Capabilities
 
-### Option A: Rocket Mode (Pipe + Memory)
-In `Program.cs`:
-```csharp
-// 1. Register Pipe with the Global Handler
-builder.Services.AddChokaQ(options => 
-{
-    options.UsePipe<GlobalPipeHandler>();
-    // Memory is configured by default, but limits can be adjusted
-    options.ConfigureInMemory(mem => mem.MaxCapacity = 50_000); 
-});
+### Core Engine
+* **True Zero-Dependency:** The Core library depends only on standard Microsoft.Extensions abstractions. The engine does not rely on third-party libraries (uses native `Microsoft.Data.SqlClient`).
+* **Atomic State Transitions:** All lifecycle events use SQL transactions with the `OUTPUT` clause to ensure data is never lost during movement between Hot, Archive, and DLQ tables.
 
-// 2. Add Dashboard
-builder.Services.AddChokaQDashboard();
+### Concurrency
+* **Elastic Concurrency:** The number of active workers can be scaled up or down at runtime via the dashboard without restarting the application (implemented via `ElasticSemaphore`).
+* **Prefetching:** Workers use an internal bounded channel to buffer jobs from SQL, decoupling database latency from processing throughput.
+
+### Resilience & Reliability
+* **Circuit Breaker:** In-memory protection that tracks failure rates per Job Type. Automatically opens the circuit to block execution of failing job types, preventing cascading system failures.
+* **Zombie Rescue:** A background service (`ZombieRescueService`) that monitors heartbeats. Automatically detects crashed workers and moves "zombie" jobs to the DLQ.
+* **Smart Retries:** Configurable exponential backoff strategies with jitter to prevent "thundering herd" effects on external services.
+* **Idempotency:** Built-in support for idempotency keys to prevent duplicate job processing.
+
+### "The Deck" (Dashboard)
+A сontrol plane powered by **Blazor Server** and **SignalR**.
+
+* **Queue Management:** Queues can be paused, resumed, or deactivated at runtime. Changes propagate immediately to all workers via the database.
+* **Live Matrix:** Virtualized grid for active jobs.
+* **Ops Panel:**
+    * **Inspector:** View full job details and exception stack traces.
+    * **JSON Editor:** Modify payloads of Pending or DLQ jobs on the fly.
+    * **Resurrection:** Failed jobs in the DLQ can be "resurrected" back to the Hot table for processing, with optional modification of their payload.
+    * **History Filter:** Server-side filtering of the Archive table.
+* **Bulk Actions:** Retry, Cancel, or Purge jobs in batches.
+* **Circuits View:** Monitor the state (Closed/Open/HalfOpen) of all circuit breakers.
+* **Console Stream:** System-wide events and logs are streamed directly to the browser console view.
+
+---
+
+## Quick Start (Source Integration)
+
+Since ChokaQ is currently in development, integrate it by referencing the source projects directly.
+
+### 1. Project References
+
+Add references to the core libraries in your ASP.NET Core `.csproj` file:
+
+```xml
+<ItemGroup>
+    <ProjectReference Include="..\src\ChokaQ.Core\ChokaQ.Core.csproj" />
+    <ProjectReference Include="..\src\ChokaQ.Storage.SqlServer\ChokaQ.Storage.SqlServer.csproj" />
+    <ProjectReference Include="..\src\ChokaQ.TheDeck\ChokaQ.TheDeck.csproj" />
+</ItemGroup>
 ```
 
-### Option B: Enterprise Mode (Bus + SQL)
-In `Program.cs`:
+### 2. Configuration
+
+**Program.cs**
 ```csharp
-// 1. Register Bus and Profiles
+var builder = WebApplication.CreateBuilder(args);
+
+// 1. Add ChokaQ Core & Profiles
 builder.Services.AddChokaQ(options =>
 {
+    // Register Job Profiles (Bus Mode)
     options.AddProfile<MailingProfile>();
-    options.AddProfile<ReportingProfile>();
 });
 
-// 2. Configure SQL Storage
+// 2. Add SQL Storage with Auto-Provisioning
+// This will automatically create the 'chokaq' schema and tables on startup.
 builder.Services.UseSqlServer(options =>
 {
-    options.ConnectionString = "...";
-    options.SchemaName = "chokaq"; // Isolate tables in a separate schema
-    options.AutoCreateSqlTable = true; // Auto-migrations on startup
+    options.ConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    options.SchemaName = "chokaq"; 
+    options.AutoCreateSqlTable = true;
 });
 
 // 3. Add Dashboard
-builder.Services.AddChokaQDashboard();
+builder.Services.AddChokaQTheDeck();
+
+var app = builder.Build();
+
+// 4. Map Dashboard Route
+app.MapChokaQTheDeck(); // Default route: /chokaq
+
+app.Run();
 ```
 
----
+### 3. Define a Job & Handler
 
-## 📊 Dashboard
-
-The Dashboard functions out-of-the-box in any mode.
-* **Real-time:** Updates via SignalR.
-* **Search:** Filtering by ID, type, and content.
-* **Control:** Jobs can be retried or canceled directly.
-* **Stats:** Accurate statistics across the entire database (utilizing optimized SQL aggregations or in-memory counters).
-
-Mapping:
 ```csharp
-app.MapChokaQDashboard(); // Default path: /chokaq
+// Job Contract (DTO)
+public record SendEmailJob(string To) : ChokaQBaseJob;
+
+// Job Handler
+public class EmailHandler : IChokaQJobHandler<SendEmailJob>
+{
+    public async Task HandleAsync(SendEmailJob job, CancellationToken ct)
+    {
+        // Business logic here
+        await Task.Delay(100);
+    }
+}
+
+// Profile Registration
+public class MailingProfile : ChokaQJobProfile
+{
+    public MailingProfile()
+    {
+        CreateJob<SendEmailJob, EmailHandler>("email_v1");
+    }
+}
+```
+
+### 4. Enqueue Job
+
+```csharp
+// Inject IChokaQQueue into your controller or service
+await queue.EnqueueAsync(new SendEmailJob("user@example.com"), priority: 10);
 ```
 
 ---
-
-## 🏗️ Project Structure
-
-* `src/ChokaQ.Abstractions` — Contracts, DTOs, Interfaces.
-* `src/ChokaQ.Core` — Dispatch logic, In-Memory provider, Workers.
-* `src/ChokaQ.Storage.SqlServer` — Persistence implementation using Dapper.
-* `src/ChokaQ.Dashboard` — Blazor UI (RCL).
-
-## Author
-
-Created by **Sergei Seivach**.
 
 ## License
 
-MIT.
+Apache License 2.0
