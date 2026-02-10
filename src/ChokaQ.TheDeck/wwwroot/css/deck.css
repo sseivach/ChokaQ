@@ -16,13 +16,11 @@ body {
     padding: 0;
     height: 100vh;
     overflow: hidden;
-
     /* Theme Application */
     background-color: var(--deck-bg-color);
     background-image: var(--deck-bg-image);
     background-size: var(--deck-bg-size);
     background-position: var(--deck-bg-position, 0% 0%);
-
     /* Typography */
     font-family: var(--deck-font-family);
     color: var(--deck-text-color);
@@ -130,6 +128,17 @@ body {
     box-sizing: border-box;
 }
 
+/* Remove padding and backgrounds from certain sections */
+.deck__row--queues,
+.deck__row--stats,
+.deck__row--matrix {
+    padding: 0;
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+}
+
 
 /* Sector Styling applied via classes directly */
 
@@ -204,6 +213,17 @@ body {
     border-color: var(--deck-info);
 }
 
+.deck-btn-success {
+    border-color: var(--deck-success);
+    color: var(--deck-text-color);
+    background: rgba(40, 167, 69, 0.25);
+}
+
+.deck-btn-success:hover {
+    background: rgba(40, 167, 69, 0.5);
+    border-color: var(--deck-success);
+}
+
 .deck-btn-danger {
     border-color: #ff4444;
     color: var(--deck-text-color);
@@ -269,36 +289,47 @@ input[type="checkbox"]:checked::after {
 .deck-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.85rem;
+    font-size: 1rem;
     font-family: var(--deck-font-family);
     color: var(--deck-text-color);
 }
 
 .deck-table th {
-    background: rgba(0, 0, 0, 0.1);
-    border-bottom: 2px solid var(--sector-border-color);
-    padding: 0.5rem;
+    background: rgba(0, 50, 100, 0.5);
+    color: #ffffff;
+    border-top: 1px solid var(--sector-border-subtle);
+    border-bottom: 1px solid var(--sector-border-subtle);
+    padding: 0.6rem 0.5rem;
     text-align: left;
     font-weight: bold;
     text-transform: uppercase;
-    font-size: 1rem;
-    opacity: 1;
+    font-size: 0.85rem;
+    backdrop-filter: blur(8px);
 }
 
 .deck-table td {
-    border-bottom: 1px solid var(--sector-border-color);
-    padding: calc(0.5rem + 2px) 0.5rem calc(0.5rem - 2px) 0.5rem;
+    border-bottom: 1px solid var(--sector-border-subtle);
+    padding: calc(0.7rem + 2px) 0.5rem calc(0.7rem - 2px) 0.5rem;
     vertical-align: middle;
     text-align: left;
 }
 
-.deck-table tr:hover {
-    background: rgba(255, 255, 255, 0.05);
+.deck-table thead tr {
+    background: transparent;
+}
+
+.deck-table tr {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.deck-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.2);
 }
 
 .deck-table tr.selected {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.15);
 }
+
 
 /* Badges */
 .deck-badge {
@@ -378,6 +409,8 @@ input[type="checkbox"]:checked::after {
     flex: 1;
     background: var(--sector-bg);
     border: 1px solid var(--sector-border-color);
+    box-shadow: var(--sector-shadow);
+    backdrop-filter: var(--sector-backdrop);
     padding: 0.5rem;
     cursor: pointer;
     display: flex;
@@ -387,7 +420,7 @@ input[type="checkbox"]:checked::after {
 }
 
 .stats__card:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.2);
     border-color: var(--sector-border-highlight);
 }
 
@@ -400,7 +433,7 @@ input[type="checkbox"]:checked::after {
 
 /* Element: .stats__label */
 .stats__label {
-    font-size: 0.7rem;
+    font-size: 1rem;
     font-weight: bold;
     color: var(--deck-text-color);
     opacity: 0.8;
@@ -410,7 +443,7 @@ input[type="checkbox"]:checked::after {
 
 /* Element: .stats__value */
 .stats__value {
-    font-size: 1.5rem;
+    font-size: 2rem;
     font-weight: bold;
     font-family: var(--deck-font-family);
 }
@@ -523,7 +556,6 @@ input[type="checkbox"]:checked::after {
     flex-wrap: wrap;
     gap: 0.5rem;
     overflow-y: auto;
-
     /* Custom Scrollbar */
     scrollbar-width: thin;
     scrollbar-color: var(--sector-border-highlight) transparent;
@@ -633,7 +665,6 @@ input[type="checkbox"]:checked::after {
     overflow-y: auto;
     font-family: 'Consolas', monospace;
     font-size: 0.8rem;
-
     /* Custom Scrollbar */
     scrollbar-width: thin;
     scrollbar-color: var(--sector-border-highlight) transparent;
@@ -708,26 +739,48 @@ input[type="checkbox"]:checked::after {
 .settings {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
     height: 100%;
-    justify-content: center;
+}
+
+.settings__grid {
+    display: flex;
+    gap: 2rem;
+    flex: 1;
+}
+
+.settings__col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    justify-content: flex-start;
+}
+
+.settings__divider {
+    width: 1px;
+    background: var(--sector-border-color);
+    opacity: 0.5;
+    margin: 1rem 0;
 }
 
 .settings__row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    justify-content: space-between;
+    gap: 1rem;
 }
 
 .settings__label {
     font-weight: bold;
-    font-size: 0.85rem;
-    min-width: 120px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    opacity: 0.8;
+    flex: 1;
 }
 
 .settings__input {
-    width: 70px;
-    background: var(--sector-bg);
+    width: 60px;
+    background: rgba(255, 255, 255, 0.06);
     border: 1px solid var(--sector-border-color);
     color: var(--deck-text-color);
     font-family: var(--deck-font-family);
@@ -737,7 +790,7 @@ input[type="checkbox"]:checked::after {
 
 .settings__select {
     width: 60px;
-    background: var(--sector-bg);
+    background: rgba(255, 255, 255, 0.06);
     border: 1px solid var(--sector-border-color);
     color: var(--deck-text-color);
     font-family: var(--deck-font-family);
@@ -801,23 +854,14 @@ input[type="checkbox"]:checked::after {
     text-transform: uppercase;
 }
 
-.job-row__cell--queue {
-    opacity: 0.8;
-}
-
-.job-row__cell--type {
-    opacity: 0.8;
-}
 
 .job-row__cell--priority {
     text-align: left;
     font-weight: bold;
-    opacity: 0.8;
 }
 
 .job-row__cell--author {
     font-size: 0.8rem;
-    opacity: 0.8;
 }
 
 .job-row__cell--status {
@@ -884,10 +928,6 @@ input[type="checkbox"]:checked::after {
     text-align: left;
 }
 
-.job-row__cell--dim {
-    opacity: 0.8;
-}
-
 .job-row__badge--attempts {
     border: 1px solid var(--sector-border-color);
     padding: 0 0.3rem;
@@ -908,7 +948,6 @@ input[type="checkbox"]:checked::after {
 .job-row__cell--duration {
     font-family: monospace;
     font-size: 0.8rem;
-    opacity: 0.8;
 }
 
 .deck-table .job-row__cell--actions {
@@ -933,6 +972,8 @@ input[type="checkbox"]:checked::after {
     display: flex;
     flex-direction: column;
     height: 100%;
+    padding: 0;
+    box-sizing: border-box;
 }
 
 .matrix__toolbar {
@@ -941,9 +982,7 @@ input[type="checkbox"]:checked::after {
     flex-wrap: nowrap;
     justify-content: space-between;
     align-items: center;
-    min-height: 3.5rem;
     padding-bottom: 0.5rem;
-    border-bottom: 1px solid var(--sector-border-color);
     margin-bottom: 0.5rem;
     flex-shrink: 0;
     gap: 3rem;
@@ -961,16 +1000,17 @@ input[type="checkbox"]:checked::after {
 .matrix__search-box {
     display: flex;
     border: 1px solid var(--sector-border-color);
-    background: var(--sector-bg);
+    background: rgba(255, 255, 255, 0.06);
     flex: 1;
 }
 
 .matrix__search-label {
-    padding: 0.25rem 0.5rem;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 0.4rem 0.5rem;
     border-right: 1px solid var(--sector-border-color);
     color: #ffffff;
     opacity: 1;
-    font-size: 0.8rem;
+    font-size: 0.85rem;
     display: flex;
     align-items: center;
 }
@@ -979,12 +1019,12 @@ input[type="checkbox"]:checked::after {
     background: transparent;
     border: none;
     color: var(--deck-text-color);
-    padding: 0.25rem;
+    padding: 0.4rem 0.5rem;
     flex: 1;
     min-width: 200px;
     outline: none;
     font-family: var(--deck-font-family);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
 }
 
 .matrix__search-count {
@@ -1117,7 +1157,6 @@ input[type="checkbox"]:checked::after {
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-
     /* Custom Scrollbar */
     scrollbar-width: thin;
     scrollbar-color: var(--sector-border-highlight) transparent;
@@ -1145,18 +1184,35 @@ input[type="checkbox"]:checked::after {
 
 .matrix__table {
     table-layout: fixed;
+    background-color: var(--sector-bg);
+    border: 1px solid var(--sector-border-subtle);
+    box-shadow: var(--sector-shadow);
 }
+
+
 
 .matrix__table thead {
     position: sticky;
     top: 0;
-    background: var(--sector-bg);
+    background: rgba(0, 40, 80, 0.7);
     z-index: 10;
+    border-bottom: 3px solid var(--sector-border-highlight);
 }
 
 .matrix__th--checkbox {
     width: 4%;
-    text-align: left;
+    text-align: center;
+}
+
+.job-row__cell--checkbox {
+    display: table-cell;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.job-row__cell--checkbox input {
+    margin: 0 auto;
+    display: block;
 }
 
 .matrix__checkbox-all {
@@ -1166,6 +1222,7 @@ input[type="checkbox"]:checked::after {
 .matrix__header-checks {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 0.5rem;
 }
 
@@ -1315,7 +1372,6 @@ input[type="checkbox"]:checked::after {
     flex: 1;
     overflow-y: auto;
     padding-right: 0.5rem;
-
     /* Custom Scrollbar */
     scrollbar-width: thin;
     scrollbar-color: var(--sector-border-highlight) transparent;
@@ -1591,7 +1647,6 @@ input[type="checkbox"]:checked::after {
 .queues {
     height: 100%;
     overflow-y: auto;
-
     /* Custom Scrollbar */
     scrollbar-width: thin;
     scrollbar-color: var(--sector-border-highlight) transparent;
@@ -1618,13 +1673,19 @@ input[type="checkbox"]:checked::after {
 
 .queues__table {
     table-layout: fixed;
+    background-color: var(--sector-bg);
+    border: 1px solid var(--sector-border-subtle);
+    box-shadow: var(--sector-shadow);
 }
+
+
 
 .queues__table thead {
     position: sticky;
     top: 0;
-    background: var(--sector-bg);
+    background: rgba(0, 40, 80, 0.7);
     z-index: 10;
+    border-bottom: 3px solid var(--sector-border-highlight);
 }
 
 .queues__loading,
@@ -1637,46 +1698,57 @@ input[type="checkbox"]:checked::after {
 }
 
 .queues__th--name {
-    width: 20%;
+    width: 18%;
 }
 
 .queues__th--stats {
-    width: 10%;
+    width: 8%;
     text-align: left;
 }
 
 .queues__th--status {
-    width: 10%;
+    width: 8%;
     text-align: left;
 }
 
 .queues__th--toggle {
-    width: 5%;
+    width: 8%;
     text-align: left;
 }
 
 .queues__th--timeout {
-    width: 10%;
+    width: 8%;
     text-align: left;
 }
 
 .queues__th--reserv1 {
-    width: 10%;
+    width: 8%;
     text-align: left;
 }
 
 .queues__th--reserv2 {
-    width: 10%;
+    width: 8%;
     text-align: left;
 }
 
+.queues__th--reserv3 {
+    width: 8%;
+    text-align: left;
+}
+
+.queues__th--reserv4 {
+    width: 8%;
+    text-align: left;
+}
+
+
 .queues__th--updated {
-    width: 10%;
+    width: 8%;
     text-align: right;
 }
 
 .queues__table .queues__th--actions {
-    width: 15%;
+    width: 10%;
     text-align: center;
 }
 
@@ -1696,11 +1768,11 @@ input[type="checkbox"]:checked::after {
 }
 
 .queues__show-hidden-label {
-    font-weight: normal;
-    font-size: 0.75em;
-    margin-left: 10px;
+    font-weight: bold;
+    font-size: 1rem;
+    text-transform: uppercase;
     cursor: pointer;
-    opacity: 0.8;
+    opacity: 1;
 }
 
 .queues__action-btn+.queues__action-btn {
@@ -1727,10 +1799,6 @@ input[type="checkbox"]:checked::after {
 .queues__stats-sep {
     opacity: 0.5;
     margin: 0 0.2rem;
-}
-
-.queues__stats-empty {
-    opacity: 0.5;
 }
 
 .queues__status-cell {
@@ -1773,7 +1841,6 @@ input[type="checkbox"]:checked::after {
 
 .queues__updated {
     text-align: right;
-    opacity: 0.6;
     font-size: 0.9rem;
 }
 
@@ -1797,12 +1864,9 @@ input[type="checkbox"]:checked::after {
 }
 
 .queues__stats-pending {
-    color: var(--deck-muted);
+    color: #ffffff;
 }
 
-/* ==========================================
-   COMPONENT: Toggle Switch (Robust Version)
-   ========================================== */
 .deck-switch {
     position: relative;
     display: inline-block;
@@ -1825,11 +1889,11 @@ input[type="checkbox"]:checked::after {
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: var(--deck-danger);
+    background-color: rgba(255, 68, 68, 0.25);
     transition: .3s;
     border-radius: 22px;
-    border: 1px solid var(--sector-border-color);
-    box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+    border: 1px solid var(--deck-danger);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 .deck-switch__slider::before {
@@ -1844,17 +1908,304 @@ input[type="checkbox"]:checked::after {
     border-radius: 50%;
     display: block;
     z-index: 2;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
-.deck-switch input:checked + .deck-switch__slider {
-    background-color: var(--deck-success);
+.deck-switch input:checked+.deck-switch__slider {
+    background-color: rgba(40, 167, 69, 0.25);
+    border-color: var(--deck-success);
 }
 
-.deck-switch input:checked + .deck-switch__slider::before {
+.deck-switch input:checked+.deck-switch__slider::before {
     transform: translateX(18px);
 }
 
-.deck-switch input:focus + .deck-switch__slider {
+.deck-switch input:focus+.deck-switch__slider {
     box-shadow: 0 0 1px var(--deck-info);
+}
+
+.ops-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.ops-panel__tabs {
+    display: flex;
+    background: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid var(--sector-border-color);
+    flex-shrink: 0;
+    height: 32px;
+}
+
+.ops-panel__tab {
+    background: transparent;
+    border: none;
+    border-right: 1px solid var(--sector-border-color);
+    color: var(--deck-text-color);
+    font-family: var(--deck-font-family);
+    font-size: 0.75rem;
+    font-weight: bold;
+    padding: 0 1rem;
+    cursor: pointer;
+    opacity: 0.7;
+    height: 100%;
+    text-transform: uppercase;
+    transition: all 0.2s;
+}
+
+.ops-panel__tab:hover {
+    background: rgba(255, 255, 255, 0.05);
+    opacity: 1;
+}
+
+.ops-panel__tab--active {
+    background: var(--sector-bg);
+    color: var(--deck-info);
+    opacity: 1;
+    border-bottom: 2px solid var(--deck-info);
+}
+
+.ops-panel__tab-spacer {
+    flex: 1;
+}
+
+.ops-panel__close {
+    background: transparent;
+    border: none;
+    color: var(--deck-text-color);
+    width: 32px;
+    cursor: pointer;
+    opacity: 0.5;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ops-panel__close:hover {
+    background: var(--deck-danger);
+    color: white;
+    opacity: 1;
+}
+
+.ops-panel__body {
+    flex: 1;
+    overflow-y: hidden;
+    position: relative;
+    background: var(--sector-bg);
+}
+
+.ops-panel__placeholder {
+    padding: 2rem;
+    text-align: center;
+    opacity: 0.5;
+    font-family: monospace;
+}
+
+.filter {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.filter__header {
+    text-align: center;
+    margin-bottom: 0.5rem;
+}
+
+.filter__context-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 0.8rem;
+    letter-spacing: 1px;
+}
+
+.filter__context-badge--archive {
+    background: rgba(40, 167, 69, 0.2);
+    color: var(--deck-success);
+    border: 1px solid var(--deck-success);
+}
+
+.filter__context-badge--dlq {
+    background: rgba(220, 53, 69, 0.2);
+    color: var(--deck-danger);
+    border: 1px solid var(--deck-danger);
+}
+
+.filter__group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.filter__label {
+    font-size: 0.75rem;
+    font-weight: bold;
+    opacity: 0.7;
+    text-transform: uppercase;
+}
+
+.filter__row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.filter__col {
+    flex: 1;
+}
+
+.filter__input,
+.filter__select {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--sector-border-color);
+    color: var(--deck-text-color);
+    padding: 0.5rem;
+    font-family: var(--deck-font-family);
+    font-size: 0.9rem;
+    box-sizing: border-box;
+}
+
+.filter__input:focus,
+.filter__select:focus {
+    border-color: var(--deck-info);
+    outline: none;
+}
+
+.filter__sep {
+    opacity: 0.5;
+}
+
+.filter__sort-btn {
+    padding: 0.5rem;
+    min-width: 80px;
+}
+
+.filter__load-btn {
+    width: 100%;
+    padding: 0.75rem;
+    font-size: 1rem;
+    letter-spacing: 1px;
+    margin-top: 0.5rem;
+}
+
+.deck-hr {
+    border: 0;
+    height: 1px;
+    background: var(--sector-border-color);
+    width: 100%;
+    margin: 0.5rem 0;
+}
+
+.filter__status {
+    text-align: center;
+    background: rgba(0, 0, 0, 0.15);
+    padding: 1rem;
+    border-radius: 4px;
+}
+
+.filter__stats {
+    font-size: 0.9rem;
+    opacity: 0.9;
+    margin-bottom: 0.5rem;
+}
+
+.filter__count {
+    color: var(--deck-info);
+    font-weight: bold;
+}
+
+.filter__paging {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+
+.filter__page-btn {
+    padding: 0.25rem 0.75rem;
+}
+
+.filter__page-current {
+    font-weight: bold;
+    font-size: 1.1rem;
+}
+
+.filter__empty {
+    opacity: 0.5;
+    font-style: italic;
+}
+
+/* ==========================================
+   COMPONENT STYLES: Mode Toggle (Matrix)
+   ========================================== */
+
+.matrix__mode-toggle {
+    display: flex;
+    gap: 0;
+}
+
+/* Base button override for toggle */
+.matrix__mode-toggle .deck-btn {
+    opacity: 0.8;
+    transition: all 0.2s;
+}
+
+.matrix__mode-toggle .deck-btn:first-child {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.matrix__mode-toggle .deck-btn:last-child {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    margin-left: -1px;
+    /* Overlap borders */
+}
+
+.matrix__mode-toggle .deck-btn:hover {
+    opacity: 1;
+    z-index: 2;
+}
+
+/* Active State: LIVE (Green) */
+.deck-btn-live {
+    border-color: var(--deck-success) !important;
+    background: rgba(40, 167, 69, 0.25) !important;
+    color: var(--deck-text-color) !important;
+    opacity: 1 !important;
+    box-shadow: 0 0 10px rgba(40, 167, 69, 0.2);
+}
+
+.deck-btn-live:hover {
+    background: rgba(40, 167, 69, 0.5) !important;
+}
+
+/* Active State: HISTORY (Yellow) */
+.deck-btn-history {
+    border-color: var(--deck-warning) !important;
+    background: rgba(255, 193, 7, 0.25) !important;
+    color: var(--deck-text-color) !important;
+    opacity: 1 !important;
+    box-shadow: 0 0 10px rgba(255, 193, 7, 0.2);
+}
+
+.deck-btn-history:hover {
+    background: rgba(255, 193, 7, 0.5) !important;
+}
+
+.matrix__search-placeholder {
+    font-style: italic;
+    opacity: 0.5;
+    font-size: 0.85rem;
+    color: var(--deck-text-color);
+    display: flex;
+    align-items: center;
 }

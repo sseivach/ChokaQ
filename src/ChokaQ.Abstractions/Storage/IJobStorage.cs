@@ -258,6 +258,20 @@ public interface IJobStorage
     /// </summary>
     ValueTask<JobDLQEntity?> GetDLQJobAsync(string jobId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Retrieves a paginated list of archived jobs based on complex filters.
+    /// </summary>
+    ValueTask<PagedResult<JobArchiveEntity>> GetArchivePagedAsync(
+        HistoryFilterDto filter,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Retrieves a paginated list of DLQ jobs based on complex filters.
+    /// </summary>
+    ValueTask<PagedResult<JobDLQEntity>> GetDLQPagedAsync(
+        HistoryFilterDto filter,
+        CancellationToken ct = default);
+
     // ========================================================================
     // QUEUE MANAGEMENT
     // ========================================================================

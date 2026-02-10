@@ -26,18 +26,21 @@
                 <tr>
                     <th class="queues__th queues__th--name">
                         Queue
-                        <label class="queues__show-hidden-label">
-                            <input type="checkbox" @bind="_showInactive" /> Show Hidden
-                        </label>
                     </th>
-                    <th class="queues__th queues__th--stats">Jobs (Succeeded / Failed)</th>
+                    <th class="queues__th queues__th--stats">Succeeded</th>
+                    <th class="queues__th queues__th--reserv2">Failed</th>
+                    <th class="queues__th queues__th--reserv1">Buffered</th>
+                    <th class="queues__th queues__th--reserv3">Pending</th>
+                    <th class="queues__th queues__th--reserv4">Reserv 4</th>
+                    <th class="queues__th queues__th--timeout">Zombie (s)</th>
+                    <th class="queues__th queues__th--updated">Last Updated</th>
                     <th class="queues__th queues__th--status">Status</th>
                     <th class="queues__th queues__th--toggle">Pause / Resume</th>
-                    <th class="queues__th queues__th--timeout">Zombie (s)</th>
-                    <th class="queues__th queues__th--reserv1">Active (Buf / Pen)</th>
-                    <th class="queues__th queues__th--reserv2">Reserv 2</th>
-                    <th class="queues__th queues__th--updated">Last Updated</th>
-                    <th class="queues__th queues__th--actions">Actions</th>
+                    <th class="queues__th queues__th--actions">
+                         <label class="queues__show-hidden-label">
+                            <input type="checkbox" @bind="_showInactive" /> SHOW HIDDEN
+                        </label>
+                    </th>
                 </tr>
             </thead>
             <tbody>
@@ -51,13 +54,57 @@
                             @if (stats != null)
                             {
                                 <span class="queues__stats-succeeded">@stats.SucceededTotal.ToString("N0")</span>
-                                <span class="queues__stats-sep">/</span>
+                            }
+                            else
+                            {
+                                <span class="queues__stats-empty">0</span>
+                            }
+                        </td>
+
+                        <td class="queues__reserv2-cell">
+                            @if (stats != null)
+                            {
                                 <span class="queues__stats-failed">@stats.FailedTotal.ToString("N0")</span>
                             }
                             else
                             {
-                                <span class="queues__stats-empty">0 / 0</span>
+                                <span class="queues__stats-empty">0</span>
                             }
+                        </td>
+
+                        <td class="queues__stats">
+                            @if (stats != null)
+                            {
+                                <span class="queues__stats-buffered" title="Buffered (Fetched)">@stats.Fetched.ToString("N0")</span>
+                            }
+                            else
+                            {
+                                <span class="queues__stats-empty">-</span>
+                            }
+                        </td>
+
+                        <td class="queues__reserv3-cell">
+                            @if (stats != null)
+                            {
+                                <span class="queues__stats-pending" title="Pending">@stats.Pending.ToString("N0")</span>
+                            }
+                            else
+                            {
+                                <span class="queues__stats-empty">-</span>
+                            }
+                        </td>
+
+                        <td class="queues__reserv4-cell">---</td>
+
+                        <td class="queues__timeout-cell">
+                            <input type="number"
+                                   class="queues__timeout-input"
+                                   value="@q.ZombieTimeoutSeconds"
+                                   @onchange="@(e => UpdateTimeout(q.Name, e.Value))" />
+                        </td>
+
+                        <td class="queues__updated">
+                            @q.LastUpdatedUtc.ToLocalTime().ToString("HH:mm:ss")
                         </td>
 
                         <td class="queues__status-cell">
@@ -73,32 +120,6 @@
                                        @onchange="@(e => ToggleQueue(q.Name, (bool)e.Value!))" />
                                 <span class="deck-switch__slider"></span>
                             </label>
-                        </td>
-
-                        <td class="queues__timeout-cell">
-                            <input type="number"
-                                   class="queues__timeout-input"
-                                   value="@q.ZombieTimeoutSeconds"
-                                   @onchange="@(e => UpdateTimeout(q.Name, e.Value))" />
-                        </td>
-
-                        <td class="queues__stats">
-                            @if (stats != null)
-                            {
-                                <span class="queues__stats-buffered" title="Buffered (Fetched)">@stats.Fetched.ToString("N0")</span>
-                                <span class="queues__stats-sep">/</span>
-                                <span class="queues__stats-pending" title="Pending">@stats.Pending.ToString("N0")</span>
-                            }
-                            else
-                            {
-                                <span class="queues__stats-empty">-</span>
-                            }
-                        </td>
-
-                        <td class="queues__reserv2-cell">---</td>
-
-                        <td class="queues__updated">
-                            @q.LastUpdatedUtc.ToLocalTime().ToString("HH:mm:ss")
                         </td>
 
                         <td class="queues__actions">

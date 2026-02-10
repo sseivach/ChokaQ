@@ -1,0 +1,94 @@
+﻿@using ChokaQ.TheDeck.Enums
+@namespace ChokaQ.TheDeck.UI.Components.OpsPanel.HistoryFilter
+
+<div class="filter">
+    <div class="filter__header">
+        <span class="filter__context-badge @(Context == JobSource.DLQ ? "filter__context-badge--dlq" : "filter__context-badge--archive")">
+            SOURCE: @Context.ToString().ToUpper()
+        </span>
+    </div>
+
+    <div class="filter__group">
+        <label class="filter__label">Date Range</label>
+        <div class="filter__row">
+            <input type="date" class="filter__input" @bind="_dateFrom" />
+            <span class="filter__sep">-</span>
+            <input type="date" class="filter__input" @bind="_dateTo" />
+        </div>
+    </div>
+
+    <div class="filter__group">
+        <label class="filter__label">Search Query</label>
+        <input type="text"
+               class="filter__input filter__input--search"
+               placeholder="ID, Type, Tags, Error..."
+               @bind="_searchTerm"
+               @bind:event="oninput"
+               @onkeyup="@(e => e.Key == "Enter" ? HandleSearchClick() : Task.CompletedTask)" />
+    </div>
+
+    <div class="filter__group">
+        <div class="filter__row">
+            <div class="filter__col">
+                <label class="filter__label">Queue</label>
+                <input type="text" class="filter__input" placeholder="All" @bind="_queue" />
+            </div>
+            <div class="filter__col">
+                <label class="filter__label">Limit</label>
+                <select class="filter__select" value="@_selectedPageSize" @onchange="HandlePageSizeChange">
+                    <option value="100">100</option>
+                    <option value="500">500</option>
+                    <option value="1000">1000</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="filter__group">
+        <label class="filter__label">Sort By</label>
+        <div class="filter__row">
+            <select class="filter__select" value="@_sortBy" @onchange="HandleSortChange">
+                <option value="Date">Date</option>
+                <option value="Duration">Duration</option>
+                <option value="Type">Type</option>
+                <option value="Queue">Queue</option>
+                <option value="Attempts">Attempts</option>
+            </select>
+            <button class="deck-btn filter__sort-btn" @onclick="ToggleSortDirection" title="Toggle ASC/DESC">
+                @(_sortDesc ? "DESC" : "ASC")
+            </button>
+        </div>
+    </div>
+
+    <div class="filter__actions">
+        <button class="deck-btn deck-btn-primary filter__load-btn" @onclick="HandleSearchClick">
+            LOAD DATA
+        </button>
+    </div>
+
+    <hr class="deck-hr" />
+
+    <div class="filter__status">
+        @if (TotalItems > 0)
+        {
+            <div class="filter__stats">
+                Found: <span class="filter__count">@TotalItems.ToString("N0")</span> records
+                <br />
+                Page @CurrentPage of @TotalPages
+            </div>
+
+            @if (TotalPages > 1)
+            {
+                <div class="filter__paging">
+                    <button class="deck-btn filter__page-btn" disabled="@(!CanGoPrev)" @onclick="HandlePrev">PREV</button>
+                    <span class="filter__page-current">@CurrentPage</span>
+                    <button class="deck-btn filter__page-btn" disabled="@(!CanGoNext)" @onclick="HandleNext">NEXT</button>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="filter__empty">No data loaded (or 0 found)</div>
+        }
+    </div>
+</div>

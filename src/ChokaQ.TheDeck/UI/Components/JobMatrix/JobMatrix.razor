@@ -1,69 +1,70 @@
-@using Microsoft.AspNetCore.Components.Web.Virtualization
+﻿@using Microsoft.AspNetCore.Components.Web.Virtualization
 @using ChokaQ.TheDeck.Models
 @using ChokaQ.Abstractions.Enums
 @using ChokaQ.TheDeck.UI.Components.JobMatrix.JobRow
 @namespace ChokaQ.TheDeck.UI.Components.JobMatrix
 
 <section class="matrix">
-    <!-- Toolbar -->
     <header class="matrix__toolbar">
+
         <div class="matrix__search-container">
-             <div class="matrix__search-box">
-                 <span class="matrix__search-label">SEARCH</span>
-                 <input type="text"
-                        class="matrix__search-input"
-                        placeholder="ID, Type, Queue..."
-                        @bind="_searchQuery"
-                        @bind:event="oninput" />
-                 @if (!string.IsNullOrEmpty(_searchQuery))
-                 {
-                     <span class="matrix__search-count">@FilteredJobs.Count</span>
-                     <button class="matrix__search-clear" @onclick="() => _searchQuery = string.Empty">X</button>
-                 }
-             </div>
+            @if (!IsHistoryMode)
+            {
+                <div class="matrix__search-box">
+                    <span class="matrix__search-label">SEARCH</span>
+                    <input type="text"
+                           class="matrix__search-input"
+                           placeholder=""
+                           @bind="_searchQuery"
+                           @bind:event="oninput" />
+                    @if (!string.IsNullOrEmpty(_searchQuery))
+                    {
+                        <span class="matrix__search-count">@FilteredJobs.Count</span>
+                        <button class="matrix__search-clear" @onclick="() => _searchQuery = string.Empty">✕</button>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="matrix__search-placeholder">
+                    <span>← Use Filters in OpsPanel</span>
+                </div>
+            }
         </div>
 
-        <!-- Date Filters (New Row) -->
-        <div class="matrix__toolbar-row matrix__toolbar-row--filters">
-            <span class="matrix__filter-label">FROM</span>
-            <input type="date" class="matrix__date-input" @bind="_dateFrom" />
-            <span class="matrix__filter-label">TO</span>
-            <input type="date" class="matrix__date-input" @bind="_dateTo" />
-            <button class="deck-btn deck-btn-primary" @onclick="LoadHistory">Load History</button>
+        <div class="matrix__mode-toggle">
+            <button class="deck-btn @(!IsHistoryMode ? "deck-btn-live" : "")"
+                    @onclick="() => ToggleMode(false)"
+                    title="Real-time updates">
+                LIVE
+            </button>
+            <button class="deck-btn @(IsHistoryMode ? "deck-btn-history" : "")"
+                    @onclick="() => ToggleMode(true)"
+                    title="Historical data & Analysis">
+                HISTORY
+            </button>
         </div>
 
-        <!-- Bulk Actions (Now inside toolbar) -->
         @if (SelectedCount > 0)
         {
             <div class="matrix__bulk-actions">
                 <span class="deck-badge matrix__selection-badge">@SelectedCount selected</span>
-                <button class="deck-btn deck-btn-primary" @onclick="RestartSelected">Retry All</button>
-                <button class="deck-btn deck-btn-danger" @onclick="CancelSelected">Cancel All</button>
-                
-                <div class="matrix__bulk-priority">
-                    <span class="matrix__bulk-label">PRIORITY:</span>
-                    <input type="number" class="matrix__bulk-input" @bind="_bulkPriorityValue" />
-                    <button class="deck-btn deck-btn-primary" @onclick="SetPrioritySelected">Apply</button>
-                </div>
+                <button class="deck-btn deck-btn-primary" @onclick="RestartSelected">Retry</button>
+                <button class="deck-btn deck-btn-danger" @onclick="CancelSelected">Cancel</button>
             </div>
         }
-        
-        <div class="matrix__controls">
-             <button class="deck-btn" @onclick="OnClearHistory">Clear History</button>
-        </div>
     </header>
 
-    <!-- Table -->
     <div class="matrix__table-container">
         <table class="deck-table matrix__table">
             <thead>
                 <tr>
                     <th class="matrix__th matrix__th--checkbox">
                         <div class="matrix__header-checks">
-                            <input type="checkbox" class="matrix__checkbox-all" checked="@IsAllVisibleSelected" @onchange="ToggleSelectAll" title="Select Visible" />
+                            <input type="checkbox" class="matrix__checkbox-all" checked="@IsAllVisibleSelected" @onchange="ToggleSelectAll" />
                             @if (SelectedCount > 0)
                             {
-                                <button class="matrix__deselect-all" @onclick="ClearSelection" title="Deselect All"></button>
+                                <button class="matrix__deselect-all" @onclick="ClearSelection"></button>
                             }
                         </div>
                     </th>
@@ -91,10 +92,10 @@
                                 OnSelected="HandleJobSelected" />
                     </ItemContent>
                     <Placeholder>
-                         <tr><td colspan="11" class="matrix__loading">Loading...</td></tr>
+                        <tr><td colspan="11" class="matrix__loading">Loading...</td></tr>
                     </Placeholder>
                     <EmptyContent>
-                         <tr><td colspan="11" class="matrix__empty">No jobs found.</td></tr>
+                        <tr><td colspan="11" class="matrix__empty">No jobs found.</td></tr>
                     </EmptyContent>
                 </Virtualize>
             </tbody>

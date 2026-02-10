@@ -431,4 +431,119 @@ public class SqlJobStorage : IJobStorage
         await using var conn = await OpenConnectionAsync(ct);
         return await conn.ExecuteScalarAsync<int>(_q.ArchiveZombies, new { GlobalTimeout = globalTimeoutSeconds }, ct);
     }
+
+    // ========================================================================
+    // HISTORY
+    // ========================================================================
+
+    public async ValueTask<PagedResult<JobArchiveEntity>> GetArchivePagedAsync(
+        HistoryFilterDto filter,
+        CancellationToken ct = default)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+
+        var (whereSql, parameters) = BuildFilterSql(filter, isArchive: true);
+
+        var countSql = _q.GetArchiveCount.Replace("{WHERE_CLAUSE}", whereSql);
+        var totalCount = await conn.ExecuteScalarAsync<int>(countSql, parameters, ct);
+
+        if (totalCount == 0)
+            return PagedResult<JobArchiveEntity>.Empty(filter.PageSize);
+
+        var orderBy = SqlSortBuilder.BuildOrderBy(filter.SortBy, filter.SortDescending, isArchive: true);
+
+        var dataSql = _q.GetArchivePaged
+            .Replace("{WHERE_CLAUSE}", whereSql)
+            .Replace("{ORDER_BY}", orderBy);
+
+        var combinedParams = MergeParams(parameters, new
+        {
+            Offset = (filter.PageNumber - 1) * filter.PageSize,
+            Limit = filter.PageSize
+        });
+
+        var items = await conn.QueryAsync<JobArchiveEntity>(dataSql, combinedParams, ct);
+
+        return new PagedResult<JobArchiveEntity>(items, totalCount, filter.PageNumber, filter.PageSize);
+    }
+
+    public async ValueTask<PagedResult<JobDLQEntity>> GetDLQPagedAsync(
+        HistoryFilterDto filter,
+        CancellationToken ct = default)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+
+        var (whereSql, parameters) = BuildFilterSql(filter, isArchive: false);
+
+        var countSql = _q.GetDLQCount.Replace("{WHERE_CLAUSE}", whereSql);
+        var totalCount = await conn.ExecuteScalarAsync<int>(countSql, parameters, ct);
+
+        if (totalCount == 0)
+            return PagedResult<JobDLQEntity>.Empty(filter.PageSize);
+
+        var orderBy = SqlSortBuilder.BuildOrderBy(filter.SortBy, filter.SortDescending, isArchive: false);
+
+        var dataSql = _q.GetDLQPaged
+            .Replace("{WHERE_CLAUSE}", whereSql)
+            .Replace("{ORDER_BY}", orderBy);
+
+        var combinedParams = MergeParams(parameters, new
+        {
+            Offset = (filter.PageNumber - 1) * filter.PageSize,
+            Limit = filter.PageSize
+        });
+
+        var items = await conn.QueryAsync<JobDLQEntity>(dataSql, combinedParams, ct);
+
+        return new PagedResult<JobDLQEntity>(items, totalCount, filter.PageNumber, filter.PageSize);
+    }
+
+    // --- Private Helpers ---
+
+    private (string Sql, Dictionary<string, object?> Params) BuildFilterSql(HistoryFilterDto filter, bool isArchive)
+    {
+        var sb = new System.Text.StringBuilder("WHERE 1=1");
+        var p = new Dictionary<string, object?>();
+
+        // Date Range
+        if (filter.FromUtc.HasValue)
+        {
+            var col = isArchive ? "[FinishedAtUtc]" : "[CreatedAtUtc]"; // Or FailedAtUtc depending on requirement
+            sb.Append($" AND {col} >= @FromUtc");
+            p["FromUtc"] = filter.FromUtc.Value;
+        }
+        if (filter.ToUtc.HasValue)
+        {
+            var col = isArchive ? "[FinishedAtUtc]" : "[CreatedAtUtc]";
+            sb.Append($" AND {col} <= @ToUtc");
+            p["ToUtc"] = filter.ToUtc.Value;
+        }
+
+        // Queue
+        if (!string.IsNullOrEmpty(filter.Queue))
+        {
+            sb.Append(" AND [Queue] = @Queue");
+            p["Queue"] = filter.Queue;
+        }
+
+        // Search Term (Expensive LIKE)
+        if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
+        {
+            sb.Append(" AND ([Id] LIKE @Search OR [Type] LIKE @Search OR [Tags] LIKE @Search)");
+            p["Search"] = $"%{filter.SearchTerm}%";
+        }
+
+        return (sb.ToString(), p);
+    }
+
+    // Helper to merge two anonymous objects or dictionaries into one dictionary
+    private Dictionary<string, object?> MergeParams(Dictionary<string, object?> first, object second)
+    {
+        var result = new Dictionary<string, object?>(first);
+        foreach (var prop in second.GetType().GetProperties())
+        {
+            result[prop.Name] = prop.GetValue(second);
+        }
+        return result;
+    }
 }

@@ -15,6 +15,7 @@
 
     --sector-bg: #141414;
     --sector-border-color: #cccccc;
+    --sector-border-subtle: rgba(204, 204, 204, 0.25);
     --sector-border-highlight: #ffffff;
     --sector-shadow: none;
     --sector-backdrop: none;

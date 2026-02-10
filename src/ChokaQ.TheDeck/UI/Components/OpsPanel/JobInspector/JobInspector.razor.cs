@@ -1,6 +1,7 @@
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.TheDeck.Enums;
+using ChokaQ.TheDeck.Models;
 using Microsoft.AspNetCore.Components;
 using System.Text.Json;
 
@@ -113,15 +114,5 @@ public partial class JobInspector
         public DateTime? FinishedAtUtc { get; init; }
         public string? ErrorDetails { get; init; }
         public JobSource Source { get; init; }
-    }
-
-    public record JobEditorModel
-    {
-        public required string Id { get; init; }
-        public required string Queue { get; init; }
-        public required string Type { get; init; }
-        public string? Payload { get; init; }
-        public required int Priority { get; init; }
-        public required JobSource Source { get; init; }
     }
 }
