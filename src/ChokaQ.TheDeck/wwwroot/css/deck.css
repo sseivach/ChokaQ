@@ -407,28 +407,32 @@ input[type="checkbox"]:checked::after {
 /* Element: .stats__card */
 .stats__card {
     flex: 1;
-    background: var(--sector-bg);
-    border: 1px solid var(--sector-border-color);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     box-shadow: var(--sector-shadow);
-    backdrop-filter: var(--sector-backdrop);
+    backdrop-filter: var(--glass-backdrop);
+    -webkit-backdrop-filter: var(--glass-backdrop);
     padding: 0.5rem;
     cursor: pointer;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
+    transition: background 0.2s ease;
 }
 
 .stats__card:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: var(--sector-border-highlight);
+    background: var(--glass-bg-hover);
+    border-color: var(--glass-border-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 8px rgba(0, 0, 0, 0.2);
 }
 
 /* Modifier: .stats__card--active */
 .stats__card--active {
+    background: rgba(255, 255, 255, 0.1);
     border-color: var(--sector-border-highlight);
-    background: rgba(255, 255, 255, 0.08);
-    box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 /* Element: .stats__label */
@@ -999,9 +1003,17 @@ input[type="checkbox"]:checked::after {
 
 .matrix__search-box {
     display: flex;
-    border: 1px solid var(--sector-border-color);
-    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-backdrop);
+    -webkit-backdrop-filter: var(--glass-backdrop);
     flex: 1;
+    transition: all 0.2s ease;
+}
+
+.matrix__search-box:hover {
+    background: var(--glass-bg-hover);
+    border-color: var(--glass-border-hover);
 }
 
 .matrix__search-label {

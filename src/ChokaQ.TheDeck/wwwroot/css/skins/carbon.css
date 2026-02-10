@@ -29,4 +29,11 @@
     --deck-info: #4589ff;
     --deck-muted: #8d8d8d;
     --badge-type-color: var(--deck-info);
+
+    /* Glass Effect (Solid for Carbon) */
+    --glass-bg: #262626;
+    --glass-border: #525252;
+    --glass-backdrop: none;
+    --glass-bg-hover: #333333;
+    --glass-border-hover: #ffffff;
 }
