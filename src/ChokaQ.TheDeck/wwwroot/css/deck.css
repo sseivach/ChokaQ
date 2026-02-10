@@ -1027,6 +1027,11 @@ input[type="checkbox"]:checked::after {
     background: transparent;
 }
 
+.matrix__search-box--disabled:hover {
+    background: transparent;
+    border-color: var(--glass-border);
+}
+
 .matrix__search-box--disabled input {
     cursor: not-allowed;
 }
