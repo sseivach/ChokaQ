@@ -7,11 +7,13 @@
         <!-- Left Column: Engine settings -->
         <div class="settings__col">
             <div class="settings__row">
-                <label class="settings__label">WORKER LIMIT</label>
-                <input type="number" class="settings__input" min="0" max="100" @bind="DesiredWorkers" />
-                <span class="settings__info" style="@(WorkerManager.ActiveWorkers > 0 ? "color: var(--deck-success); font-weight: bold;" : "")">
-                    (Busy: @WorkerManager.ActiveWorkers)
-                </span>
+                <label class="settings__label">MAX WORKERS</label>
+                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+                    <input type="number" class="settings__input" min="0" max="100" @bind="DesiredWorkers" />
+                    <span class="settings__info" style="@(WorkerManager.ActiveWorkers > 0 ? "color: var(--deck-success); font-weight: bold; opacity: 1;" : "")">
+                        (Busy: @WorkerManager.ActiveWorkers)
+                    </span>
+                </div>
             </div>
 
             <div class="settings__row">
@@ -30,7 +32,7 @@
             </div>
 
             <div class="settings__actions">
-                <button class="deck-btn deck-btn-primary" @onclick="ApplyChanges">
+                <button class="deck-btn deck-btn-success" @onclick="ApplyChanges">
                     APPLY
                 </button>
             </div>
