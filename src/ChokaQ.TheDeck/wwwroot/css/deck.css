@@ -1021,7 +1021,7 @@ input[type="checkbox"]:checked::after {
     color: var(--deck-text-color);
     padding: 0.4rem 0.5rem;
     flex: 1;
-    min-width: 200px;
+    min-width: 15rem;
     outline: none;
     font-family: var(--deck-font-family);
     font-size: 0.85rem;
@@ -1088,8 +1088,20 @@ input[type="checkbox"]:checked::after {
 }
 
 .matrix__selection-badge {
-    background: var(--deck-info);
-    color: white;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--sector-border-color);
+    color: #ffffff;
+    padding: 0.5rem 1rem;
+    font-family: var(--deck-font-family);
+    font-size: 0.85rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 10rem;
+    box-sizing: border-box;
+    line-height: 1;
 }
 
 .matrix__status-label {
@@ -1101,8 +1113,55 @@ input[type="checkbox"]:checked::after {
     color: var(--deck-success);
 }
 
-.matrix__status-label--offline {
-    color: var(--deck-danger);
+
+.matrix__toolbar {
+    display: grid;
+    grid-template-columns: 28rem 1fr 12rem;
+    /* Left: 28rem, Center: auto, Right: 12rem */
+    align-items: center;
+    padding: 0.5rem 0;
+    margin-bottom: 0.5rem;
+    height: 40px;
+    gap: 1rem;
+}
+
+.matrix__toolbar-col {
+    display: flex;
+    align-items: center;
+    height: 100%;
+}
+
+.matrix__toolbar-col--left {
+    width: 100%;
+    justify-content: flex-start;
+}
+
+.matrix__search-container,
+.matrix__search-box {
+    width: 100%;
+}
+
+.matrix__toolbar-col--center {
+    width: 100%;
+    justify-content: center;
+}
+
+.matrix__toolbar-col--right {
+    width: 100%;
+    justify-content: flex-end;
+}
+
+.matrix__mode-toggle {
+    display: flex;
+    gap: 2px;
+}
+
+.matrix__mode-toggle .deck-btn {
+    flex: 1;
+    min-width: 5.5rem;
+    /* Ensure "LIVE" has same base width as "HISTORY" */
+    padding: 0.4rem 0;
+    text-align: center;
 }
 
 .matrix__bulk-actions {

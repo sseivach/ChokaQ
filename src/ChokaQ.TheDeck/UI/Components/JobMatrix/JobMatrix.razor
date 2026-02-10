@@ -6,8 +6,8 @@
 
 <section class="matrix">
     <header class="matrix__toolbar">
-
-        <div class="matrix__search-container">
+        <div class="matrix__toolbar-col matrix__toolbar-col--left">
+            <div class="matrix__search-container">
             @if (!IsHistoryMode)
             {
                 <div class="matrix__search-box">
@@ -30,29 +30,36 @@
                     <span>← Use Filters in OpsPanel</span>
                 </div>
             }
-        </div>
-
-        <div class="matrix__mode-toggle">
-            <button class="deck-btn @(!IsHistoryMode ? "deck-btn-live" : "")"
-                    @onclick="() => ToggleMode(false)"
-                    title="Real-time updates">
-                LIVE
-            </button>
-            <button class="deck-btn @(IsHistoryMode ? "deck-btn-history" : "")"
-                    @onclick="() => ToggleMode(true)"
-                    title="Historical data & Analysis">
-                HISTORY
-            </button>
-        </div>
-
-        @if (SelectedCount > 0)
-        {
-            <div class="matrix__bulk-actions">
-                <span class="deck-badge matrix__selection-badge">@SelectedCount selected</span>
-                <button class="deck-btn deck-btn-primary" @onclick="RestartSelected">Retry</button>
-                <button class="deck-btn deck-btn-danger" @onclick="CancelSelected">Cancel</button>
             </div>
-        }
+        </div>
+
+        <!-- Column 2: Bulk Actions (Center Aligned) -->
+        <div class="matrix__toolbar-col matrix__toolbar-col--center">
+            @if (SelectedCount > 0)
+            {
+                <div class="matrix__bulk-actions">
+                    <span class="deck-badge matrix__selection-badge">@SelectedCount selected</span>
+                    <button class="deck-btn deck-btn-primary" @onclick="RestartSelected">Retry</button>
+                    <button class="deck-btn deck-btn-danger" @onclick="CancelSelected">Cancel</button>
+                </div>
+            }
+        </div>
+
+        <!-- Column 3: Mode Toggle (Right Aligned) -->
+        <div class="matrix__toolbar-col matrix__toolbar-col--right">
+            <div class="matrix__mode-toggle">
+                <button class="deck-btn @(!IsHistoryMode ? "deck-btn-live" : "")"
+                        @onclick="() => ToggleMode(false)"
+                        title="Real-time updates">
+                    LIVE
+                </button>
+                <button class="deck-btn @(IsHistoryMode ? "deck-btn-history" : "")"
+                        @onclick="() => ToggleMode(true)"
+                        title="Historical data & Analysis">
+                    HISTORY
+                </button>
+            </div>
+        </div>
     </header>
 
     <div class="matrix__table-container">

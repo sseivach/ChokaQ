@@ -64,6 +64,7 @@ To guarantee consistent performance regardless of historical data volume, data i
 ### "The Deck" (Dashboard)
 A сontrol plane powered by **Blazor Server** and **SignalR**.
 
+* **Visual Themes:** Includes two built-in themes: **Blueprint** (Engineering Blue) for clarity and **Carbon** (High-Contrast Dark) for low-light environments.
 * **Queue Management:** Queues can be paused, resumed, or deactivated at runtime. Changes propagate immediately to all workers via the database.
 * **Live Matrix:** Virtualized grid for active jobs.
 * **Ops Panel:**
