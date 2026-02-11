@@ -1,4 +1,5 @@
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.TheDeck.Enums;
 using ChokaQ.TheDeck.Models;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -14,8 +15,8 @@ public partial class JobMatrix
     [Parameter] public HubConnection? HubConnection { get; set; }
     [Parameter] public JobStatus? ActiveStatusFilter { get; set; }
     [Parameter] public EventCallback<string> OnJobSelected { get; set; }
-    [Parameter] public bool IsHistoryMode { get; set; }
-    [Parameter] public EventCallback<bool> OnModeToggle { get; set; }
+    [Parameter] public JobSource CurrentSource { get; set; } = JobSource.Hot;
+    [Parameter] public EventCallback<JobSource> OnSourceChanged { get; set; }
     /// <summary>
     /// Event fired when an action (Retry/Cancel) is performed, 
     /// signaling the parent to reload data (crucial for History Mode).
@@ -28,6 +29,7 @@ public partial class JobMatrix
     private HashSet<string> _selectedJobIds = new();
     private int SelectedCount => _selectedJobIds.Count;
     private int _bulkPriorityValue = 10;
+    private bool IsHistoryMode => CurrentSource != JobSource.Hot;
 
     private ICollection<JobViewModel> FilteredJobs
     {
@@ -125,11 +127,11 @@ public partial class JobMatrix
         }
     }
 
-    private async Task ToggleMode(bool isHistory)
+    private async Task ChangeSource(JobSource source)
     {
-        if (IsHistoryMode != isHistory)
+        if (CurrentSource != source)
         {
-            await OnModeToggle.InvokeAsync(isHistory);
+            await OnSourceChanged.InvokeAsync(source);
         }
     }
 }

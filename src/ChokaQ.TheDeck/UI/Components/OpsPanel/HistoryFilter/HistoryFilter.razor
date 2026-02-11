@@ -71,19 +71,32 @@
     <div class="filter__status">
         @if (TotalItems > 0)
         {
-            <div class="filter__stats">
-                Found: <span class="filter__count">@TotalItems.ToString("N0")</span> records
-                <br />
-                Page @CurrentPage of @TotalPages
-            </div>
-
-            @if (TotalPages > 1)
+            @if (PageSize == 10) // DETECT PREVIEW MODE
             {
-                <div class="filter__paging">
-                    <button class="deck-btn filter__page-btn" disabled="@(!CanGoPrev)" @onclick="HandlePrev">PREV</button>
-                    <span class="filter__page-current">@CurrentPage</span>
-                    <button class="deck-btn filter__page-btn" disabled="@(!CanGoNext)" @onclick="HandleNext">NEXT</button>
+                <div class="filter__stats filter__stats--preview">
+                    <span class="deck-badge deck-badge--info">PREVIEW</span>
+                    <br />
+                    Showing last <strong>10</strong> of <span class="filter__count">@TotalItems.ToString("N0")</span>
+                    <br />
+                    <small>Click "LOAD DATA" for full list</small>
                 </div>
+            }
+            else // NORMAL PAGINATION MODE
+            {
+                <div class="filter__stats">
+                    Found: <span class="filter__count">@TotalItems.ToString("N0")</span> records
+                    <br />
+                    Page @CurrentPage of @TotalPages
+                </div>
+
+                @if (TotalPages > 1)
+                {
+                    <div class="filter__paging">
+                        <button class="deck-btn filter__page-btn" disabled="@(!CanGoPrev)" @onclick="HandlePrev">PREV</button>
+                        <span class="filter__page-current">@CurrentPage</span>
+                        <button class="deck-btn filter__page-btn" disabled="@(!CanGoNext)" @onclick="HandleNext">NEXT</button>
+                    </div>
+                }
             }
         }
         else

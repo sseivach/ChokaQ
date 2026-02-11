@@ -18,8 +18,24 @@ public partial class JobInspector
     [Inject] private IJobStorage JobStorage { get; set; } = default!;
 
     private JobInspectorModel? _job;
-    private bool CanRequeue => _job?.Source == JobSource.DLQ;
-    private bool CanEdit => _job != null && (_job.Status == JobStatus.Pending || _job.Source == JobSource.DLQ);
+
+    // --- BUTTON VISIBILITY LOGIC ---
+
+    // Edit: Allowed in DLQ (always) OR in Active (only if status is Pending).
+    // Processing jobs cannot be edited on the fly.
+    private bool CanEdit => _job != null &&
+        (_job.Source == JobSource.DLQ || (_job.Source == JobSource.Hot && _job.Status == JobStatus.Pending));
+
+    // Resurrect: Only allowed for jobs in the Dead Letter Queue.
+    private bool CanResurrect => _job?.Source == JobSource.DLQ;
+
+    // Delete: Allowed everywhere, but the semantic meaning changes (Cancel vs Purge).
+    private bool CanDelete => _job != null;
+
+    // Dynamic label: "Stop / Cancel" for running jobs, "Delete Forever" for dead/archived jobs.
+    private string DeleteButtonLabel => _job?.Source == JobSource.Hot ? "Stop" : "Delete Forever";
+
+    // -------------------------------
 
     protected override async Task OnParametersSetAsync()
     {
@@ -61,14 +77,20 @@ public partial class JobInspector
         await OnEdit.InvokeAsync(editorModel);
     }
 
+    /// <summary>
+    /// Looks up the job in all three storage pillars (Hot, Archive, DLQ).
+    /// </summary>
     private async Task<JobInspectorModel?> FindJobAsync(string jobId)
     {
+        // 1. Try Hot
         var hotJob = await JobStorage.GetJobAsync(jobId);
         if (hotJob != null) return new JobInspectorModel { Id = hotJob.Id, Queue = hotJob.Queue, Type = hotJob.Type, Payload = hotJob.Payload, Status = hotJob.Status, AttemptCount = hotJob.AttemptCount, Priority = hotJob.Priority, CreatedBy = hotJob.CreatedBy, CreatedAtUtc = hotJob.CreatedAtUtc, StartedAtUtc = hotJob.StartedAtUtc, Source = JobSource.Hot };
 
+        // 2. Try Archive
         var archiveJob = await JobStorage.GetArchiveJobAsync(jobId);
         if (archiveJob != null) return new JobInspectorModel { Id = archiveJob.Id, Queue = archiveJob.Queue, Type = archiveJob.Type, Payload = archiveJob.Payload, Status = JobStatus.Succeeded, AttemptCount = archiveJob.AttemptCount, CreatedBy = archiveJob.CreatedBy, CreatedAtUtc = archiveJob.CreatedAtUtc, StartedAtUtc = archiveJob.StartedAtUtc, FinishedAtUtc = archiveJob.FinishedAtUtc, Source = JobSource.Archive };
 
+        // 3. Try DLQ
         var dlqJob = await JobStorage.GetDLQJobAsync(jobId);
         if (dlqJob != null) return new JobInspectorModel { Id = dlqJob.Id, Queue = dlqJob.Queue, Type = dlqJob.Type, Payload = dlqJob.Payload, Status = JobStatus.Failed, AttemptCount = dlqJob.AttemptCount, CreatedBy = dlqJob.CreatedBy, CreatedAtUtc = dlqJob.CreatedAtUtc, ErrorDetails = dlqJob.ErrorDetails, Source = JobSource.DLQ };
 
@@ -86,9 +108,9 @@ public partial class JobInspector
 
     private string GetSourceBadge() => _job?.Source switch
     {
-        JobSource.Hot => "HOT",
+        JobSource.Hot => "ACTIVE",
         JobSource.Archive => "ARCHIVE",
-        JobSource.DLQ => "DLQ",
+        JobSource.DLQ => "MORGUE",
         _ => "?"
     };
 

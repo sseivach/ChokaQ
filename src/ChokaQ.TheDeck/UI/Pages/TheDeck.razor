@@ -1,4 +1,5 @@
 @page "/chokaq"
+@using ChokaQ.TheDeck.Enums
 @using ChokaQ.TheDeck.UI.Components.HeaderLeft
 @using ChokaQ.TheDeck.UI.Components.HeaderRight
 @using ChokaQ.TheDeck.UI.Components.Stats
@@ -12,7 +13,7 @@
 @implements IAsyncDisposable
 
 <main class="deck">
-    
+
     <div class="deck__col deck__col--main">
         <header class="deck__row deck__row--header">
             <HeaderLeft IsConnected="@IsConnected" />
@@ -23,16 +24,19 @@
         </section>
 
         <nav class="deck__row deck__row--stats">
-            <Stats Counts="_counts" SelectedStatus="_activeStatusFilter" OnStatusSelected="HandleStatusSelected" />
+            <Stats Counts="_counts"
+                   SelectedStatus="_activeStatusFilter"
+                   IsInteractive="@(_currentContext == JobSource.Hot)"
+                   OnStatusSelected="HandleStatusSelected" />
         </nav>
 
         <section class="deck__row deck__row--matrix">
-            <JobMatrix Jobs="_jobs" 
-                       IsConnected="IsConnected" 
-                       IsHistoryMode="_isHistoryMode" 
-                       OnModeToggle="HandleModeToggle"
-                       HubConnection="_hubConnection" 
-                       ActiveStatusFilter="_activeStatusFilter" 
+            <JobMatrix Jobs="_jobs"
+                       IsConnected="IsConnected"
+                       CurrentSource="_currentContext"
+                       OnSourceChanged="HandleSourceChanged"
+                       HubConnection="_hubConnection"
+                       ActiveStatusFilter="_activeStatusFilter"
                        OnJobSelected="HandleJobInspectorRequested"
                        OnRefreshRequested="HandleDataRefreshRequest" />
         </section>
@@ -56,14 +60,14 @@
         </section>
 
         <section class="deck__row deck__row--ops">
-            <OpsPanel @ref="_opsPanel" 
-                      IsHistoryMode="_isHistoryMode"
+            <OpsPanel @ref="_opsPanel"
+                      IsHistoryMode="IsHistoryMode"
                       CurrentContext="_currentContext"
                       TotalItems="_historyTotalItems"
                       CurrentPage="_historyPageNumber"
                       PageSize="_historyPageSize"
                       OnLoadRequest="HandleHistoryLoadRequest"
-                      OnRequeue="HandleRequeueRequested" 
+                      OnRequeue="HandleRequeueRequested"
                       OnDelete="HandleDeleteRequested" />
         </section>
     </aside>

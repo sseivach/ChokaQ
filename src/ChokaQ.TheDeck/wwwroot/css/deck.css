@@ -401,7 +401,8 @@ input[type="checkbox"]:checked::after {
 /* ==========================================
    COMPONENT STYLES: Stats
    ========================================== */
-/* Block: .stats */
+
+/* Block: .stats container */
 .stats {
     display: flex;
     gap: 1.5rem;
@@ -409,7 +410,7 @@ input[type="checkbox"]:checked::after {
     width: 100%;
 }
 
-/* Element: .stats__card */
+/* Element: .stats__card (Base State) */
 .stats__card {
     flex: 1;
     background: var(--glass-bg);
@@ -418,22 +419,33 @@ input[type="checkbox"]:checked::after {
     backdrop-filter: var(--glass-backdrop);
     -webkit-backdrop-filter: var(--glass-backdrop);
     padding: 0.5rem;
-    cursor: pointer;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    transition: background 0.2s ease;
+    transition: background 0.2s ease, transform 0.2s ease;
 }
 
-.stats__card:hover {
-    background: var(--glass-bg-hover);
-    border-color: var(--glass-border-hover);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 8px rgba(0, 0, 0, 0.2);
+/* Interaction: Hover & Cursor (ONLY when NOT disabled) */
+.stats:not(.stats--disabled) .stats__card {
+    cursor: pointer;
 }
 
-/* Modifier: .stats__card--active */
+    .stats:not(.stats--disabled) .stats__card:hover {
+        background: var(--glass-bg-hover);
+        border-color: var(--glass-border-hover);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 8px rgba(0, 0, 0, 0.2);
+    }
+
+/* Modifier: Disabled State (Archive/DLQ modes) */
+.stats--disabled {
+    opacity: 0.5;
+    pointer-events: none; /* Disables all clicks and hover events */
+    filter: grayscale(0.5); /* Desaturate to indicate inactive state */
+}
+
+/* Modifier: Active Selection (Selected Card) */
 .stats__card--active {
     background: rgba(255, 255, 255, 0.1);
     border-color: var(--sector-border-highlight);
@@ -457,7 +469,7 @@ input[type="checkbox"]:checked::after {
     font-family: var(--deck-font-family);
 }
 
-/* Modifiers for value colors */
+/* Modifiers: Value Colors */
 .stats__value--pending {
     color: var(--deck-muted);
 }
@@ -2305,4 +2317,37 @@ input[type="checkbox"]:checked::after {
     color: var(--deck-text-color);
     display: flex;
     align-items: center;
+}
+
+/* Active State: DLQ (Red) */
+.deck-btn-dlq {
+    border-color: var(--deck-danger) !important;
+    background: rgba(220, 53, 69, 0.25) !important;
+    color: var(--deck-text-color) !important;
+    opacity: 1 !important;
+    box-shadow: 0 0 10px rgba(220, 53, 69, 0.2);
+}
+
+    .deck-btn-dlq:hover {
+        background: rgba(220, 53, 69, 0.5) !important;
+    }
+
+/* Disabled Stats */
+.stats--disabled {
+    opacity: 0.5;
+    pointer-events: none;
+    filter: grayscale(0.5);
+}
+
+.filter__stats--preview {
+    color: var(--deck-info);
+    border: 1px dashed var(--deck-info);
+    padding: 0.5rem;
+    border-radius: 4px;
+    background: rgba(23, 162, 184, 0.1);
+}
+
+.deck-badge--info {
+    background: var(--deck-info);
+    color: #fff;
 }

@@ -2,46 +2,46 @@
 @using ChokaQ.Abstractions.Enums
 @namespace ChokaQ.TheDeck.UI.Components.Stats
 
-<section class="stats">
-    
+<section class="stats @(IsInteractive ? "" : "stats--disabled")">
+
     @* Pending *@
     <article class="stats__card @(IsActive(JobStatus.Pending) ? "stats__card--active" : "")"
-         @onclick="() => Select(JobStatus.Pending)">
+             @onclick="() => HandleClick(JobStatus.Pending)">
         <div class="stats__label">PENDING</div>
         <div class="stats__value stats__value--pending">@Counts.Pending</div>
     </article>
 
     @* Buffered *@
     <article class="stats__card @(IsActive(JobStatus.Fetched) ? "stats__card--active" : "")"
-         @onclick="() => Select(JobStatus.Fetched)">
+             @onclick="() => HandleClick(JobStatus.Fetched)">
         <div class="stats__label">BUFFERED</div>
         <div class="stats__value stats__value--buffered">@Counts.Fetched</div>
     </article>
 
     @* Processing *@
     <article class="stats__card @(IsActive(JobStatus.Processing) ? "stats__card--active" : "")"
-         @onclick="() => Select(JobStatus.Processing)">
+             @onclick="() => HandleClick(JobStatus.Processing)">
         <div class="stats__label">PROCESSING</div>
         <div class="stats__value stats__value--processing">@Counts.Processing</div>
     </article>
 
     @* Succeeded *@
     <article class="stats__card @(IsActive(JobStatus.Succeeded) ? "stats__card--active" : "")"
-         @onclick="() => Select(JobStatus.Succeeded)">
+             @onclick="() => HandleClick(JobStatus.Succeeded)">
         <div class="stats__label">SUCCEEDED</div>
         <div class="stats__value stats__value--succeeded">@Counts.SucceededTotal.ToString("N0")</div>
     </article>
 
     @* Failed *@
     <article class="stats__card @(IsActive(JobStatus.Failed) ? "stats__card--active" : "")"
-         @onclick="() => Select(JobStatus.Failed)">
+             @onclick="() => HandleClick(JobStatus.Failed)">
         <div class="stats__label">FAILED</div>
         <div class="stats__value stats__value--failed">@Counts.FailedTotal.ToString("N0")</div>
     </article>
 
     @* Total *@
     <article class="stats__card @(SelectedStatus == null ? "stats__card--active" : "")"
-         @onclick="() => OnStatusSelected.InvokeAsync(null)">
+             @onclick="() => HandleClick(null)">
         <div class="stats__label">TOTAL</div>
         <div class="stats__value stats__value--total">@Counts.Total.ToString("N0")</div>
     </article>

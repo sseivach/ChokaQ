@@ -50,6 +50,14 @@ public partial class HistoryFilter
     private bool CanGoPrev => CurrentPage > 1;
     private bool CanGoNext => CurrentPage < TotalPages;
 
+    protected override void OnParametersSet()
+    {
+        if (new[] { 100, 500, 1000 }.Contains(PageSize))
+        {
+            _selectedPageSize = PageSize;
+        }
+    }
+
     /// <summary>
     /// Constructs the DTO and fires the load event.
     /// </summary>

@@ -2,13 +2,12 @@
 @namespace ChokaQ.TheDeck.UI.Components.OpsPanel.JobInspector
 
 <section class="inspector">
-    <!-- Header -->
     <header class="inspector__header">
         <div class="inspector__title-group">
             <h2 class="inspector__title">Job Inspector</h2>
             @if (_job != null)
             {
-               <div class="inspector__id">@_job.Id</div>
+                <div class="inspector__id">@_job.Id</div>
             }
         </div>
         <div class="inspector__header-actions">
@@ -23,74 +22,72 @@
     @if (_job == null)
     {
         <div class="inspector__loading">
-             <span>Loading or Job not found...</span>
+            <span>Loading or Job not found...</span>
         </div>
     }
     else
     {
         <div class="inspector__content">
-             <!-- Status Banner -->
-             <div class="inspector__banner @GetStatusModifier()">
-                 <div class="inspector__banner-label">Status</div>
-                 <div class="inspector__banner-value">@_job.Status.ToString().ToUpper()</div>
-                 <div class="inspector__banner-source">Source: @GetSourceBadge()</div>
-             </div>
+            <div class="inspector__banner @GetStatusModifier()">
+                <div class="inspector__banner-label">Status</div>
+                <div class="inspector__banner-value">@_job.Status.ToString().ToUpper()</div>
+                <div class="inspector__banner-source">Location: @GetSourceBadge()</div>
+            </div>
 
-             <!-- Metadata -->
-             <div class="inspector__section">
-                 <h3 class="inspector__section-title">Metadata</h3>
-                 <ul class="deck-meta-list">
-                     <li><span class="deck-meta-label">Type</span> <span class="deck-meta-value">@_job.Type</span></li>
-                     <li><span class="deck-meta-label">Queue</span> <span class="deck-meta-value">@_job.Queue</span></li>
-                     <li><span class="deck-meta-label">Priority</span> <span class="deck-meta-value">@_job.Priority</span></li>
-                     <li><span class="deck-meta-label">Created By</span> <span class="deck-meta-value">@(_job.CreatedBy ?? "-")</span></li>
-                 </ul>
-             </div>
+            <div class="inspector__section">
+                <h3 class="inspector__section-title">Metadata</h3>
+                <ul class="deck-meta-list">
+                    <li><span class="deck-meta-label">Type</span> <span class="deck-meta-value">@_job.Type</span></li>
+                    <li><span class="deck-meta-label">Queue</span> <span class="deck-meta-value">@_job.Queue</span></li>
+                    <li><span class="deck-meta-label">Priority</span> <span class="deck-meta-value">@_job.Priority</span></li>
+                    <li><span class="deck-meta-label">Created By</span> <span class="deck-meta-value">@(_job.CreatedBy ?? "-")</span></li>
+                </ul>
+            </div>
 
-             <!-- Timeline -->
-             <div class="inspector__section">
-                 <h3 class="inspector__section-title">Timeline</h3>
-                 <ul class="deck-meta-list">
-                     <li><span class="deck-meta-label">Created</span> <span class="deck-meta-value">@_job.CreatedAtUtc.ToLocalTime().ToString("G")</span></li>
-                     @if (_job.StartedAtUtc.HasValue)
-                     {
-                         <li><span class="deck-meta-label">Started</span> <span class="deck-meta-value">@_job.StartedAtUtc.Value.ToLocalTime().ToString("G")</span></li>
-                     }
-                     @if (_job.FinishedAtUtc.HasValue)
-                     {
-                         <li><span class="deck-meta-label">Finished</span> <span class="deck-meta-value">@_job.FinishedAtUtc.Value.ToLocalTime().ToString("G")</span></li>
-                     }
-                     <li><span class="deck-meta-label">Attempts</span> <span class="deck-meta-value">@_job.AttemptCount</span></li>
-                 </ul>
-             </div>
+            <div class="inspector__section">
+                <h3 class="inspector__section-title">Timeline</h3>
+                <ul class="deck-meta-list">
+                    <li><span class="deck-meta-label">Created</span> <span class="deck-meta-value">@_job.CreatedAtUtc.ToLocalTime().ToString("G")</span></li>
+                    @if (_job.StartedAtUtc.HasValue)
+                    {
+                        <li><span class="deck-meta-label">Started</span> <span class="deck-meta-value">@_job.StartedAtUtc.Value.ToLocalTime().ToString("G")</span></li>
+                    }
+                    @if (_job.FinishedAtUtc.HasValue)
+                    {
+                        <li><span class="deck-meta-label">Finished</span> <span class="deck-meta-value">@_job.FinishedAtUtc.Value.ToLocalTime().ToString("G")</span></li>
+                    }
+                    <li><span class="deck-meta-label">Attempts</span> <span class="deck-meta-value">@_job.AttemptCount</span></li>
+                </ul>
+            </div>
 
-             <!-- Exceptions -->
-             @if (!string.IsNullOrEmpty(_job.ErrorDetails))
-             {
-                 <div class="inspector__section">
-                     <h3 class="inspector__section-title inspector__section-title--error">Exception</h3>
-                     <div class="deck-code-block inspector__error-block">
-                         @_job.ErrorDetails
-                     </div>
-                 </div>
-             }
+            @if (!string.IsNullOrEmpty(_job.ErrorDetails))
+            {
+                <div class="inspector__section">
+                    <h3 class="inspector__section-title inspector__section-title--error">Exception</h3>
+                    <div class="deck-code-block inspector__error-block">
+                        @_job.ErrorDetails
+                    </div>
+                </div>
+            }
 
-             <!-- Payload -->
-             <div class="inspector__section">
-                 <h3 class="inspector__section-title">Payload</h3>
-                 <div class="deck-code-block">
-                     @PrettyPrintJson(_job.Payload)
-                 </div>
-             </div>
+            <div class="inspector__section">
+                <h3 class="inspector__section-title">Payload</h3>
+                <div class="deck-code-block">
+                    @PrettyPrintJson(_job.Payload)
+                </div>
+            </div>
         </div>
 
-        <!-- Footer Actions -->
         <footer class="inspector__footer">
-            @if (CanRequeue)
+            @if (CanResurrect)
             {
-                <button class="deck-btn deck-btn-primary" @onclick="HandleRequeue">Requeue Job</button>
+                <button class="deck-btn deck-btn-primary" @onclick="HandleRequeue">Retry</button>
             }
-            <button class="deck-btn deck-btn-danger" @onclick="HandleDelete">Delete</button>
+
+            @if (CanDelete)
+            {
+                <button class="deck-btn deck-btn-danger" @onclick="HandleDelete">@DeleteButtonLabel</button>
+            }
         </footer>
     }
 </section>

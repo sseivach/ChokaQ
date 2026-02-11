@@ -63,7 +63,7 @@
         {
              <button class="deck-btn deck-btn-danger job-row__action-btn" @onclick="CancelJob" @onclick:stopPropagation="true">Stop</button>
         }
-        @if (new[] { JobStatus.Succeeded, JobStatus.Failed, JobStatus.Cancelled }.Contains(Job.Status))
+        @if (new[] { JobStatus.Failed, JobStatus.Cancelled }.Contains(Job.Status))
         {
              <button class="deck-btn deck-btn-primary job-row__action-btn" @onclick="RestartJob" @onclick:stopPropagation="true">Retry</button>
         }

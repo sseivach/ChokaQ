@@ -11,7 +11,8 @@ using Microsoft.AspNetCore.SignalR.Client;
 namespace ChokaQ.TheDeck.UI.Pages;
 
 /// <summary>
-/// Main orchestration page. Manages state between Live Mode (Real-time) and History Mode (Paged).
+/// Main orchestration page. Manages state between Live Mode (Hot) and History Modes (Archive/DLQ).
+/// Acts as the single source of truth for the job list and global counters.
 /// </summary>
 public partial class TheDeck : IAsyncDisposable
 {
@@ -31,9 +32,15 @@ public partial class TheDeck : IAsyncDisposable
     private System.Timers.Timer? _uiRefreshTimer;
 
     // --- Mode & Context ---
-    private bool _isHistoryMode;
-    private JobSource _currentContext = JobSource.Hot; // Active context (Hot, Archive, or DLQ)
-    private JobStatus? _activeStatusFilter; // For filtering Live Hot jobs (e.g. only Pending)
+
+    // The current source of truth for the table (Hot, Archive, or DLQ)
+    private JobSource _currentContext = JobSource.Hot;
+
+    // Computed property to determine if we are in a historical (static) view
+    private bool IsHistoryMode => _currentContext != JobSource.Hot;
+
+    // Filter for Live Hot jobs (e.g., only show "Processing"). Null means show all active.
+    private JobStatus? _activeStatusFilter;
 
     // --- History State (Data binding for OpsPanel) ---
     private int _historyTotalItems;
@@ -48,6 +55,7 @@ public partial class TheDeck : IAsyncDisposable
     private static readonly TimeSpan StatsUpdateThrottle = TimeSpan.FromMilliseconds(1000);
     private bool _renderPending = false;
 
+    // Cache the last filter to support refresh actions (like Retry/Delete)
     private HistoryFilterDto? _lastHistoryFilter;
 
     protected override async Task OnInitializedAsync()
@@ -55,7 +63,7 @@ public partial class TheDeck : IAsyncDisposable
         await LoadDataAsync();
 
         // Start background timer for counters and live table updates
-        // It runs every 2 seconds but respects the IsHistoryMode flag
+        // It runs every 2 seconds but respects the IsHistoryMode flag logic inside LoadDataAsync
         _uiRefreshTimer = new System.Timers.Timer(2000);
         _uiRefreshTimer.AutoReset = true;
         _uiRefreshTimer.Elapsed += async (sender, e) => await LoadDataAsync();
@@ -78,7 +86,8 @@ public partial class TheDeck : IAsyncDisposable
 
     /// <summary>
     /// The "Smart Timer" Loop.
-    /// Updates counters globally, but only updates the Job Table if in Live Mode.
+    /// Updates global counters regardless of mode.
+    /// Updates the Job Table ONLY if in Active (Hot) Mode.
     /// </summary>
     private async Task LoadDataAsync()
     {
@@ -88,9 +97,9 @@ public partial class TheDeck : IAsyncDisposable
             _counts = await JobStorage.GetSummaryStatsAsync();
             _circuits = CircuitBreaker.GetCircuitStats().ToList();
 
-            // 2. STOP: If in History Mode, DO NOT touch the job table.
-            // In History Mode, the table is controlled manually by the OpsPanel filters.
-            if (_isHistoryMode)
+            // 2. STOP: If not in Hot (Live) mode, do not touch the table.
+            // In Archive/DLQ modes, the table is static and controlled by the OpsPanel filters.
+            if (_currentContext != JobSource.Hot)
             {
                 await InvokeAsync(StateHasChanged);
                 return;
@@ -107,6 +116,65 @@ public partial class TheDeck : IAsyncDisposable
             });
         }
         catch { }
+    }
+
+    /// <summary>
+    /// Handles the explicit Source switch (Active / Archive / DLQ) from the toolbar.
+    /// </summary>
+    /// <summary>
+    /// Handles the explicit Source switch (Active / Archive / DLQ) from the toolbar.
+    /// </summary>
+    private async Task HandleSourceChanged(JobSource source)
+    {
+        // Avoid reloading if clicking the same tab
+        if (_currentContext == source) return;
+
+        _currentContext = source;
+        _jobs.Clear(); // Clear table to indicate context switch
+        _activeStatusFilter = null; // Reset status filters
+
+        // This closes any open Inspector or Editor and clears selected Job ID.
+        // Doing this BEFORE loading new data ensures no "ghost" jobs remain in the UI.
+        _opsPanel.ClearPanel();
+
+        if (source == JobSource.Hot)
+        {
+            // SWITCH TO ACTIVE
+            // ClearPanel already closed everything, so just load data.
+            await LoadDataAsync();
+        }
+        else
+        {
+            // SWITCH TO ARCHIVE OR DLQ
+            // We want the panel to show Filters, not be empty.
+            _opsPanel.ShowHistoryFilter();
+
+            // "Show me something, bro" - Load last 10 records immediately
+            await LoadInitialHistory(source);
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Loads a small batch of recent records so the table isn't empty on context switch.
+    /// </summary>
+    private async Task LoadInitialHistory(JobSource source)
+    {
+        var filter = new HistoryFilterDto(
+            FromUtc: null, // Null means "all time" (or last N records)
+            ToUtc: null,
+            SearchTerm: null,
+            Queue: null,
+            Status: null,
+            PageNumber: 1,
+            PageSize: 10, // Just 10 items for a quick preview
+            SortBy: "Date",
+            SortDescending: true
+        );
+
+        // Reuse the existing load mechanism
+        await HandleHistoryLoadRequest(filter);
     }
 
     /// <summary>
@@ -159,13 +227,13 @@ public partial class TheDeck : IAsyncDisposable
     /// </summary>
     private async Task HandleDataRefreshRequest()
     {
-        if (_isHistoryMode && _lastHistoryFilter != null)
+        if (IsHistoryMode && _lastHistoryFilter != null)
         {
             // Small delay to allow SQL Transaction (Resurrect) to commit
             await Task.Delay(100);
             await HandleHistoryLoadRequest(_lastHistoryFilter);
         }
-        else if (!_isHistoryMode)
+        else if (!IsHistoryMode)
         {
             // In Live mode, just force an immediate timer tick
             await LoadDataAsync();
@@ -173,69 +241,17 @@ public partial class TheDeck : IAsyncDisposable
     }
 
     /// <summary>
-    /// Handles user clicking on top Stats Cards (Pending, Failed, etc.)
-    /// Automatically switches context based on the card type.
+    /// Handles user clicking on top Stats Cards (Pending, Fetched, etc.).
+    /// Only interactive when in Active (Hot) mode.
     /// </summary>
     private async Task HandleStatusSelected(JobStatus? status)
     {
-        // 1. Case: Failed / Succeeded -> Switch to History Mode automatically
-        if (status == JobStatus.Failed || status == JobStatus.Cancelled)
+        // Stats clicking is disabled in Archive/DLQ to prevent "Magic Context Switching"
+        if (_currentContext == JobSource.Hot)
         {
             _activeStatusFilter = status;
-            await SwitchMode(true, JobSource.DLQ);
-
-            // Auto-open filter panel so user sees where they are
-            _opsPanel.ShowHistoryFilter();
-        }
-        else if (status == JobStatus.Succeeded)
-        {
-            _activeStatusFilter = status;
-            await SwitchMode(true, JobSource.Archive);
-            _opsPanel.ShowHistoryFilter();
-        }
-        else
-        {
-            // 2. Case: Pending / Processing / Total -> Switch to Live Mode
-            _activeStatusFilter = status;
-            await SwitchMode(false, JobSource.Hot);
-        }
-    }
-
-    /// <summary>
-    /// Handles the manual toggle switch [LIVE | HISTORY] in the toolbar.
-    /// </summary>
-    private async Task HandleModeToggle(bool isHistory)
-    {
-        // If switching to History manually, default to Archive unless we were already in DLQ.
-        // If switching to Live, force Hot context.
-        var targetContext = isHistory
-            ? (_currentContext == JobSource.Hot ? JobSource.Archive : _currentContext)
-            : JobSource.Hot;
-
-        await SwitchMode(isHistory, targetContext);
-    }
-
-    private async Task SwitchMode(bool historyMode, JobSource context)
-    {
-        _isHistoryMode = historyMode;
-        _currentContext = context;
-
-        // Clear the table to indicate context switch
-        _jobs.Clear();
-
-        if (_isHistoryMode)
-        {
-            // Stop live updates, open filter panel
-            _opsPanel.ShowHistoryFilter();
-        }
-        else
-        {
-            // Resume live updates, close history panel, trigger immediate refresh
-            _opsPanel.ClearPanel();
             await LoadDataAsync();
         }
-
-        StateHasChanged();
     }
 
     // --- Interaction Handlers (Actions) ---
@@ -245,11 +261,31 @@ public partial class TheDeck : IAsyncDisposable
         _opsPanel.ShowJobInspector(jobId);
     }
 
+    /// <summary>
+    /// Handles the "Resurrect" action from the Inspector.
+    /// Moves a job from DLQ back to Hot (Active).
+    /// </summary>
     private async Task HandleRequeueRequested(string jobId)
     {
+        // 1. Send the command to the backend via SignalR hub
         if (_hubConnection != null) await _hubConnection.InvokeAsync("ResurrectJob", jobId, null, null);
         AddLog($"Resurrect request sent for {jobId}", "Info");
 
+        // 2. OPTIMISTIC UI: Manual counter manipulation ("Twitching the counter")
+        // We know for sure that one job leaves the DLQ (Failed state).
+        // Let's decrease it immediately so the user sees instant feedback.
+        if (_counts != null && _counts.FailedTotal > 0)
+        {
+            // StatsSummaryEntity is a record, so we use 'with' to update the value
+            _counts = _counts with { FailedTotal = _counts.FailedTotal - 1 };
+        }
+
+        // 3. Close the Inspector
+        // The job is gone from the morgue, nothing to look at here.
+        _opsPanel.ClearPanel();
+
+        // 4. Refresh the table data
+        // This will remove the row from the grid.
         await HandleDataRefreshRequest();
     }
 
@@ -329,7 +365,7 @@ public partial class TheDeck : IAsyncDisposable
         _hubConnection.On<JobUpdateDto>("JobUpdated", (dto) =>
         {
             // Only update UI if we are in Live Mode
-            if (_isHistoryMode) return;
+            if (IsHistoryMode) return;
 
             InvokeAsync(() =>
             {
