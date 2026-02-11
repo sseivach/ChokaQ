@@ -1966,6 +1966,12 @@ input[type="checkbox"]:checked::after {
     vertical-align: middle;
 }
 
+.deck-switch input:disabled + .deck-switch__slider {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background-color: var(--sector-border-color);
+}
+
 .deck-switch input {
     opacity: 0;
     width: 0;

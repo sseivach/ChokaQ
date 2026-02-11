@@ -114,9 +114,10 @@
                         </td>
 
                         <td class="queues__toggle-cell">
-                            <label class="deck-switch">
+                            <label class="deck-switch" title="@(!q.IsActive ? "Restore queue to resume processing" : "")">
                                 <input type="checkbox"
                                        checked="@(!q.IsPaused)"
+                                       disabled="@(!q.IsActive)"
                                        @onchange="@(e => ToggleQueue(q.Name, (bool)e.Value!))" />
                                 <span class="deck-switch__slider"></span>
                             </label>

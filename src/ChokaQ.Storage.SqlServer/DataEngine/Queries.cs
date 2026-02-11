@@ -107,6 +107,7 @@ internal sealed class Queries
                 WHERE h.[Status] = 0
                   AND (h.[ScheduledAtUtc] IS NULL OR h.[ScheduledAtUtc] <= SYSUTCDATETIME())
                   AND (q.[IsPaused] = 0 OR q.[IsPaused] IS NULL)
+                  AND (q.[IsActive] = 1 OR q.[IsActive] IS NULL)
                   {{QUEUE_FILTER}}
                 ORDER BY h.[Priority] DESC, ISNULL(h.[ScheduledAtUtc], h.[CreatedAtUtc]) ASC
             )
@@ -399,6 +400,7 @@ internal sealed class Queries
         SetQueueActive = $@"
             UPDATE [{schema}].[Queues]
             SET [IsActive] = @IsActive, 
+                [IsPaused] = 1,
                 [LastUpdatedUtc] = SYSUTCDATETIME()
             WHERE [Name] = @Name";
 
