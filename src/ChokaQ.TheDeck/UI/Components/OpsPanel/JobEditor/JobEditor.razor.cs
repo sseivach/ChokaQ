@@ -87,7 +87,6 @@ public partial class JobEditor
 
     private async Task CancelAsync() => await OnClose.InvokeAsync();
 
-    // Simple JSON validation (System.Text.Json)
     private bool TryValidateJson(string json, out string? error)
     {
         error = null;
