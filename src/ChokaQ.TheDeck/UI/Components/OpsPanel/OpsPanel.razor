@@ -66,6 +66,7 @@
                 @if (_editorModel != null)
                 {
                     <JobEditor Job="@_editorModel"
+                               HubConnection="@HubConnection"
                                OnClose="HandleEditorCancel"
                                OnSaved="HandleJobSaved" />
                 }

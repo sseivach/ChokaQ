@@ -72,8 +72,26 @@ public class ChokaQHub : Hub
     public async Task<bool> EditJob(string jobId, string? newPayload, string? newTags, int? newPriority)
     {
         _logger.LogInformation("TheDeck: EditJob requested for {JobId}", jobId);
+
+        // Create DTO with changes
         var updates = new JobDataUpdateDto(newPayload, newTags, newPriority);
-        return await _storage.UpdateJobDataAsync(jobId, updates, "TheDeck Admin");
+
+        // 1. Try to update in Active (Hot) Storage first
+        bool updated = await _storage.UpdateJobDataAsync(jobId, updates, "TheDeck Admin");
+
+        // 2. If not found in Active, try to find and update in DLQ (Morgue)
+        if (!updated)
+        {
+            // Ensure your IJobStorage interface has UpdateDLQJobDataAsync or similar
+            updated = await _storage.UpdateDLQJobDataAsync(jobId, updates, "TheDeck Admin");
+        }
+
+        if (!updated)
+        {
+            _logger.LogWarning("TheDeck: EditJob failed. Job {JobId} not found in Hot or DLQ.", jobId);
+        }
+
+        return updated;
     }
 
     public async Task SetQueueActive(string queueName, bool isActive)

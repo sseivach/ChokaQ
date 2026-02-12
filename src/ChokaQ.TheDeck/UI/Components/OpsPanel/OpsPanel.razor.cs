@@ -2,6 +2,7 @@ using ChokaQ.Abstractions.DTOs;
 using ChokaQ.TheDeck.Enums;
 using ChokaQ.TheDeck.Models;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.SignalR.Client;
 
 namespace ChokaQ.TheDeck.UI.Components.OpsPanel;
 
@@ -25,6 +26,7 @@ public partial class OpsPanel
     [Parameter] public int TotalItems { get; set; }
     [Parameter] public int CurrentPage { get; set; } = 1;
     [Parameter] public int PageSize { get; set; } = 100;
+    [Parameter] public HubConnection? HubConnection { get; set; }
 
     // --- Events ---
 

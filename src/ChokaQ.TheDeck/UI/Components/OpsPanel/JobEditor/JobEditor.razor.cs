@@ -1,4 +1,3 @@
-using ChokaQ.TheDeck.Enums;
 using ChokaQ.TheDeck.Models;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -7,8 +6,7 @@ using System.Text.Json;
 namespace ChokaQ.TheDeck.UI.Components.OpsPanel.JobEditor;
 
 /// <summary>
-/// Component for editing job payloads and priority.
-/// Supports both Active (Hot) and Dead (DLQ) jobs.
+/// Editor component. Works for both Active and DLQ jobs via a universal Hub method.
 /// </summary>
 public partial class JobEditor
 {
@@ -16,9 +14,7 @@ public partial class JobEditor
     [Parameter] public EventCallback OnClose { get; set; }
     [Parameter] public EventCallback<string> OnSaved { get; set; }
 
-    /// <summary>
-    /// Hub connection passed from the main page to perform SignalR commands.
-    /// </summary>
+    // Receive connection from parent (TheDeck.razor)
     [Parameter] public HubConnection? HubConnection { get; set; }
 
     private string _editPayload = string.Empty;
@@ -30,21 +26,23 @@ public partial class JobEditor
     {
         if (Job != null)
         {
+            // Initialize editor fields with current values
             _editPayload = Job.Payload ?? "{}";
             _editPriority = Job.Priority;
             _errorMessage = null;
         }
     }
 
-    /// <summary>
-    /// Persists changes to the storage via SignalR Hub.
-    /// Logic differs depending on whether the job is Active or in DLQ.
-    /// </summary>
     private async Task SaveChangesAsync()
     {
-        if (Job == null || HubConnection == null) return;
+        // Basic checks
+        if (Job == null || HubConnection == null)
+        {
+            _errorMessage = "Connection lost or Job is null.";
+            return;
+        }
 
-        // 1. Basic JSON validation to prevent saving garbage
+        // Client-side JSON validation to avoid sending garbage
         if (!TryValidateJson(_editPayload, out var validationError))
         {
             _errorMessage = validationError;
@@ -56,50 +54,30 @@ public partial class JobEditor
             _isSaving = true;
             _errorMessage = null;
 
-            bool success = false;
-
-            if (Job.Source == JobSource.Hot)
-            {
-                // CASE 1: Updating an ACTIVE job (Pending state).
-                // Uses the standard EditJob hub method.
-                success = await HubConnection.InvokeAsync<bool>(
-                    "EditJob",
-                    Job.Id,
-                    _editPayload,
-                    null, // Tags (reserved for future)
-                    _editPriority
-                );
-            }
-            else if (Job.Source == JobSource.DLQ)
-            {
-                // CASE 2: Updating a job in the Morgue (DLQ).
-                // Note: We only update the data in the DLQ table. 
-                // The job remains dead until the user explicitly hits "Resurrect" in the Inspector.
-                // We'll use a specific Hub method for this to keep it clean.
-
-                // Assuming we added 'EditDLQJob' to ChokaQHub.cs (if not, we'll use InvokeAsync below)
-                success = await HubConnection.InvokeAsync<bool>(
-                    "EditJob", // Using same method, the Hub will handle context or we can add a flag
-                    Job.Id,
-                    _editPayload,
-                    null,
-                    _editPriority
-                );
-            }
+            // Call the universal EditJob method. 
+            // The Hub will check Hot storage first, then DLQ.
+            bool success = await HubConnection.InvokeAsync<bool>(
+                "EditJob",
+                Job.Id,
+                _editPayload,
+                null, // Tags (reserved for future use)
+                _editPriority
+            );
 
             if (success)
             {
-                // Notify parent that save was successful to return to Inspector view
+                // Success! Notify parent to close editor and refresh UI
                 await OnSaved.InvokeAsync(Job.Id);
             }
             else
             {
-                _errorMessage = "Save failed. The job might have been processed, deleted, or moved by another worker.";
+                // If false returned - job exists in neither table (processed or deleted)
+                _errorMessage = "Save failed. Job might have been processed or deleted externally.";
             }
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Communication error: {ex.Message}";
+            _errorMessage = $"SignalR Error: {ex.Message}";
         }
         finally
         {
@@ -109,15 +87,13 @@ public partial class JobEditor
 
     private async Task CancelAsync() => await OnClose.InvokeAsync();
 
-    /// <summary>
-    /// Validates that the string is a well-formed JSON object.
-    /// </summary>
+    // Simple JSON validation (System.Text.Json)
     private bool TryValidateJson(string json, out string? error)
     {
         error = null;
         if (string.IsNullOrWhiteSpace(json))
         {
-            error = "Payload cannot be empty.";
+            error = "Payload is empty";
             return false;
         }
 
@@ -128,7 +104,7 @@ public partial class JobEditor
         }
         catch (JsonException ex)
         {
-            error = $"Invalid JSON format: {ex.Message}";
+            error = $"Invalid JSON: {ex.Message}";
             return false;
         }
     }
