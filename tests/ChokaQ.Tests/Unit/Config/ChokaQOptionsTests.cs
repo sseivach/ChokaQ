@@ -1,7 +1,5 @@
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Core;
-using FluentAssertions;
-using Xunit;
 
 namespace ChokaQ.Tests.Unit.Config;
 

@@ -3,9 +3,7 @@ using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.State;
-using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
 namespace ChokaQ.Tests.Unit.State;

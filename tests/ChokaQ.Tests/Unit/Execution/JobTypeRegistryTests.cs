@@ -1,5 +1,4 @@
 using ChokaQ.Core.Execution;
-using FluentAssertions;
 
 namespace ChokaQ.Tests.Unit.Execution;
 

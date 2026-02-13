@@ -2,10 +2,7 @@ using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Abstractions.Workers;
 using ChokaQ.TheDeck.Hubs;
-using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using NSubstitute;
-using Xunit;
 
 namespace ChokaQ.Tests.Hub;
 
@@ -51,8 +48,8 @@ public class ChokaQHubTests
 
         // Assert
         await _storage.Received(1).ResurrectAsync(
-            "job1", 
-            Arg.Is<JobDataUpdateDto>(d => d.Payload == "new_payload" && d.Priority == 99), 
+            "job1",
+            Arg.Is<JobDataUpdateDto>(d => d.Payload == "new_payload" && d.Priority == 99),
             Arg.Any<string>());
     }
 

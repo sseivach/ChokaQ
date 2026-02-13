@@ -5,9 +5,7 @@ using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
-using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using NSubstitute;
 
 namespace ChokaQ.Tests.Unit.Defaults;
 
@@ -141,7 +139,7 @@ public class InMemoryQueueTests
         // Assert
         var item = await _queue.Reader.ReadAsync();
         item.Should().Be(job);
-        
+
         // No storage calls
         await _storage.DidNotReceiveWithAnyArgs().EnqueueAsync(default!, default!, default!, default!, default, default, default, default);
     }

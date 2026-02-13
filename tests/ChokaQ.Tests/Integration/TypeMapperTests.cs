@@ -1,7 +1,5 @@
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Storage.SqlServer.DataEngine;
-using FluentAssertions;
-using NSubstitute;
 using System.Data;
 
 namespace ChokaQ.Tests.Integration;
@@ -108,7 +106,7 @@ public class TypeMapperTests
     private void SetupReader(Dictionary<string, object> data)
     {
         _reader.FieldCount.Returns(data.Count);
-        
+
         // Mock GetName(i)
         for (int i = 0; i < data.Count; i++)
         {

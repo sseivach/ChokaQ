@@ -1,6 +1,5 @@
-using ChokaQ.Abstractions.Entities;
-using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.DTOs;
+using ChokaQ.Abstractions.Enums;
 using ChokaQ.Core.Defaults;
 
 namespace ChokaQ.Tests.Unit.Storage;
@@ -305,7 +304,7 @@ public class InMemoryJobStorageTests
         // Assert
         var job = await storage.GetJobAsync(id);
         job.Should().BeNull(); // No longer in Hot table
-        
+
         var archived = (await storage.GetArchiveJobsAsync()).ToList();
         archived.Should().HaveCount(1);
         archived[0].Id.Should().Be(id);
@@ -360,7 +359,7 @@ public class InMemoryJobStorageTests
         // Assert
         var job = await storage.GetJobAsync(id);
         job.Should().BeNull(); // No longer in Hot table
-        
+
         var dlq = (await storage.GetDLQJobsAsync()).ToList();
         dlq.Should().HaveCount(1);
         dlq[0].ErrorDetails.Should().Contain("Too many retries");
@@ -931,7 +930,7 @@ public class InMemoryJobStorageTests
         await storage.EnqueueAsync(id, "default", "TestJob", "{}");
         await storage.FetchNextBatchAsync("worker1", 10);
         await storage.MarkAsProcessingAsync(id);
-        
+
         // Simulate stale heartbeat by waiting
         await Task.Delay(200);
 
@@ -954,7 +953,7 @@ public class InMemoryJobStorageTests
         await storage.FetchNextBatchAsync("worker1", 10);
         await storage.MarkAsProcessingAsync(id);
         await storage.SetQueueZombieTimeoutAsync("default", 1); // 1 second timeout
-        
+
         await Task.Delay(1200);
 
         // Act
@@ -990,7 +989,7 @@ public class InMemoryJobStorageTests
     {
         // Arrange
         var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 10 });
-        
+
         // Fill up with archived jobs
         for (int i = 0; i < 5; i++)
         {
@@ -1017,7 +1016,7 @@ public class InMemoryJobStorageTests
     {
         // Arrange
         var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 10 });
-        
+
         // Fill with DLQ and Archive
         for (int i = 0; i < 3; i++)
         {

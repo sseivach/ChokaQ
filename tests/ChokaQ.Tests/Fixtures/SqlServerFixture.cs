@@ -15,7 +15,7 @@ public class SqlServerFixture : IAsyncLifetime
 {
     private readonly MsSqlContainer _container;
     public string Schema => "chokaq_test";
-    
+
     public SqlServerFixture()
     {
         _container = new MsSqlBuilder()

@@ -620,7 +620,7 @@ public class SqlJobStorageIntegrationTests
         await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
         await _storage.FetchNextBatchAsync("worker1", 10);
         await _storage.MarkAsProcessingAsync(id);
-        
+
         // Wait longer for heartbeat to become stale (SQL Server has second precision)
         await Task.Delay(2000);
 

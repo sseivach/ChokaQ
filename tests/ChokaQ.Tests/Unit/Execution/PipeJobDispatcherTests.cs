@@ -1,11 +1,7 @@
 using ChokaQ.Abstractions.Jobs;
-using ChokaQ.Abstractions.Contexts;
 using ChokaQ.Core.Execution;
-using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using NSubstitute;
-using System.Reflection;
 
 namespace ChokaQ.Tests.Unit.Execution;
 
@@ -34,7 +30,7 @@ public class PipeJobDispatcherTests
         var notifier = Substitute.For<ChokaQ.Abstractions.Notifications.IChokaQNotifier>();
         var jobContextType = typeof(PipeJobDispatcher).Assembly.GetType("ChokaQ.Core.Contexts.JobContext")!;
         var jobContext = Activator.CreateInstance(jobContextType, notifier)!;
-        
+
         // Mock GetRequiredService for JobContext (concrete type)
         // Since GetRequiredService is an extension, we mock GetService
         _serviceProvider.GetService(jobContextType).Returns(jobContext);

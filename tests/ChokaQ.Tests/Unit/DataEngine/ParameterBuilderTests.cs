@@ -1,7 +1,4 @@
 using ChokaQ.Storage.SqlServer.DataEngine;
-using FluentAssertions;
-using Microsoft.Data.SqlClient;
-using Xunit;
 
 namespace ChokaQ.Tests.Unit.DataEngine;
 
@@ -19,7 +16,7 @@ public class ParameterBuilderTests
     public void BuildParameters_AnonymousObject_ShouldBuildParams()
     {
         var (p, s) = ParameterBuilder.BuildParameters(new { Id = 1, Name = "Test" }, "SELECT *");
-        
+
         p.Should().HaveCount(2);
         p.Should().Contain(x => x.ParameterName == "@Id" && (int)x.Value == 1);
         p.Should().Contain(x => x.ParameterName == "@Name" && (string)x.Value == "Test");

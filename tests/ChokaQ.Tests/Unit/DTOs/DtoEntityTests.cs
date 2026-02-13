@@ -1,6 +1,4 @@
 using ChokaQ.Abstractions.DTOs;
-using FluentAssertions;
-using Xunit;
 
 namespace ChokaQ.Tests.Unit.DTOs;
 

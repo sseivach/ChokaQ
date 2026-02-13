@@ -1,15 +1,11 @@
-using ChokaQ.Abstractions.DTOs;
-using ChokaQ.Abstractions.Enums;
-using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Resilience;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Execution;
 using ChokaQ.Core.Processing;
 using ChokaQ.Core.State;
-using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using NSubstitute;
 using NSubstitute.ExceptionExtensions;
+using System.Reflection;
 
 namespace ChokaQ.Tests.Unit.Processing;
 
@@ -159,7 +155,7 @@ public class JobProcessorTests
             "job1", "TestJob", "default", 10,
             Arg.Is<DateTime>(dt => dt > DateTime.UtcNow.AddSeconds(4)),
             1, "Circuit Breaker Open", Arg.Any<CancellationToken>());
-        
+
         // Should NOT execute the job
         await _dispatcher.DidNotReceive().DispatchAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -171,7 +167,7 @@ public class JobProcessorTests
         // Arrange
         _breaker.IsExecutionPermitted("TestJob").Returns(true);
         _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
-        
+
         var executionStarted = false;
         _dispatcher.DispatchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(async _ =>
@@ -190,28 +186,36 @@ public class JobProcessorTests
     }
 
     [Fact]
-    public void CancelJob_ShouldTriggerCancellationToken()
+    public async Task CancelJob_ShouldTriggerCancellationToken()
     {
         // Arrange
         _breaker.IsExecutionPermitted("TestJob").Returns(true);
         _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
-        
+
         var cancellationDetected = false;
         _dispatcher.DispatchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(async callInfo =>
             {
                 var ct = callInfo.Arg<CancellationToken>();
-                await Task.Delay(100, ct); // Will throw if cancelled
+                try
+                {
+                    await Task.Delay(2000, ct); // Will throw if cancelled
+                }
+                catch (OperationCanceledException)
+                {
+                    cancellationDetected = true;
+                    throw;
+                }
             });
 
         // Act
         var processTask = _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, CancellationToken.None);
-        Task.Delay(10).Wait(); // Give it time to start
+        await Task.Delay(50); // Give it time to start
         _processor.CancelJob("job1");
 
         // Assert - Should complete without hanging
-        var completed = processTask.Wait(TimeSpan.FromSeconds(2));
-        completed.Should().BeTrue("Job should be cancelled quickly");
+        await processTask;
+        cancellationDetected.Should().BeTrue();
     }
 
     [Fact]
@@ -221,9 +225,9 @@ public class JobProcessorTests
         _processor.RetryDelaySeconds = 3;
 
         // Act - Use reflection to call private method
-        var method = typeof(JobProcessor).GetMethod("CalculateBackoff", 
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        
+        var method = typeof(JobProcessor).GetMethod("CalculateBackoff",
+            BindingFlags.NonPublic | BindingFlags.Instance);
+
         var backoff1 = (int)method!.Invoke(_processor, new object[] { 1 })!;
         var backoff2 = (int)method!.Invoke(_processor, new object[] { 2 })!;
         var backoff3 = (int)method!.Invoke(_processor, new object[] { 3 })!;
@@ -244,9 +248,9 @@ public class JobProcessorTests
         _processor.RetryDelaySeconds = 3;
 
         // Act - Use reflection to call private method for a very high attempt
-        var method = typeof(JobProcessor).GetMethod("CalculateBackoff", 
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        
+        var method = typeof(JobProcessor).GetMethod("CalculateBackoff",
+            BindingFlags.NonPublic | BindingFlags.Instance);
+
         var backoff = (int)method!.Invoke(_processor, new object[] { 20 })!;
 
         // Assert - Should cap at 1 hour (3600 seconds = 3600000ms)

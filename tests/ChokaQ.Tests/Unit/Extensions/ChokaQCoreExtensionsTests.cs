@@ -3,10 +3,7 @@ using ChokaQ.Abstractions.Workers;
 using ChokaQ.Core.Execution;
 using ChokaQ.Core.Extensions;
 using ChokaQ.Core.Processing;
-using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Xunit;
 
 namespace ChokaQ.Tests.Unit.Extensions;
 

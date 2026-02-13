@@ -1,11 +1,8 @@
 using ChokaQ.Abstractions.Jobs;
-using ChokaQ.Abstractions.Contexts;
 using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Core.Execution;
-using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using NSubstitute;
 
 namespace ChokaQ.Tests.Unit.Execution;
 

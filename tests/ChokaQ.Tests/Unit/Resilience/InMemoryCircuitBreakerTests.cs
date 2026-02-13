@@ -114,13 +114,13 @@ public class InMemoryCircuitBreakerTests
     {
         // Arrange
         var breaker = new InMemoryCircuitBreaker(TimeProvider.System);
-        
+
         // Act
         for (int i = 0; i < 5; i++)
         {
             breaker.ReportFailure("JobA"); // JobA circuit opens
         }
-        
+
         // Assert
         breaker.GetStatus("JobA").Should().Be(ChokaQ.Abstractions.Enums.CircuitStatus.Open);
         breaker.GetStatus("JobB").Should().Be(ChokaQ.Abstractions.Enums.CircuitStatus.Closed); // JobB unaffected
@@ -131,14 +131,14 @@ public class InMemoryCircuitBreakerTests
     {
         // Arrange
         var breaker = new InMemoryCircuitBreaker(TimeProvider.System);
-        
+
         // Act
         breaker.ReportFailure("JobA");
         for (int i = 0; i < 5; i++)
         {
             breaker.ReportFailure("JobB"); // JobB opens
         }
-        
+
         var stats = breaker.GetCircuitStats();
 
         // Assert
@@ -152,12 +152,12 @@ public class InMemoryCircuitBreakerTests
     {
         // Arrange
         var breaker = new InMemoryCircuitBreaker(TimeProvider.System);
-        
+
         // Act
         breaker.ReportFailure("TestJob");
         breaker.ReportFailure("TestJob"); // 2 failures
         breaker.ReportSuccess("TestJob"); // Does NOT reset when Closed
-        
+
         var stats = breaker.GetCircuitStats();
 
         // Assert

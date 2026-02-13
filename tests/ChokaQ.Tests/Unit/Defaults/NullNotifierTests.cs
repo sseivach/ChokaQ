@@ -1,7 +1,5 @@
 using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Core.Defaults;
-using FluentAssertions;
-using Xunit;
 
 namespace ChokaQ.Tests.Unit.Defaults;
 

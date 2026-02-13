@@ -2,8 +2,6 @@ using ChokaQ.Abstractions.DTOs;
 using ChokaQ.TheDeck.Hubs;
 using ChokaQ.TheDeck.Services;
 using Microsoft.AspNetCore.SignalR;
-using NSubstitute;
-using Xunit;
 
 namespace ChokaQ.Tests.Unit.Notifications;
 

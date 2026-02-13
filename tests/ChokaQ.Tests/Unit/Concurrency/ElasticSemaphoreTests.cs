@@ -30,7 +30,7 @@ public class ElasticSemaphoreTests
         // Assert
         await Task.Delay(100); // Give it time to block
         waitTask.IsCompleted.Should().BeFalse();
-        
+
         // Cleanup
         semaphore.Release();
         await waitTask; // Should complete now
@@ -84,15 +84,15 @@ public class ElasticSemaphoreTests
 
         // Assert
         semaphore.Capacity.Should().Be(2);
-        
+
         // Should only be able to acquire 2 permits
         await semaphore.WaitAsync();
         await semaphore.WaitAsync();
-        
+
         var waitTask = semaphore.WaitAsync();
         await Task.Delay(100);
         waitTask.IsCompleted.Should().BeFalse(); // Third acquire should block
-        
+
         // Cleanup
         semaphore.Release();
         await waitTask;
@@ -160,7 +160,7 @@ public class ElasticSemaphoreTests
         var tasks = Enumerable.Range(0, 20).Select(async _ =>
         {
             await semaphore.WaitAsync();
-            
+
             lock (lockObj)
             {
                 currentConcurrent++;
