@@ -39,9 +39,21 @@ public static class ChokaQTheDeckExtensions
         app.UseStaticFiles();
         app.UseAntiforgery();
 
-        app.MapHub<ChokaQHub>($"{path}/hub");
+        // 1. Map Hub
+        var hubEndpoint = app.MapHub<ChokaQHub>($"{path}/hub");
 
+        // 2. Create Dashboard Group
         var dashboardGroup = app.MapGroup(path);
+
+        // --- SECURITY LAYER ---
+        // If a policy is configured, enforce it on both the SignalR Hub and the UI Pages.
+        if (!string.IsNullOrEmpty(options.AuthorizationPolicy))
+        {
+            hubEndpoint.RequireAuthorization(options.AuthorizationPolicy);
+            dashboardGroup.RequireAuthorization(options.AuthorizationPolicy);
+        }
+        // ----------------------
+
         dashboardGroup.MapRazorComponents<TheDeckHost>()
                       .AddInteractiveServerRenderMode();
 

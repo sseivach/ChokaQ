@@ -78,6 +78,48 @@ A сontrol plane powered by **Blazor Server** and **SignalR**.
 
 ---
 
+## Security & Authorization
+
+ChokaQ follows a **"Secure by Design / Inversion of Control"** philosophy. Instead of implementing its own authentication system or enforcing specific providers (like Identity or Entra ID), it leverages the standard **ASP.NET Core Authorization Policy** infrastructure.
+
+You define *who* is an Admin in your host application, and ChokaQ respects it.
+
+### Prerequisites
+ChokaQ does **not** modify your middleware pipeline. You must ensure the standard ASP.NET Core middleware is registered in your `Program.cs` **before** calling `MapChokaQTheDeck()`:
+
+```csharp
+app.UseAuthentication(); // Required: populates HttpContext.User
+app.UseAuthorization();  // Required: enforces [Authorize] policies
+
+app.MapChokaQTheDeck();
+```
+
+### Enabling Security
+To secure "The Deck" (Dashboard and SignalR Hub), simply provide the name of your authorization policy in the options.
+
+```csharp
+// 1. Define a Policy in your host app (Program.cs)
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("ChokaQAdmin", policy => 
+        policy.RequireClaim("Role", "SystemAdministrator"));
+});
+
+// 2. Bind ChokaQ to this policy
+builder.Services.AddChokaQTheDeck(options =>
+{
+    options.RoutePrefix = "/chokaq";
+    
+    // If set, ChokaQ will apply [Authorize(Policy = "ChokaQAdmin")] 
+    // to all Dashboard and SignalR endpoints.
+    options.AuthorizationPolicy = "ChokaQAdmin"; 
+});
+```
+
+If `AuthorizationPolicy` is left `null` (default), no authorization is applied — the dashboard is publicly accessible.
+
+---
+
 ## Quick Start (Source Integration)
 
 Since ChokaQ is currently in development, integrate it by referencing the source projects directly.
