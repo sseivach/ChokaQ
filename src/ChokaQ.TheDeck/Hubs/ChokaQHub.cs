@@ -99,4 +99,26 @@ public class ChokaQHub : Hub
         _logger.LogInformation("TheDeck: SetQueueActive {Queue} -> {Active}", queueName, isActive);
         await _storage.SetQueueActiveAsync(queueName, isActive);
     }
+
+    // ========================================================================
+    // BULK OPERATIONS
+    // ========================================================================
+
+    public async Task CancelJobs(string[] jobIds)
+    {
+        _logger.LogInformation("TheDeck: Bulk CancelJobs requested for {Count} jobs", jobIds.Length);
+        await _workerManager.CancelJobsAsync(jobIds);
+    }
+
+    public async Task RestartJobs(string[] jobIds)
+    {
+        _logger.LogInformation("TheDeck: Bulk RestartJobs requested for {Count} jobs", jobIds.Length);
+        await _workerManager.RestartJobsAsync(jobIds);
+    }
+
+    public async Task<int> ResurrectJobs(string[] jobIds)
+    {
+        _logger.LogInformation("TheDeck: Bulk ResurrectJobs requested for {Count} jobs", jobIds.Length);
+        return await _storage.ResurrectBatchAsync(jobIds, "TheDeck Admin");
+    }
 }

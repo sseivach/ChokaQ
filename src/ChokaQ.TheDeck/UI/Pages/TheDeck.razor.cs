@@ -298,6 +298,64 @@ public partial class TheDeck : IAsyncDisposable
         await HandleDataRefreshRequest();
     }
 
+    // --- Centralized Action Handlers (from JobMatrix EventCallbacks) ---
+
+    private async Task HandleSingleCancel(string jobId)
+    {
+        if (_hubConnection is null) return;
+        await _hubConnection.InvokeAsync("CancelJob", jobId);
+        AddLog($"Cancel request sent for {jobId}", "Warning");
+        await HandleDataRefreshRequest();
+    }
+
+    private async Task HandleSingleRestart(string jobId)
+    {
+        if (_hubConnection is null) return;
+        await _hubConnection.InvokeAsync("RestartJob", jobId);
+        AddLog($"Restart request sent for {jobId}", "Info");
+        await HandleDataRefreshRequest();
+    }
+
+    private async Task HandleBulkCancel(HashSet<string> jobIds)
+    {
+        if (_hubConnection is null || jobIds.Count == 0) return;
+        await _hubConnection.InvokeAsync("CancelJobs", jobIds.ToArray());
+        AddLog($"Bulk cancel: {jobIds.Count} jobs", "Warning");
+        await HandleDataRefreshRequest();
+    }
+
+    private async Task HandleBulkRetry(HashSet<string> jobIds)
+    {
+        if (_hubConnection is null || jobIds.Count == 0) return;
+        await _hubConnection.InvokeAsync("RestartJobs", jobIds.ToArray());
+        AddLog($"Bulk retry: {jobIds.Count} jobs", "Info");
+
+        // Optimistic UI: decrease FailedTotal if in DLQ context
+        if (_currentContext == JobSource.DLQ && _counts.FailedTotal > 0)
+        {
+            var decrease = Math.Min(jobIds.Count, _counts.FailedTotal);
+            _counts = _counts with { FailedTotal = _counts.FailedTotal - decrease };
+        }
+
+        await HandleDataRefreshRequest();
+    }
+
+    private async Task HandleBulkPurge(HashSet<string> jobIds)
+    {
+        if (_hubConnection is null || jobIds.Count == 0) return;
+        await _hubConnection.InvokeAsync("PurgeDLQ", jobIds.ToArray());
+        AddLog($"Bulk purge: {jobIds.Count} jobs permanently deleted", "Warning");
+
+        // Optimistic UI: decrease FailedTotal
+        if (_counts.FailedTotal > 0)
+        {
+            var decrease = Math.Min(jobIds.Count, _counts.FailedTotal);
+            _counts = _counts with { FailedTotal = _counts.FailedTotal - decrease };
+        }
+
+        await HandleDataRefreshRequest();
+    }
+
     // --- Mappers (Entity -> ViewModel) ---
 
     private List<JobViewModel> MapHotJobs(IEnumerable<JobHotEntity> entities)

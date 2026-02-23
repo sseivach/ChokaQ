@@ -139,4 +139,50 @@ public class ChokaQHubTests
         // Assert
         result.Should().BeFalse();
     }
+
+    // ========================================================================
+    // BULK OPERATIONS
+    // ========================================================================
+
+    [Fact]
+    public async Task CancelJobs_ShouldDelegateBatchToWorkerManager()
+    {
+        // Arrange
+        var jobIds = new[] { "job1", "job2", "job3" };
+
+        // Act
+        await _hub.CancelJobs(jobIds);
+
+        // Assert
+        await _workerManager.Received(1).CancelJobsAsync(jobIds);
+    }
+
+    [Fact]
+    public async Task RestartJobs_ShouldDelegateBatchToWorkerManager()
+    {
+        // Arrange
+        var jobIds = new[] { "job1", "job2" };
+
+        // Act
+        await _hub.RestartJobs(jobIds);
+
+        // Assert
+        await _workerManager.Received(1).RestartJobsAsync(jobIds);
+    }
+
+    [Fact]
+    public async Task ResurrectJobs_ShouldCallStorageBatchResurrect()
+    {
+        // Arrange
+        var jobIds = new[] { "job1", "job2", "job3" };
+        _storage.ResurrectBatchAsync(jobIds, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(3);
+
+        // Act
+        var result = await _hub.ResurrectJobs(jobIds);
+
+        // Assert
+        result.Should().Be(3);
+        await _storage.Received(1).ResurrectBatchAsync(jobIds, "TheDeck Admin", Arg.Any<CancellationToken>());
+    }
 }

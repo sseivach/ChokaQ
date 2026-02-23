@@ -35,6 +35,10 @@
                     <span class="deck-badge matrix__selection-badge">@SelectedCount selected</span>
                     <button class="deck-btn deck-btn-primary" @onclick="RestartSelected">Retry</button>
                     <button class="deck-btn deck-btn-danger" @onclick="CancelSelected">Cancel</button>
+                    @if (CurrentSource == JobSource.DLQ)
+                    {
+                        <button class="deck-btn deck-btn-danger" @onclick="PurgeSelected">Purge</button>
+                    }
                 </div>
             }
         </div>

@@ -40,4 +40,14 @@ public interface IWorkerManager
 
     // Bulk Action support
     Task SetJobPriorityAsync(string jobId, int priority);
+
+    /// <summary>
+    /// Requests cancellation for a batch of jobs.
+    /// </summary>
+    Task CancelJobsAsync(IEnumerable<string> jobIds);
+
+    /// <summary>
+    /// Restarts (resurrects from DLQ) a batch of jobs.
+    /// </summary>
+    Task RestartJobsAsync(IEnumerable<string> jobIds);
 }
