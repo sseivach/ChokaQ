@@ -39,6 +39,12 @@ public class SqlJobStorage : IJobStorage
         return conn;
     }
 
+    private Task ExecuteWithRetryAsync(Func<Task> action, CancellationToken ct) =>
+        SqlRetryPolicy.ExecuteAsync(action, _options.MaxTransientRetries, _options.TransientRetryBaseDelayMs, ct);
+
+    private Task<T> ExecuteWithRetryAsync<T>(Func<Task<T>> action, CancellationToken ct) =>
+        SqlRetryPolicy.ExecuteAsync(action, _options.MaxTransientRetries, _options.TransientRetryBaseDelayMs, ct);
+
     // ========================================================================
     // CORE OPERATIONS (Hot Table)
     // ========================================================================
@@ -55,33 +61,36 @@ public class SqlJobStorage : IJobStorage
         string? idempotencyKey = null,
         CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-
-        // Idempotency check - return existing ID if key exists
-        if (!string.IsNullOrEmpty(idempotencyKey))
+        return await ExecuteWithRetryAsync(async () =>
         {
-            var existingId = await conn.QueryFirstOrDefaultAsync<string>(
-                _q.CheckIdempotency,
-                new { Key = idempotencyKey });
+            await using var conn = await OpenConnectionAsync(ct);
 
-            if (existingId != null)
-                return existingId;
-        }
+            // Idempotency check - return existing ID if key exists
+            if (!string.IsNullOrEmpty(idempotencyKey))
+            {
+                var existingId = await conn.QueryFirstOrDefaultAsync<string>(
+                    _q.CheckIdempotency,
+                    new { Key = idempotencyKey }, ct);
 
-        await conn.ExecuteAsync(_q.EnqueueJob, new
-        {
-            Id = id,
-            Queue = queue,
-            Type = jobType,
-            Payload = payload,
-            Tags = tags,
-            IdempotencyKey = idempotencyKey,
-            Priority = priority,
-            CreatedBy = createdBy,
-            ScheduledAt = delay.HasValue ? DateTime.UtcNow.Add(delay.Value) : (DateTime?)null
+                if (existingId != null)
+                    return existingId;
+            }
+
+            await conn.ExecuteAsync(_q.EnqueueJob, new
+            {
+                Id = id,
+                Queue = queue,
+                Type = jobType,
+                Payload = payload,
+                Tags = tags,
+                IdempotencyKey = idempotencyKey,
+                Priority = priority,
+                CreatedBy = createdBy,
+                ScheduledAt = delay.HasValue ? DateTime.UtcNow.Add(delay.Value) : (DateTime?)null
+            }, ct);
+
+            return id;
         }, ct);
-
-        return id;
     }
 
     public async ValueTask<IEnumerable<JobHotEntity>> FetchNextBatchAsync(
@@ -90,46 +99,62 @@ public class SqlJobStorage : IJobStorage
         string[]? allowedQueues = null,
         CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
 
-        // CTE + UPDLOCK + READPAST = atomic lock acquisition without race conditions
-        var queueFilter = allowedQueues?.Length > 0
-            ? "AND h.[Queue] IN @Queues"
-            : "";
+            // CTE + UPDLOCK + READPAST = atomic lock acquisition without race conditions
+            var queueFilter = allowedQueues?.Length > 0
+                ? "AND h.[Queue] IN @Queues"
+                : "";
 
-        var sql = _q.FetchNextBatch.Replace("{QUEUE_FILTER}", queueFilter);
+            var sql = _q.FetchNextBatch.Replace("{QUEUE_FILTER}", queueFilter);
 
-        return await conn.QueryAsync<JobHotEntity>(
-            sql,
-            new { Limit = batchSize, WorkerId = workerId, Queues = allowedQueues },
-            ct);
+            return await conn.QueryAsync<JobHotEntity>(
+                sql,
+                new { Limit = batchSize, WorkerId = workerId, Queues = allowedQueues },
+                ct);
+        }, ct);
     }
 
     public async ValueTask MarkAsProcessingAsync(string jobId, CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(_q.MarkAsProcessing, new { Id = jobId }, ct);
+        await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            await conn.ExecuteAsync(_q.MarkAsProcessing, new { Id = jobId }, ct);
+        }, ct);
     }
 
     public async ValueTask KeepAliveAsync(string jobId, CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(_q.KeepAlive, new { Id = jobId }, ct);
+        await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            await conn.ExecuteAsync(_q.KeepAlive, new { Id = jobId }, ct);
+        }, ct);
     }
 
     public async ValueTask<JobHotEntity?> GetJobAsync(string jobId, CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        return await conn.QueryFirstOrDefaultAsync<JobHotEntity>(_q.GetJob, new { Id = jobId }, ct);
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            return await conn.QueryFirstOrDefaultAsync<JobHotEntity>(_q.GetJob, new { Id = jobId }, ct);
+        }, ct);
     }
+
     // ========================================================================
     // ATOMIC TRANSITIONS (Three Pillars)
     // ========================================================================
 
     public async ValueTask ArchiveSucceededAsync(string jobId, double? durationMs = null, CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(_q.ArchiveSucceeded, new { Id = jobId, DurationMs = durationMs }, ct);
+        await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            await conn.ExecuteAsync(_q.ArchiveSucceeded, new { Id = jobId, DurationMs = durationMs }, ct);
+        }, ct);
     }
 
     public async ValueTask ArchiveFailedAsync(string jobId, string errorDetails, CancellationToken ct = default)
@@ -150,12 +175,15 @@ public class SqlJobStorage : IJobStorage
 
     private async ValueTask MoveToDLQAsync(string jobId, FailureReason reason, string errorDetails, CancellationToken ct)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(_q.MoveToDLQ, new
+        await ExecuteWithRetryAsync(async () =>
         {
-            Id = jobId,
-            Reason = (int)reason,
-            Error = errorDetails ?? "Unknown error (No details provided)"
+            await using var conn = await OpenConnectionAsync(ct);
+            await conn.ExecuteAsync(_q.MoveToDLQ, new
+            {
+                Id = jobId,
+                Reason = (int)reason,
+                Error = errorDetails ?? "Unknown error (No details provided)"
+            }, ct);
         }, ct);
     }
 
@@ -165,46 +193,58 @@ public class SqlJobStorage : IJobStorage
         string? resurrectedBy = null,
         CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(_q.Resurrect, new
+        await ExecuteWithRetryAsync(async () =>
         {
-            Id = jobId,
-            NewPayload = updates?.Payload,
-            NewTags = updates?.Tags,
-            NewPriority = updates?.Priority,
-            ResurrectedBy = resurrectedBy
+            await using var conn = await OpenConnectionAsync(ct);
+            await conn.ExecuteAsync(_q.Resurrect, new
+            {
+                Id = jobId,
+                NewPayload = updates?.Payload,
+                NewTags = updates?.Tags,
+                NewPriority = updates?.Priority,
+                ResurrectedBy = resurrectedBy
+            }, ct);
         }, ct);
     }
 
     public async ValueTask<int> ResurrectBatchAsync(string[] jobIds, string? resurrectedBy = null, CancellationToken ct = default)
     {
-        if (jobIds.Length == 0) return 0;
-        var jsonIds = JsonSerializer.Serialize(jobIds);
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            if (jobIds.Length == 0) return 0;
+            var jsonIds = JsonSerializer.Serialize(jobIds);
 
-        await using var conn = await OpenConnectionAsync(ct);
-        return await conn.ExecuteScalarAsync<int>(
-            _q.ResurrectBatch,
-            new { JsonIds = jsonIds, ResurrectedBy = resurrectedBy },
-            ct);
+            await using var conn = await OpenConnectionAsync(ct);
+            return await conn.ExecuteScalarAsync<int>(
+                _q.ResurrectBatch,
+                new { JsonIds = jsonIds, ResurrectedBy = resurrectedBy },
+                ct);
+        }, ct);
     }
 
     public async ValueTask ReleaseJobAsync(string jobId, CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(_q.ReleaseJob, new { Id = jobId }, ct);
+        await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            await conn.ExecuteAsync(_q.ReleaseJob, new { Id = jobId }, ct);
+        }, ct);
     }
 
     public async ValueTask<int> ArchiveCancelledBatchAsync(string[] jobIds, string? cancelledBy = null, CancellationToken ct = default)
     {
-        if (jobIds.Length == 0) return 0;
-        var jsonIds = JsonSerializer.Serialize(jobIds);
-        var error = cancelledBy != null ? $"Cancelled by admin: {cancelledBy}" : "Cancelled by admin (Batch)";
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            if (jobIds.Length == 0) return 0;
+            var jsonIds = JsonSerializer.Serialize(jobIds);
+            var error = cancelledBy != null ? $"Cancelled by admin: {cancelledBy}" : "Cancelled by admin (Batch)";
 
-        await using var conn = await OpenConnectionAsync(ct);
-        return await conn.ExecuteScalarAsync<int>(
-            _q.ArchiveCancelledBatch,
-            new { JsonIds = jsonIds, Error = error, CancelledBy = cancelledBy },
-            ct);
+            await using var conn = await OpenConnectionAsync(ct);
+            return await conn.ExecuteScalarAsync<int>(
+                _q.ArchiveCancelledBatch,
+                new { JsonIds = jsonIds, Error = error, CancelledBy = cancelledBy },
+                ct);
+        }, ct);
     }
 
     // ========================================================================
@@ -218,12 +258,15 @@ public class SqlJobStorage : IJobStorage
         string lastError,
         CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(_q.RescheduleForRetry, new
+        await ExecuteWithRetryAsync(async () =>
         {
-            Id = jobId,
-            Attempt = newAttemptCount,
-            ScheduledAt = scheduledAtUtc
+            await using var conn = await OpenConnectionAsync(ct);
+            await conn.ExecuteAsync(_q.RescheduleForRetry, new
+            {
+                Id = jobId,
+                Attempt = newAttemptCount,
+                ScheduledAt = scheduledAtUtc
+            }, ct);
         }, ct);
     }
 
@@ -237,33 +280,42 @@ public class SqlJobStorage : IJobStorage
         string? modifiedBy = null,
         CancellationToken ct = default)
     {
-        if (!updates.HasChanges) return false;
-
-        await using var conn = await OpenConnectionAsync(ct);
-        var affected = await conn.ExecuteAsync(_q.UpdateJobData, new
+        return await ExecuteWithRetryAsync(async () =>
         {
-            Id = jobId,
-            updates.Payload,
-            updates.Tags,
-            updates.Priority,
-            ModifiedBy = modifiedBy
-        }, ct);
+            if (!updates.HasChanges) return false;
 
-        return affected > 0;
+            await using var conn = await OpenConnectionAsync(ct);
+            var affected = await conn.ExecuteAsync(_q.UpdateJobData, new
+            {
+                Id = jobId,
+                updates.Payload,
+                updates.Tags,
+                updates.Priority,
+                ModifiedBy = modifiedBy
+            }, ct);
+
+            return affected > 0;
+        }, ct);
     }
 
     public async ValueTask PurgeDLQAsync(string[] jobIds, CancellationToken ct = default)
     {
-        if (jobIds.Length == 0) return;
-        var jsonIds = JsonSerializer.Serialize(jobIds);
-        await using var conn = await OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(_q.PurgeDLQ, new { JsonIds = jsonIds }, ct);
+        await ExecuteWithRetryAsync(async () =>
+        {
+            if (jobIds.Length == 0) return;
+            var jsonIds = JsonSerializer.Serialize(jobIds);
+            await using var conn = await OpenConnectionAsync(ct);
+            await conn.ExecuteAsync(_q.PurgeDLQ, new { JsonIds = jsonIds }, ct);
+        }, ct);
     }
 
     public async ValueTask<int> PurgeArchiveAsync(DateTime olderThan, CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(_q.PurgeArchive, new { CutOff = olderThan }, ct);
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            return await conn.ExecuteAsync(_q.PurgeArchive, new { CutOff = olderThan }, ct);
+        }, ct);
     }
 
     public async ValueTask<bool> UpdateDLQJobDataAsync(
@@ -272,18 +324,21 @@ public class SqlJobStorage : IJobStorage
         string? modifiedBy = null,
         CancellationToken ct = default)
     {
-        if (updates.Payload == null && updates.Tags == null) return false;
-
-        await using var conn = await OpenConnectionAsync(ct);
-        var affected = await conn.ExecuteAsync(_q.UpdateDLQData, new
+        return await ExecuteWithRetryAsync(async () =>
         {
-            Id = jobId,
-            updates.Payload,
-            updates.Tags,
-            ModifiedBy = modifiedBy
-        }, ct);
+            if (updates.Payload == null && updates.Tags == null) return false;
 
-        return affected > 0;
+            await using var conn = await OpenConnectionAsync(ct);
+            var affected = await conn.ExecuteAsync(_q.UpdateDLQData, new
+            {
+                Id = jobId,
+                updates.Payload,
+                updates.Tags,
+                ModifiedBy = modifiedBy
+            }, ct);
+
+            return affected > 0;
+        }, ct);
     }
 
     // ========================================================================
@@ -406,26 +461,38 @@ public class SqlJobStorage : IJobStorage
 
     public async ValueTask<IEnumerable<QueueEntity>> GetQueuesAsync(CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        return await conn.QueryAsync<QueueEntity>(_q.GetQueues, null, ct);
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            return await conn.QueryAsync<QueueEntity>(_q.GetQueues, null, ct);
+        }, ct);
     }
 
     public async ValueTask SetQueuePausedAsync(string queueName, bool isPaused, CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(_q.SetQueuePaused, new { Name = queueName, IsPaused = isPaused }, ct);
+        await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            await conn.ExecuteAsync(_q.SetQueuePaused, new { Name = queueName, IsPaused = isPaused }, ct);
+        }, ct);
     }
 
     public async ValueTask SetQueueZombieTimeoutAsync(string queueName, int? timeoutSeconds, CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(_q.SetQueueZombieTimeout, new { Name = queueName, Timeout = timeoutSeconds }, ct);
+        await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            await conn.ExecuteAsync(_q.SetQueueZombieTimeout, new { Name = queueName, Timeout = timeoutSeconds }, ct);
+        }, ct);
     }
 
     public async ValueTask SetQueueActiveAsync(string queueName, bool isActive, CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(_q.SetQueueActive, new { Name = queueName, IsActive = isActive }, ct);
+        await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            await conn.ExecuteAsync(_q.SetQueueActive, new { Name = queueName, IsActive = isActive }, ct);
+        }, ct);
     }
 
     // ========================================================================
@@ -434,8 +501,11 @@ public class SqlJobStorage : IJobStorage
 
     public async ValueTask<int> ArchiveZombiesAsync(int globalTimeoutSeconds, CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        return await conn.ExecuteScalarAsync<int>(_q.ArchiveZombies, new { GlobalTimeout = globalTimeoutSeconds }, ct);
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            return await conn.ExecuteScalarAsync<int>(_q.ArchiveZombies, new { GlobalTimeout = globalTimeoutSeconds }, ct);
+        }, ct);
     }
 
     // ========================================================================
