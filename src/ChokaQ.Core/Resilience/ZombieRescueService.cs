@@ -17,22 +17,21 @@ public class ZombieRescueService : BackgroundService
     private readonly IJobStorage _storage;
     private readonly IChokaQNotifier _notifier;
     private readonly ILogger<ZombieRescueService> _logger;
+    private readonly int _globalZombieTimeoutSeconds;
 
     // Config: How often to run the cleanup scan
     private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(1);
 
-    // Config: Default fallback timeout if queue specific setting is missing.
-    // 10 minutes allows for some network latency or long GC pauses before declaring death.
-    private const int DefaultGlobalZombieTimeoutSeconds = 600;
-
     public ZombieRescueService(
         IJobStorage storage,
         IChokaQNotifier notifier,
-        ILogger<ZombieRescueService> logger)
+        ILogger<ZombieRescueService> logger,
+        ChokaQOptions options)
     {
         _storage = storage;
         _notifier = notifier;
         _logger = logger;
+        _globalZombieTimeoutSeconds = options.ZombieTimeoutSeconds;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -44,7 +43,7 @@ public class ZombieRescueService : BackgroundService
             try
             {
                 // Execute the cleanup - zombies are moved to DLQ
-                int zombiesArchived = await _storage.ArchiveZombiesAsync(DefaultGlobalZombieTimeoutSeconds, stoppingToken);
+                int zombiesArchived = await _storage.ArchiveZombiesAsync(_globalZombieTimeoutSeconds, stoppingToken);
 
                 if (zombiesArchived > 0)
                 {

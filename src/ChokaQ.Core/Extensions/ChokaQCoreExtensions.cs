@@ -106,8 +106,13 @@ public static class ChokaQCoreExtensions
 
         services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
 
-        // Register the Zombie Rescue Service
-        services.AddHostedService<ZombieRescueService>();
+        // Register the Zombie Rescue Service with configured options
+        services.AddHostedService(sp => new ZombieRescueService(
+            sp.GetRequiredService<IJobStorage>(),
+            sp.GetRequiredService<IChokaQNotifier>(),
+            sp.GetRequiredService<ILogger<ZombieRescueService>>(),
+            options
+        ));
     }
 
     private static void AddPipeStrategy(IServiceCollection services, ChokaQOptions options)

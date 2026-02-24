@@ -66,4 +66,11 @@ public class ChokaQOptions
     /// Base retry delay in seconds (Exponential Backoff starts here). Default: 3.
     /// </summary>
     public int RetryDelaySeconds { get; set; } = 3;
+
+    /// <summary>
+    /// Default timeout in seconds before a processing job without heartbeats is considered a zombie.
+    /// This value is used if a queue does not have a specific timeout configured.
+    /// Default: 600 seconds (10 minutes).
+    /// </summary>
+    public int ZombieTimeoutSeconds { get; set; } = 600;
 }
