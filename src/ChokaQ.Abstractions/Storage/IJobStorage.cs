@@ -134,6 +134,15 @@ public interface IJobStorage
     /// <param name="ct">Cancellation token.</param>
     ValueTask ReleaseJobAsync(string jobId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Atomically moves a batch of cancelled jobs to DLQ: Hot → DLQ.
+    /// Only affects jobs in Pending or Fetched status.
+    /// </summary>
+    ValueTask<int> ArchiveCancelledBatchAsync(
+        string[] jobIds,
+        string? cancelledBy = null,
+        CancellationToken ct = default);
+
     // ========================================================================
     // RETRY LOGIC (Stays in Hot)
     // ========================================================================

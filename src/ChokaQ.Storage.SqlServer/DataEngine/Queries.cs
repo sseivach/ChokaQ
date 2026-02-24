@@ -73,6 +73,8 @@ internal sealed class Queries
     public readonly string GetDLQPaged;
     public readonly string GetDLQCount;
 
+    public readonly string ArchiveCancelledBatch;
+
     public Queries(string schema)
     {
         // CORE OPERATIONS
@@ -228,17 +230,32 @@ internal sealed class Queries
             WHERE [Queue] = @Queue;";
 
         ResurrectBatch = $@"
-                -- Move batch to Hot
-                INSERT INTO [{schema}].[JobsHot]
-                ([Id], [Queue], [Type], [Payload], [Tags], [Priority], [Status], [AttemptCount],
-                 [CreatedAtUtc], [LastUpdatedUtc], [CreatedBy], [LastModifiedBy])
-                SELECT [Id], [Queue], [Type], [Payload], [Tags], 10, 0, 0,
-                       [CreatedAtUtc], SYSUTCDATETIME(), [CreatedBy], @ResurrectedBy
-                FROM [{schema}].[JobsDLQ]
-                WHERE [Id] IN @Ids;
+            DECLARE @ResurrectedIds TABLE (Id varchar(50), Queue varchar(255));
 
-                -- Remove from DLQ
-                DELETE FROM [{schema}].[JobsDLQ] WHERE [Id] IN @Ids;";
+            -- 1. Move batch to Hot (reset state)
+            INSERT INTO [{schema}].[JobsHot]
+            ([Id], [Queue], [Type], [Payload], [Tags], [Priority], [Status], [AttemptCount],
+             [CreatedAtUtc], [LastUpdatedUtc], [CreatedBy], [LastModifiedBy])
+            OUTPUT inserted.Id, inserted.Queue INTO @ResurrectedIds
+            SELECT [Id], [Queue], [Type], [Payload], [Tags], 10, 0, 0,
+                   [CreatedAtUtc], SYSUTCDATETIME(), [CreatedBy], @ResurrectedBy
+            FROM [{schema}].[JobsDLQ]
+            WHERE [Id] IN (SELECT value FROM OPENJSON(@JsonIds));
+
+            -- 2. Remove from DLQ
+            DELETE FROM [{schema}].[JobsDLQ] 
+            WHERE [Id] IN (SELECT Id FROM @ResurrectedIds);
+
+            -- 3. Update stats (Decrement failed counts securely)
+            UPDATE s
+            SET s.[FailedTotal] = CASE WHEN s.[FailedTotal] > counts.ResurrectedCount THEN s.[FailedTotal] - counts.ResurrectedCount ELSE 0 END,
+                s.[LastActivityUtc] = SYSUTCDATETIME()
+            FROM [{schema}].[StatsSummary] s
+            INNER JOIN (
+                SELECT Queue, COUNT(*) as ResurrectedCount FROM @ResurrectedIds GROUP BY Queue
+            ) counts ON counts.Queue = s.[Queue];
+
+            SELECT COUNT(*) FROM @ResurrectedIds;";
 
         RescheduleForRetry = $@"
             DECLARE @Queue varchar(255);
@@ -276,7 +293,7 @@ internal sealed class Queries
 
         PurgeDLQ = $@"
             DELETE FROM [{schema}].[JobsDLQ] 
-            WHERE [Id] IN @Ids;
+            WHERE [Id] IN (SELECT value FROM OPENJSON(@JsonIds));
 
             UPDATE s
             SET s.[FailedTotal] = (
@@ -468,5 +485,33 @@ internal sealed class Queries
             SELECT COUNT(1) 
             FROM [{schema}].[JobsDLQ] WITH (NOLOCK)
             {{WHERE_CLAUSE}}";
+
+        ArchiveCancelledBatch = $@"
+            DECLARE @CancelledIds TABLE (Id varchar(50), Queue varchar(255));
+
+            -- 1. Insert into DLQ (Only Pending or Fetched)
+            INSERT INTO [{schema}].[JobsDLQ]
+            ([Id], [Queue], [Type], [Payload], [Tags], [FailureReason], [ErrorDetails], [AttemptCount],
+             [WorkerId], [CreatedBy], [LastModifiedBy], [CreatedAtUtc], [FailedAtUtc])
+            OUTPUT inserted.Id, inserted.Queue INTO @CancelledIds
+            SELECT [Id], [Queue], [Type], [Payload], [Tags], 1, @Error, [AttemptCount],
+                   [WorkerId], [CreatedBy], @CancelledBy, [CreatedAtUtc], SYSUTCDATETIME()
+            FROM [{schema}].[JobsHot]
+            WHERE [Id] IN (SELECT value FROM OPENJSON(@JsonIds)) AND [Status] IN (0, 1);
+
+            -- 2. Delete from Hot
+            DELETE FROM [{schema}].[JobsHot] 
+            WHERE [Id] IN (SELECT Id FROM @CancelledIds);
+
+            -- 3. Update Stats in bulk
+            UPDATE s
+            SET s.[FailedTotal] = s.[FailedTotal] + counts.CancelledCount,
+                s.[LastActivityUtc] = SYSUTCDATETIME()
+            FROM [{schema}].[StatsSummary] s
+            INNER JOIN (
+                SELECT Queue, COUNT(*) as CancelledCount FROM @CancelledIds GROUP BY Queue
+            ) counts ON counts.Queue = s.[Queue];
+
+            SELECT COUNT(*) FROM @CancelledIds;";
     }
 }

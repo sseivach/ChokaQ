@@ -215,6 +215,26 @@ public class InMemoryJobStorage : IJobStorage
         return MoveToDLQ(jobId, FailureReason.Cancelled, error);
     }
 
+    public ValueTask<int> ArchiveCancelledBatchAsync(string[] jobIds, string? cancelledBy = null, CancellationToken ct = default)
+    {
+        int count = 0;
+        var error = cancelledBy != null ? $"Cancelled by: {cancelledBy}" : "Cancelled by admin (Batch)";
+
+        foreach (var id in jobIds)
+        {
+            lock (_transitionLock)
+            {
+                if (_hotJobs.TryGetValue(id, out var job) &&
+                   (job.Status == JobStatus.Pending || job.Status == JobStatus.Fetched))
+                {
+                    MoveToDLQ(id, FailureReason.Cancelled, error).GetAwaiter().GetResult();
+                    count++;
+                }
+            }
+        }
+        return new ValueTask<int>(count);
+    }
+
     public ValueTask ArchiveZombieAsync(string jobId, CancellationToken ct = default)
     {
         return MoveToDLQ(jobId, FailureReason.Zombie, "Zombie: Worker heartbeat expired");

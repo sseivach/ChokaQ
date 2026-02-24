@@ -5,6 +5,7 @@ using ChokaQ.Abstractions.Storage;
 using ChokaQ.Storage.SqlServer.DataEngine;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace ChokaQ.Storage.SqlServer;
 
@@ -178,27 +179,32 @@ public class SqlJobStorage : IJobStorage
     public async ValueTask<int> ResurrectBatchAsync(string[] jobIds, string? resurrectedBy = null, CancellationToken ct = default)
     {
         if (jobIds.Length == 0) return 0;
+        var jsonIds = JsonSerializer.Serialize(jobIds);
 
         await using var conn = await OpenConnectionAsync(ct);
-        int total = 0;
-
-        // Process in batches of 1000
-        foreach (var batch in jobIds.Chunk(1000))
-        {
-            var affected = await conn.ExecuteAsync(
-                _q.ResurrectBatch,
-                new { Ids = batch, ResurrectedBy = resurrectedBy },
-                ct);
-            total += affected / 2; // Each job = 1 INSERT + 1 DELETE
-        }
-
-        return total;
+        return await conn.ExecuteScalarAsync<int>(
+            _q.ResurrectBatch,
+            new { JsonIds = jsonIds, ResurrectedBy = resurrectedBy },
+            ct);
     }
 
     public async ValueTask ReleaseJobAsync(string jobId, CancellationToken ct = default)
     {
         await using var conn = await OpenConnectionAsync(ct);
         await conn.ExecuteAsync(_q.ReleaseJob, new { Id = jobId }, ct);
+    }
+
+    public async ValueTask<int> ArchiveCancelledBatchAsync(string[] jobIds, string? cancelledBy = null, CancellationToken ct = default)
+    {
+        if (jobIds.Length == 0) return 0;
+        var jsonIds = JsonSerializer.Serialize(jobIds);
+        var error = cancelledBy != null ? $"Cancelled by admin: {cancelledBy}" : "Cancelled by admin (Batch)";
+
+        await using var conn = await OpenConnectionAsync(ct);
+        return await conn.ExecuteScalarAsync<int>(
+            _q.ArchiveCancelledBatch,
+            new { JsonIds = jsonIds, Error = error, CancelledBy = cancelledBy },
+            ct);
     }
 
     // ========================================================================
@@ -249,9 +255,9 @@ public class SqlJobStorage : IJobStorage
     public async ValueTask PurgeDLQAsync(string[] jobIds, CancellationToken ct = default)
     {
         if (jobIds.Length == 0) return;
-
+        var jsonIds = JsonSerializer.Serialize(jobIds);
         await using var conn = await OpenConnectionAsync(ct);
-        await conn.ExecuteAsync(_q.PurgeDLQ, new { Ids = jobIds }, ct);
+        await conn.ExecuteAsync(_q.PurgeDLQ, new { JsonIds = jsonIds }, ct);
     }
 
     public async ValueTask<int> PurgeArchiveAsync(DateTime olderThan, CancellationToken ct = default)
