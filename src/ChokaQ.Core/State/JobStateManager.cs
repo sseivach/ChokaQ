@@ -146,15 +146,35 @@ public class JobStateManager : IJobStateManager
         await SafeNotifyAsync(() => _notifier.NotifyJobUpdatedAsync(update));
     }
 
+    /// <summary>
+    /// Executes UI notifications with a lightweight transient retry policy.
+    /// We must NEVER throw an exception here, as it would crash the background 
+    /// job state machine just because the UI SignalR hub is disconnected.
+    /// </summary>
     private async Task SafeNotifyAsync(Func<Task> notifyAction)
     {
-        try
+        const int maxRetries = 3;
+        const int delayMs = 500;
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
-            await notifyAction();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("Failed to send notification: {Message}", ex.Message);
+            try
+            {
+                await notifyAction();
+                return; // Success
+            }
+            catch (Exception ex)
+            {
+                if (attempt == maxRetries)
+                {
+                    // Log only on final failure to avoid log spam during network blips
+                    _logger.LogWarning("Failed to send UI notification after {Retries} attempts: {Message}", maxRetries, ex.Message);
+                }
+                else
+                {
+                    await Task.Delay(delayMs);
+                }
+            }
         }
     }
 }

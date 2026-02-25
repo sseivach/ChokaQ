@@ -95,7 +95,15 @@ public partial class TheDeck : IAsyncDisposable
                 StateHasChanged();
             });
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // FIX: Prevent silent failure. Report stale data state to the UI console.
+            await InvokeAsync(() =>
+            {
+                AddLog($"Data sync failed. Showing stale data. Reason: {ex.Message}", "Error");
+                StateHasChanged();
+            });
+        }
     }
 
     private async Task HandleSourceChanged(JobSource source)
