@@ -148,7 +148,7 @@ public class JobStateManager : IJobStateManager
 
     /// <summary>
     /// Executes UI notifications with a lightweight transient retry policy.
-    /// We must NEVER throw an exception here, as it would crash the background 
+    /// We must NEVER throw an exception here, as it would crash the background
     /// job state machine just because the UI SignalR hub is disconnected.
     /// </summary>
     private async Task SafeNotifyAsync(Func<Task> notifyAction)

@@ -68,7 +68,7 @@ public class SqlJobStorage : IJobStorage
         {
             await using var conn = await OpenConnectionAsync(ct);
 
-            // Idempotency check - return existing ID if key exists
+            // 1. L2 Cache Check: Try to find existing Idempotency Key
             if (!string.IsNullOrEmpty(idempotencyKey))
             {
                 var existingId = await conn.QueryFirstOrDefaultAsync<string>(
@@ -79,22 +79,44 @@ public class SqlJobStorage : IJobStorage
                     return existingId;
             }
 
-            await conn.ExecuteAsync(_q.EnqueueJob, new
+            try
             {
-                Id = id,
-                Queue = queue,
-                Type = jobType,
-                Payload = payload,
-                Tags = tags,
-                IdempotencyKey = idempotencyKey,
-                Priority = priority,
-                CreatedBy = createdBy,
-                ScheduledAt = delay.HasValue ? DateTime.UtcNow.Add(delay.Value) : (DateTime?)null
-            }, ct);
+                // 2. Insert new job
+                await conn.ExecuteAsync(_q.EnqueueJob, new
+                {
+                    Id = id,
+                    Queue = queue,
+                    Type = jobType,
+                    Payload = payload,
+                    Tags = tags,
+                    IdempotencyKey = idempotencyKey,
+                    Priority = priority,
+                    CreatedBy = createdBy,
+                    ScheduledAt = delay.HasValue ? DateTime.UtcNow.Add(delay.Value) : (DateTime?)null
+                }, ct);
 
-            _metrics.RecordEnqueue(queue, jobType);
+                _metrics.RecordEnqueue(queue, jobType);
 
-            return id;
+                return id;
+            }
+            catch (SqlException ex) when (ex.Number == 2601 || ex.Number == 2627) // Unique Constraint Violation
+            {
+                // RACE CONDITION RESOLVED:
+                // Another instance inserted the exact same IdempotencyKey between our SELECT and INSERT.
+                // We catch the SQL engine rejection and do one final lookup to return the winner's ID.
+                if (!string.IsNullOrEmpty(idempotencyKey))
+                {
+                    var winnerId = await conn.QueryFirstOrDefaultAsync<string>(
+                        _q.CheckIdempotency,
+                        new { Key = idempotencyKey }, ct);
+
+                    if (winnerId != null)
+                        return winnerId;
+                }
+
+                // If it was a PK violation on the ID itself, rethrow.
+                throw;
+            }
         }, ct);
     }
 
