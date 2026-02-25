@@ -1,4 +1,4 @@
-using ChokaQ.Abstractions.DTOs;
+﻿using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Notifications;
@@ -17,6 +17,8 @@ namespace ChokaQ.Core.Defaults;
 /// </summary>
 public class InMemoryQueue : IChokaQQueue
 {
+    private const int MaxChannelCapacity = 100_000;
+
     private readonly Channel<IChokaQJob> _queue;
     private readonly IJobStorage _storage;
     private readonly IChokaQNotifier _notifier;
@@ -37,12 +39,15 @@ public class InMemoryQueue : IChokaQQueue
         _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
         _logger = logger;
 
-        var options = new UnboundedChannelOptions
+        // Use Bounded channel to support Backpressure and prevent OutOfMemory exceptions
+        var options = new BoundedChannelOptions(MaxChannelCapacity)
         {
+            // If the channel is full, the Writer will wait (await) instead of throwing or dropping jobs
+            FullMode = BoundedChannelFullMode.Wait,
             SingleReader = false,
             SingleWriter = false
         };
-        _queue = Channel.CreateUnbounded<IChokaQJob>(options);
+        _queue = Channel.CreateBounded<IChokaQJob>(options);
     }
 
     public ChannelReader<IChokaQJob> Reader => _queue.Reader;
@@ -59,8 +64,6 @@ public class InMemoryQueue : IChokaQQueue
         var payload = JsonSerializer.Serialize(job, job.GetType());
 
         // Resolve Key from Registry first. 
-        // If the user mapped this DTO in a Profile, use that Key.
-        // Otherwise, fall back to the Type Name.
         var jobTypeName = _registry.GetKeyByType(job.GetType()) ?? job.GetType().Name;
 
         // 2. Persist to Storage (Hot table, Status: Pending)
@@ -99,6 +102,8 @@ public class InMemoryQueue : IChokaQQueue
         _metrics.RecordEnqueue(queue, jobTypeName);
 
         // 4. Push to Channel
+        // If the channel reaches MaxChannelCapacity, this await will block the calling code
+        // until the worker frees up space. This provides natural backpressure.
         await _queue.Writer.WriteAsync(job, ct);
     }
 
