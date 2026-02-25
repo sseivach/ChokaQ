@@ -1,3 +1,4 @@
+using ChokaQ.Abstractions.Observability;
 using ChokaQ.Abstractions.Resilience;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Execution;
@@ -25,6 +26,7 @@ public class JobProcessor : IJobProcessor
     private readonly ICircuitBreaker _breaker;
     private readonly IJobDispatcher _dispatcher;
     private readonly IJobStateManager _stateManager;
+    private readonly IChokaQMetrics _metrics;
 
     // Registry of tokens for currently running jobs to allow real-time cancellation.
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeJobTokens = new();
@@ -55,6 +57,7 @@ public class JobProcessor : IJobProcessor
         ICircuitBreaker breaker,
         IJobDispatcher dispatcher,
         IJobStateManager stateManager,
+        IChokaQMetrics metrics,
         ChokaQOptions? options = null)
     {
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
@@ -62,6 +65,7 @@ public class JobProcessor : IJobProcessor
         _breaker = breaker ?? throw new ArgumentNullException(nameof(breaker));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _stateManager = stateManager ?? throw new ArgumentNullException(nameof(stateManager));
+        _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
 
         if (options != null)
         {
@@ -135,8 +139,10 @@ public class JobProcessor : IJobProcessor
             await heartbeatCts.CancelAsync();
             try { await heartbeatTask; } catch (OperationCanceledException) { }
 
-            // 4. SUCCESS: Archive to Archive table
+            // 4. SUCCESS: Archive and emit metrics
             _breaker.ReportSuccess(jobType);
+            _metrics.RecordSuccess(meta.Queue, jobType, sw.Elapsed.TotalMilliseconds); // НОВОЕ
+
             await _stateManager.ArchiveSucceededAsync(
                 jobId, jobType, meta.Queue, sw.Elapsed.TotalMilliseconds, workerCt);
 
@@ -149,7 +155,6 @@ public class JobProcessor : IJobProcessor
             sw.Stop();
             await heartbeatCts.CancelAsync();
 
-            // CANCELLED: Archive to DLQ
             _logger.LogInformation("[Worker {ID}] Job {JobId} was cancelled.", workerId, jobId);
             await _stateManager.ArchiveCancelledAsync(
                 jobId, jobType, meta.Queue, "Worker/Admin cancellation", workerCt);
@@ -158,6 +163,9 @@ public class JobProcessor : IJobProcessor
         {
             sw.Stop();
             await heartbeatCts.CancelAsync();
+
+            // Emit failure metric
+            _metrics.RecordFailure(meta.Queue, jobType, ex.GetType().Name); // НОВОЕ
 
             // 5. FAILURE: Retry or Archive to DLQ
             await HandleErrorAsync(ex, context, workerId, workerCt);

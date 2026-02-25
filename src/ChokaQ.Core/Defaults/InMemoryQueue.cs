@@ -5,6 +5,7 @@ using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Execution;
 using Microsoft.Extensions.Logging;
+using ChokaQ.Abstractions.Observability;
 using System.Text.Json;
 using System.Threading.Channels;
 
@@ -20,17 +21,20 @@ public class InMemoryQueue : IChokaQQueue
     private readonly IJobStorage _storage;
     private readonly IChokaQNotifier _notifier;
     private readonly JobTypeRegistry _registry;
+    private readonly IChokaQMetrics _metrics;
     private readonly ILogger<InMemoryQueue> _logger;
 
     public InMemoryQueue(
         IJobStorage storage,
         IChokaQNotifier notifier,
         JobTypeRegistry registry,
+        IChokaQMetrics metrics,
         ILogger<InMemoryQueue> logger)
     {
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _notifier = notifier ?? throw new ArgumentNullException(nameof(notifier));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
         _logger = logger;
 
         var options = new UnboundedChannelOptions
@@ -91,6 +95,8 @@ public class InMemoryQueue : IChokaQQueue
         {
             _logger.LogWarning("Failed to notify UI about new job: {Message}", ex.Message);
         }
+
+        _metrics.RecordEnqueue(queue, jobTypeName);
 
         // 4. Push to Channel
         await _queue.Writer.WriteAsync(job, ct);

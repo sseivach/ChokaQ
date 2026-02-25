@@ -5,6 +5,7 @@ using ChokaQ.Abstractions.Storage;
 using ChokaQ.Storage.SqlServer.DataEngine;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
+using ChokaQ.Abstractions.Observability;
 using System.Text.Json;
 
 namespace ChokaQ.Storage.SqlServer;
@@ -24,12 +25,14 @@ public class SqlJobStorage : IJobStorage
     private readonly SqlJobStorageOptions _options;
     private readonly string _schema;
     private readonly Queries _q;
+    private readonly IChokaQMetrics _metrics;
 
-    public SqlJobStorage(IOptions<SqlJobStorageOptions> options)
+    public SqlJobStorage(IOptions<SqlJobStorageOptions> options, IChokaQMetrics metrics)
     {
         _options = options.Value;
         _schema = _options.SchemaName;
         _q = new Queries(_schema);
+        _metrics = metrics;
     }
 
     private async Task<SqlConnection> OpenConnectionAsync(CancellationToken ct = default)
@@ -88,6 +91,8 @@ public class SqlJobStorage : IJobStorage
                 CreatedBy = createdBy,
                 ScheduledAt = delay.HasValue ? DateTime.UtcNow.Add(delay.Value) : (DateTime?)null
             }, ct);
+
+            _metrics.RecordEnqueue(queue, jobType);
 
             return id;
         }, ct);

@@ -16,13 +16,13 @@
 ChokaQ implements a **2x2 matrix architecture**, allowing developers to choose between volatile memory for speed and persistent SQL storage for reliability, combined with either typed Bus processing or raw Pipe processing.
 
 ### Processing Modes
-1.  **Bus Mode:** Strongly typed jobs with dedicated handlers, Dependency Injection scopes, and profiles. Best for complex business logic.
-2.  **Pipe Mode:** High-throughput processing of raw payloads via a single global handler. Best for telemetry, logs, and event streams.
+1.  **Bus Mode:** Strongly typed jobs with dedicated handlers, Dependency Injection scopes, and profiles. Best for complex business logic.
+2.  **Pipe Mode:** High-throughput processing of raw payloads via a single global handler. Best for telemetry, logs, and event streams.
 
 
 ### Storage Modes
-1.  **In-Memory:** Zero-config RAM storage using System.Threading.Channels.
-2.  **SQL Server:** Persistent storage using a custom lightweight ADO.NET wrapper (SqlMapper).
+1.  **In-Memory:** Zero-config RAM storage using System.Threading.Channels.
+2.  **SQL Server:** Persistent storage using a custom lightweight ADO.NET wrapper (SqlMapper).
 
 ---
 
@@ -30,18 +30,18 @@ ChokaQ implements a **2x2 matrix architecture**, allowing developers to choose b
 
 To guarantee consistent performance regardless of historical data volume, data is physically separated into three atomic tiers:
 
-1.  **JobsHot (Active):**
-    * Stores only Pending, Fetched, and Processing jobs.
-    * Uses row-level locking (UPDLOCK, READPAST) for high-concurrency fetching without deadlocks.
+1.  **JobsHot (Active):**
+    * Stores only Pending, Fetched, and Processing jobs.
+    * Uses row-level locking (UPDLOCK, READPAST) for high-concurrency fetching without deadlocks.
 
-2.  **JobsArchive (History):**
-    * Stores successfully completed jobs.
-    * Uses SQL Page Compression.
-    * Optimized for analytical filtering (Date, Queue, Type).
+2.  **JobsArchive (History):**
+    * Stores successfully completed jobs.
+    * Uses SQL Page Compression.
+    * Optimized for analytical filtering (Date, Queue, Type).
 
-3.  **JobsDLQ (Dead Letter Queue):**
-    * Stores failed (MaxRetriesExceeded), cancelled, or zombie jobs.
-    * Supports manual payload editing and resurrection.
+3.  **JobsDLQ (Dead Letter Queue):**
+    * Stores failed (MaxRetriesExceeded), cancelled, or zombie jobs.
+    * Supports manual payload editing and resurrection.
 
 ---
 
@@ -68,13 +68,45 @@ A сontrol plane powered by **Blazor Server** and **SignalR**.
 * **Queue Management:** Queues can be paused, resumed, or deactivated at runtime. Changes propagate immediately to all workers via the database.
 * **Live Matrix:** Virtualized grid for active jobs.
 * **Ops Panel:**
-    * **Inspector:** View full job details and exception stack traces.
-    * **JSON Editor:** Modify payloads of Pending or DLQ jobs on the fly.
-    * **Resurrection:** Failed jobs in the DLQ can be "resurrected" back to the Hot table for processing, with optional modification of their payload.
-    * **History Filter:** Server-side filtering of the Archive table.
+    * **Inspector:** View full job details and exception stack traces.
+    * **JSON Editor:** Modify payloads of Pending or DLQ jobs on the fly.
+    * **Resurrection:** Failed jobs in the DLQ can be "resurrected" back to the Hot table for processing, with optional modification of their payload.
+    * **History Filter:** Server-side filtering of the Archive table.
 * **Bulk Actions:** Retry, Cancel, or Purge jobs in batches.
 * **Circuits View:** Monitor the state (Closed/Open/HalfOpen) of all circuit breakers.
 * **Console Stream:** System-wide events and logs are streamed directly to the browser console view.
+
+---
+
+## Observability (OpenTelemetry)
+
+ChokaQ provides native, zero-dependency OpenTelemetry metrics using standard `System.Diagnostics.Metrics`. This means you can easily monitor throughput, failures, and execution latency without installing any heavy, proprietary telemetry packages in the library itself.
+
+**Available Metrics (Meter: `ChokaQ`):**
+* `chokaq.jobs.enqueued` (Counter) — Total jobs submitted.
+* `chokaq.jobs.completed` (Counter) — Total jobs executed successfully.
+* `chokaq.jobs.failed` (Counter) — Total jobs that threw an exception.
+* `chokaq.jobs.processing_duration` (Histogram) — Time taken to process a job (in milliseconds).
+
+*All metrics are automatically tagged with `queue` and `type`.*
+
+### Exporting Metrics to Prometheus / Grafana
+Since ChokaQ uses standard BCL components, simply configure OpenTelemetry in your host `Program.cs` and listen to the **"ChokaQ"** meter:
+
+```csharp
+// Requires package: OpenTelemetry.Exporter.Prometheus.AspNetCore
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics =>
+    {
+        metrics.AddMeter("ChokaQ"); // Listen to ChokaQ events
+        metrics.AddPrometheusExporter();
+    });
+
+var app = builder.Build();
+
+// Expose the /metrics endpoint
+app.UseOpenTelemetryPrometheusScrapingEndpoint();
+```
 
 ---
 
@@ -89,7 +121,7 @@ ChokaQ does **not** modify your middleware pipeline. You must ensure the standar
 
 ```csharp
 app.UseAuthentication(); // Required: populates HttpContext.User
-app.UseAuthorization();  // Required: enforces [Authorize] policies
+app.UseAuthorization();  // Required: enforces [Authorize] policies
 
 app.MapChokaQTheDeck();
 ```
@@ -101,18 +133,18 @@ To secure "The Deck" (Dashboard and SignalR Hub), simply provide the name of you
 // 1. Define a Policy in your host app (Program.cs)
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy("ChokaQAdmin", policy => 
-        policy.RequireClaim("Role", "SystemAdministrator"));
+    options.AddPolicy("ChokaQAdmin", policy => 
+        policy.RequireClaim("Role", "SystemAdministrator"));
 });
 
 // 2. Bind ChokaQ to this policy
 builder.Services.AddChokaQTheDeck(options =>
 {
-    options.RoutePrefix = "/chokaq";
-    
-    // If set, ChokaQ will apply [Authorize(Policy = "ChokaQAdmin")] 
-    // to all Dashboard and SignalR endpoints.
-    options.AuthorizationPolicy = "ChokaQAdmin"; 
+    options.RoutePrefix = "/chokaq";
+    
+    // If set, ChokaQ will apply [Authorize(Policy = "ChokaQAdmin")] 
+    // to all Dashboard and SignalR endpoints.
+    options.AuthorizationPolicy = "ChokaQAdmin"; 
 });
 ```
 
@@ -130,9 +162,9 @@ Add references to the core libraries in your ASP.NET Core `.csproj` file:
 
 ```xml
 <ItemGroup>
-    <ProjectReference Include="..\src\ChokaQ.Core\ChokaQ.Core.csproj" />
-    <ProjectReference Include="..\src\ChokaQ.Storage.SqlServer\ChokaQ.Storage.SqlServer.csproj" />
-    <ProjectReference Include="..\src\ChokaQ.TheDeck\ChokaQ.TheDeck.csproj" />
+    <ProjectReference Include="..\src\ChokaQ.Core\ChokaQ.Core.csproj" />
+    <ProjectReference Include="..\src\ChokaQ.Storage.SqlServer\ChokaQ.Storage.SqlServer.csproj" />
+    <ProjectReference Include="..\src\ChokaQ.TheDeck\ChokaQ.TheDeck.csproj" />
 </ItemGroup>
 ```
 
@@ -145,17 +177,17 @@ var builder = WebApplication.CreateBuilder(args);
 // 1. Add ChokaQ Core & Profiles
 builder.Services.AddChokaQ(options =>
 {
-    // Register Job Profiles (Bus Mode)
-    options.AddProfile<MailingProfile>();
+    // Register Job Profiles (Bus Mode)
+    options.AddProfile<MailingProfile>();
 });
 
 // 2. Add SQL Storage with Auto-Provisioning
 // This will automatically create the 'chokaq' schema and tables on startup.
 builder.Services.UseSqlServer(options =>
 {
-    options.ConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    options.SchemaName = "chokaq"; 
-    options.AutoCreateSqlTable = true;
+    options.ConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    options.SchemaName = "chokaq"; 
+    options.AutoCreateSqlTable = true;
 });
 
 // 3. Add Dashboard
@@ -178,20 +210,20 @@ public record SendEmailJob(string To) : ChokaQBaseJob;
 // Job Handler
 public class EmailHandler : IChokaQJobHandler<SendEmailJob>
 {
-    public async Task HandleAsync(SendEmailJob job, CancellationToken ct)
-    {
-        // Business logic here
-        await Task.Delay(100);
-    }
+    public async Task HandleAsync(SendEmailJob job, CancellationToken ct)
+    {
+        // Business logic here
+        await Task.Delay(100);
+    }
 }
 
 // Profile Registration
 public class MailingProfile : ChokaQJobProfile
 {
-    public MailingProfile()
-    {
-        CreateJob<SendEmailJob, EmailHandler>("email_v1");
-    }
+    public MailingProfile()
+    {
+        CreateJob<SendEmailJob, EmailHandler>("email_v1");
+    }
 }
 ```
 
