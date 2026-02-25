@@ -1,4 +1,5 @@
 ﻿using ChokaQ.Abstractions.Jobs;
+using ChokaQ.Abstractions.Middleware;
 using ChokaQ.Core.Defaults;
 
 namespace ChokaQ.Core;
@@ -14,6 +15,7 @@ public class ChokaQOptions
     internal bool IsPipeMode { get; private set; }
     internal Type? PipeHandlerType { get; private set; }
     internal List<Type> ProfileTypes { get; } = new();
+    internal List<Type> MiddlewareTypes { get; } = new();
 
     // --- Storage Configuration ---
 
@@ -45,6 +47,16 @@ public class ChokaQOptions
     public void AddProfile<TProfile>() where TProfile : ChokaQJobProfile
     {
         ProfileTypes.Add(typeof(TProfile));
+    }
+
+    /// <summary>
+    /// Registers a middleware to intercept job execution.
+    /// Middlewares are executed in the order they are added (Pipeline pattern).
+    /// </summary>
+    /// <typeparam name="TMiddleware">The middleware type.</typeparam>
+    public void AddMiddleware<TMiddleware>() where TMiddleware : class, IChokaQMiddleware
+    {
+        MiddlewareTypes.Add(typeof(TMiddleware));
     }
 
     /// <summary>

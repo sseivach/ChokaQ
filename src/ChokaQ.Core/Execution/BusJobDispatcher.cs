@@ -1,4 +1,5 @@
 ﻿using ChokaQ.Abstractions.Jobs;
+using ChokaQ.Abstractions.Middleware;
 using ChokaQ.Core.Contexts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -33,14 +34,8 @@ public class BusJobDispatcher : IJobDispatcher
         var jobContext = serviceProvider.GetRequiredService<JobContext>();
         jobContext.JobId = jobId;
 
-        // 2. Resolve Type from Registry (Fast & Safe)
-        var clrType = _registry.GetTypeByKey(jobType);
-
-        // Fallback: Try standard Type.GetType if not in registry (legacy support)
-        if (clrType == null)
-        {
-            clrType = Type.GetType(jobType);
-        }
+        // 2. Resolve Type from Registry
+        var clrType = _registry.GetTypeByKey(jobType) ?? Type.GetType(jobType);
 
         if (clrType == null)
         {
@@ -63,23 +58,36 @@ public class BusJobDispatcher : IJobDispatcher
             throw new InvalidOperationException($"Bus Mode: No IChokaQJobHandler<{clrType.Name}> found in DI. Did you forget to register it?");
         }
 
-        // 5. Invoke
-        var method = handlerType.GetMethod("HandleAsync");
-        if (method == null)
+        // 5. Build Pipeline (Middlewares + Core Handler)
+        var middlewares = serviceProvider.GetServices<IChokaQMiddleware>().Reverse().ToList();
+
+        JobDelegate pipeline = async () =>
         {
-            throw new InvalidOperationException($"Method 'HandleAsync' not found on {handlerType.Name}");
+            var method = handlerType.GetMethod("HandleAsync");
+            if (method == null)
+                throw new InvalidOperationException($"Method 'HandleAsync' not found on {handlerType.Name}");
+
+            try
+            {
+                var task = (Task)method.Invoke(handler, new object[] { jobObject, ct })!;
+                await task;
+            }
+            catch (TargetInvocationException ex)
+            {
+                if (ex.InnerException != null) throw ex.InnerException;
+                throw;
+            }
+        };
+
+        // Wrap the core handler with middlewares
+        foreach (var middleware in middlewares)
+        {
+            var next = pipeline;
+            pipeline = () => middleware.InvokeAsync(jobContext, jobObject, next);
         }
 
-        try
-        {
-            var task = (Task)method.Invoke(handler, new object[] { jobObject, ct })!;
-            await task;
-        }
-        catch (TargetInvocationException ex)
-        {
-            if (ex.InnerException != null) throw ex.InnerException;
-            throw;
-        }
+        // 6. Execute Pipeline
+        await pipeline();
     }
 
     public JobMetadata ParseMetadata(string payload)

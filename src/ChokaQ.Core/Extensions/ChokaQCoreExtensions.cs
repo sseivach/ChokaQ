@@ -1,5 +1,6 @@
 ﻿using ChokaQ.Abstractions.Contexts;
 using ChokaQ.Abstractions.Jobs;
+using ChokaQ.Abstractions.Middleware;
 using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Observability;
 using ChokaQ.Abstractions.Resilience;
@@ -63,6 +64,12 @@ public static class ChokaQCoreExtensions
         // Register core infrastructure (storage, queues, processors)
         AddInfrastructure(services, options);
 
+        // Register Middlewares in the order they were added
+        foreach (var middlewareType in options.MiddlewareTypes)
+        {
+            services.AddTransient(typeof(IChokaQMiddleware), middlewareType);
+        }
+
         // Register strategy-specific services (Bus vs Pipe)
         if (options.IsPipeMode)
         {
@@ -85,8 +92,6 @@ public static class ChokaQCoreExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IDeduplicator, InMemoryDeduplicator>();
         services.TryAddSingleton<ICircuitBreaker, InMemoryCircuitBreaker>();
-
-        // Регистрация метрик (НОВОЕ)
         services.TryAddSingleton<IChokaQMetrics, ChokaQMetrics>();
 
         // Register InMemoryJobStorage with the configured options (Three Pillars)
@@ -104,7 +109,7 @@ public static class ChokaQCoreExtensions
             sp.GetRequiredService<ICircuitBreaker>(),
             sp.GetRequiredService<IJobDispatcher>(),
             sp.GetRequiredService<IJobStateManager>(),
-            sp.GetRequiredService<IChokaQMetrics>(), // Инжектим метрики!
+            sp.GetRequiredService<IChokaQMetrics>(),
             options
         ));
         services.TryAddSingleton<JobWorker>();
