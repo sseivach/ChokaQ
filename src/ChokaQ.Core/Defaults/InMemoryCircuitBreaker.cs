@@ -5,6 +5,10 @@ using System.Collections.Concurrent;
 
 namespace ChokaQ.Core.Defaults;
 
+/// <summary>
+/// Thread-safe in-memory implementation of the Circuit Breaker pattern.
+/// Uses a lock-free read / locked write approach for maximum performance.
+/// </summary>
 public class InMemoryCircuitBreaker : ICircuitBreaker
 {
     private readonly TimeProvider _timeProvider;
@@ -25,6 +29,7 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
         var entry = GetEntry(jobType);
         var now = _timeProvider.GetUtcNow();
 
+        // FAST PATH: Lock-free read of the volatile Status field
         if (entry.Status == CircuitStatus.Closed) return true;
 
         if (entry.Status == CircuitStatus.Open)
@@ -47,10 +52,7 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
     public void ReportSuccess(string jobType)
     {
         var entry = GetEntry(jobType);
-        if (entry.Status != CircuitStatus.Closed)
-        {
-            entry.Reset();
-        }
+        entry.RecordSuccess();
     }
 
     public void ReportFailure(string jobType)
@@ -58,17 +60,7 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
         var entry = GetEntry(jobType);
         var now = _timeProvider.GetUtcNow();
 
-        entry.LastFailureUtc = now;
-        entry.FailureCount++;
-
-        if (entry.Status == CircuitStatus.HalfOpen)
-        {
-            entry.Status = CircuitStatus.Open;
-        }
-        else if (entry.FailureCount >= FailureThreshold)
-        {
-            entry.Status = CircuitStatus.Open;
-        }
+        entry.RecordFailure(now, FailureThreshold);
     }
 
     public CircuitStatus GetStatus(string jobType) => GetEntry(jobType).Status;
@@ -100,26 +92,57 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
         return _states.GetOrAdd(jobType, _ => new CircuitStateEntry());
     }
 
+    /// <summary>
+    /// Thread-safe container for circuit state.
+    /// Mutations are protected by a micro-lock, while Status reads remain volatile and fast.
+    /// </summary>
     private class CircuitStateEntry
     {
-        public volatile CircuitStatus Status = CircuitStatus.Closed;
-        public int FailureCount;
-        public DateTimeOffset LastFailureUtc;
+        private readonly object _stateLock = new();
 
-        public void Reset()
+        public volatile CircuitStatus Status = CircuitStatus.Closed;
+
+        // These fields are mutated under lock, but can be safely read for UI stats
+        public int FailureCount { get; private set; }
+        public DateTimeOffset LastFailureUtc { get; private set; }
+
+        public void RecordSuccess()
         {
-            Status = CircuitStatus.Closed;
-            FailureCount = 0;
+            // Lock-free check to avoid unnecessary locking overhead on the happy path
+            if (Status == CircuitStatus.Closed && FailureCount == 0) return;
+
+            lock (_stateLock)
+            {
+                Status = CircuitStatus.Closed;
+                FailureCount = 0;
+            }
+        }
+
+        public void RecordFailure(DateTimeOffset now, int threshold)
+        {
+            lock (_stateLock)
+            {
+                LastFailureUtc = now;
+                FailureCount++;
+
+                if (Status == CircuitStatus.HalfOpen || FailureCount >= threshold)
+                {
+                    Status = CircuitStatus.Open;
+                }
+            }
         }
 
         public bool TryTransitionToHalfOpen()
         {
-            if (Status == CircuitStatus.Open)
+            lock (_stateLock)
             {
-                Status = CircuitStatus.HalfOpen;
-                return true;
+                if (Status == CircuitStatus.Open)
+                {
+                    Status = CircuitStatus.HalfOpen;
+                    return true;
+                }
+                return false;
             }
-            return false;
         }
     }
 }
