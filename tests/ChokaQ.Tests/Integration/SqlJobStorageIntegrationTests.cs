@@ -1,5 +1,6 @@
 using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Observability;
 using ChokaQ.Storage.SqlServer;
 using ChokaQ.Tests.Fixtures;
 using Microsoft.Extensions.Options;
@@ -24,7 +25,7 @@ public class SqlJobStorageIntegrationTests
             ConnectionString = _fixture.ConnectionString,
             SchemaName = _fixture.Schema
         });
-        _storage = new SqlJobStorage(options);
+        _storage = new SqlJobStorage(options, Substitute.For<IChokaQMetrics>());
     }
 
     private static string NewId() => Guid.NewGuid().ToString("N");
