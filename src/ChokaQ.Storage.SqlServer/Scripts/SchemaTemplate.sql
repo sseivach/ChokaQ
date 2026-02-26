@@ -31,12 +31,12 @@ BEGIN
         [Id]             [varchar](50)    NOT NULL,
         [Queue]          [varchar](255)   NOT NULL,
         [Type]           [varchar](255)   NOT NULL,
-        [Payload]        [nvarchar](max)  NULL,                                 -- NVARCHAR for Unicode safety
+        [Payload]        [nvarchar](max)  NULL,                                  -- NVARCHAR for Unicode safety
         [Tags]           [varchar](1000)  NULL,
         [IdempotencyKey] [varchar](255)   NULL,
         
         [Priority]       [int]            NOT NULL DEFAULT 10,
-        [Status]         [int]            NOT NULL,                             -- 0:Pending, 1:Fetched, 2:Processing
+        [Status]         [int]            NOT NULL,                              -- 0:Pending, 1:Fetched, 2:Processing
         [AttemptCount]   [int]            NOT NULL DEFAULT 0,
         
         [WorkerId]       [varchar](100)   NULL,
@@ -169,7 +169,7 @@ BEGIN
         [Payload]        [nvarchar](max)  NULL,
         [Tags]           [varchar](1000)  NULL,
         
-        [FailureReason]  [int]            NOT NULL,                             -- 0:MaxRetries, 1:Cancelled, 2:Zombie, 3:CircuitBreaker, 4:Rejected
+        [FailureReason]  [int]            NOT NULL,                              -- 0:MaxRetries, 1:Cancelled, 2:Zombie, 3:CircuitBreaker, 4:Rejected
         [ErrorDetails]   [nvarchar](max)  NULL,
         [AttemptCount]   [int]            NOT NULL,
         
@@ -263,6 +263,7 @@ BEGIN
         [IsPaused]             [bit]            NOT NULL DEFAULT 0,
         [IsActive]             [bit]            NOT NULL DEFAULT 1,
         [ZombieTimeoutSeconds] [int]            NULL,
+        [MaxWorkers]           [int]            NULL, -- Bulkhead concurrency limit
         [LastUpdatedUtc]       [datetime2](7)   NOT NULL,
         
         CONSTRAINT [PK_{SCHEMA}_Queues] PRIMARY KEY CLUSTERED ([Name] ASC)
@@ -273,7 +274,7 @@ GO
 -- 5a. Seed Default Configuration
 IF NOT EXISTS (SELECT 1 FROM [{SCHEMA}].[Queues] WHERE [Name] = 'default')
 BEGIN
-    INSERT INTO [{SCHEMA}].[Queues] ([Name], [IsPaused], [IsActive], [ZombieTimeoutSeconds], [LastUpdatedUtc])
-    VALUES ('default', 0, 1, NULL, SYSUTCDATETIME());
+    INSERT INTO [{SCHEMA}].[Queues] ([Name], [IsPaused], [IsActive], [ZombieTimeoutSeconds], [MaxWorkers], [LastUpdatedUtc])
+    VALUES ('default', 0, 1, NULL, NULL, SYSUTCDATETIME());
 END
 GO

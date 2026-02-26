@@ -505,6 +505,15 @@ public class SqlJobStorage : IJobStorage
         }, ct);
     }
 
+    public async ValueTask SetQueueMaxWorkersAsync(string queueName, int? maxWorkers, CancellationToken ct = default)
+    {
+        await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            await conn.ExecuteAsync(_q.SetQueueMaxWorkers, new { Name = queueName, MaxWorkers = maxWorkers }, ct);
+        }, ct);
+    }
+
     public async ValueTask SetQueueActiveAsync(string queueName, bool isActive, CancellationToken ct = default)
     {
         await ExecuteWithRetryAsync(async () =>

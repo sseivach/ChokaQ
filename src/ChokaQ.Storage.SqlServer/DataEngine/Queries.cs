@@ -56,6 +56,7 @@ internal sealed class Queries
     public readonly string GetQueues;
     public readonly string SetQueuePaused;
     public readonly string SetQueueZombieTimeout;
+    public readonly string SetQueueMaxWorkers;
     public readonly string SetQueueActive;
 
     // ========================================================================
@@ -89,10 +90,10 @@ internal sealed class Queries
             (@Id, @Queue, @Type, @Payload, @Tags, @IdempotencyKey, @Priority, 0,
              0, @ScheduledAt, SYSUTCDATETIME(), SYSUTCDATETIME(), @CreatedBy);
             
-            -- Ensure queue exists in config
+            -- Ensure queue exists in config (Added MaxWorkers)
             IF NOT EXISTS (SELECT 1 FROM [{schema}].[Queues] WHERE [Name] = @Queue)
-                INSERT INTO [{schema}].[Queues] ([Name], [IsPaused], [IsActive], [LastUpdatedUtc])
-                VALUES (@Queue, 0, 1, SYSUTCDATETIME());
+                INSERT INTO [{schema}].[Queues] ([Name], [IsPaused], [IsActive], [MaxWorkers], [LastUpdatedUtc])
+                VALUES (@Queue, 0, 1, NULL, SYSUTCDATETIME());
             
             -- Ensure stats row exists (MERGE for atomicity)
             MERGE [{schema}].[StatsSummary] AS target
@@ -102,15 +103,25 @@ internal sealed class Queries
                 INSERT ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal])
                 VALUES (@Queue, 0, 0, 0);";
 
+        // THE BULKHEAD PATTERN: 
+        // Calculates currently active jobs per queue and filters out queues exceeding their MaxWorkers limit.
         FetchNextBatch = $@"
-            WITH CTE AS (
+            WITH ActiveCounts AS (
+                SELECT [Queue], COUNT(1) AS CurrentActive
+                FROM [{schema}].[JobsHot] WITH (NOLOCK)
+                WHERE [Status] IN (1, 2)
+                GROUP BY [Queue]
+            ),
+            CTE AS (
                 SELECT TOP (@Limit) h.*
                 FROM [{schema}].[JobsHot] h WITH (UPDLOCK, READPAST)
                 LEFT JOIN [{schema}].[Queues] q ON q.[Name] = h.[Queue]
+                LEFT JOIN ActiveCounts ac ON ac.[Queue] = h.[Queue]
                 WHERE h.[Status] = 0
                   AND (h.[ScheduledAtUtc] IS NULL OR h.[ScheduledAtUtc] <= SYSUTCDATETIME())
                   AND (q.[IsPaused] = 0 OR q.[IsPaused] IS NULL)
                   AND (q.[IsActive] = 1 OR q.[IsActive] IS NULL)
+                  AND (q.[MaxWorkers] IS NULL OR ISNULL(ac.CurrentActive, 0) < q.[MaxWorkers])
                   {{QUEUE_FILTER}}
                 ORDER BY h.[Priority] DESC, ISNULL(h.[ScheduledAtUtc], h.[CreatedAtUtc]) ASC
             )
@@ -386,7 +397,7 @@ internal sealed class Queries
         GetDLQJob = $"SELECT * FROM [{schema}].[JobsDLQ] WITH (NOLOCK) WHERE [Id] = @Id";
 
         GetQueues = $@"
-            SELECT q.[Name], q.[IsPaused], q.[IsActive], q.[ZombieTimeoutSeconds], q.[LastUpdatedUtc]
+            SELECT q.[Name], q.[IsPaused], q.[IsActive], q.[ZombieTimeoutSeconds], q.[MaxWorkers], q.[LastUpdatedUtc]
             FROM [{schema}].[Queues] q WITH (NOLOCK)
             ORDER BY q.[Name]";
 
@@ -396,8 +407,8 @@ internal sealed class Queries
             WHEN MATCHED THEN 
                 UPDATE SET [IsPaused] = @IsPaused, [LastUpdatedUtc] = SYSUTCDATETIME()
             WHEN NOT MATCHED THEN 
-                INSERT ([Name], [IsPaused], [IsActive], [LastUpdatedUtc]) 
-                VALUES (@Name, @IsPaused, 1, SYSUTCDATETIME());";
+                INSERT ([Name], [IsPaused], [IsActive], [MaxWorkers], [LastUpdatedUtc]) 
+                VALUES (@Name, @IsPaused, 1, NULL, SYSUTCDATETIME());";
 
         SetQueueZombieTimeout = $@"
             MERGE [{schema}].[Queues] AS t
@@ -405,8 +416,17 @@ internal sealed class Queries
             WHEN MATCHED THEN 
                 UPDATE SET [ZombieTimeoutSeconds] = @Timeout, [LastUpdatedUtc] = SYSUTCDATETIME()
             WHEN NOT MATCHED THEN 
-                INSERT ([Name], [IsPaused], [IsActive], [ZombieTimeoutSeconds], [LastUpdatedUtc]) 
-                VALUES (@Name, 0, 1, @Timeout, SYSUTCDATETIME());";
+                INSERT ([Name], [IsPaused], [IsActive], [ZombieTimeoutSeconds], [MaxWorkers], [LastUpdatedUtc]) 
+                VALUES (@Name, 0, 1, @Timeout, NULL, SYSUTCDATETIME());";
+
+        SetQueueMaxWorkers = $@"
+            MERGE [{schema}].[Queues] AS t
+            USING (SELECT @Name AS Name) AS s ON (t.[Name] = s.Name)
+            WHEN MATCHED THEN 
+                UPDATE SET [MaxWorkers] = @MaxWorkers, [LastUpdatedUtc] = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN 
+                INSERT ([Name], [IsPaused], [IsActive], [MaxWorkers], [LastUpdatedUtc]) 
+                VALUES (@Name, 0, 1, @MaxWorkers, SYSUTCDATETIME());";
 
         SetQueueActive = $@"
             UPDATE [{schema}].[Queues]
@@ -419,7 +439,6 @@ internal sealed class Queries
         // RECOVERY & ZOMBIE DETECTION
         // ========================================================================
 
-        // Safely rolls back abandoned (Fetched but not Processing) jobs to Pending
         RecoverAbandoned = $@"
             UPDATE [{schema}].[JobsHot]
             SET [Status] = 0,

@@ -12,11 +12,13 @@ namespace ChokaQ.Abstractions.Entities;
 /// <param name="IsPaused">When true, workers skip this queue during fetch operations.</param>
 /// <param name="IsActive">When false, queue is hidden from dashboard (soft delete).</param>
 /// <param name="ZombieTimeoutSeconds">Per-queue override for zombie detection. Null uses global setting.</param>
+/// <param name="MaxWorkers">Concurrency limit for this specific queue. Prevents noisy neighbor issues. Null means unlimited.</param>
 /// <param name="LastUpdatedUtc">Last configuration change timestamp.</param>
 public record QueueEntity(
     string Name,
     bool IsPaused,
     bool IsActive,
     int? ZombieTimeoutSeconds,
+    int? MaxWorkers,
     DateTime LastUpdatedUtc
 );

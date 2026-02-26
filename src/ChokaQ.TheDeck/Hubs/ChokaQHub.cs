@@ -72,6 +72,14 @@ public class ChokaQHub : Hub
         await _storage.SetQueueZombieTimeoutAsync(queueName, timeoutSeconds);
     }
 
+    public async Task UpdateQueueMaxWorkers(string queueName, int? maxWorkers)
+    {
+        if (queueName?.Length > 255) return;
+
+        _logger.LogInformation("TheDeck: UpdateQueueMaxWorkers {Queue} -> {Limit}", queueName, maxWorkers);
+        await _storage.SetQueueMaxWorkersAsync(queueName, maxWorkers);
+    }
+
     public async Task PurgeDLQ(string[] jobIds)
     {
         _logger.LogWarning("TheDeck: PurgeDLQ requested for {Count} jobs", jobIds.Length);
@@ -99,7 +107,6 @@ public class ChokaQHub : Hub
         // 2. If not found in Active, try to find and update in DLQ (Morgue)
         if (!updated)
         {
-            // Ensure your IJobStorage interface has UpdateDLQJobDataAsync or similar
             updated = await _storage.UpdateDLQJobDataAsync(jobId, updates, "TheDeck Admin");
         }
 

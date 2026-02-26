@@ -306,6 +306,15 @@ public interface IJobStorage
         int? timeoutSeconds,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Sets the maximum number of parallel workers allowed for a specific queue.
+    /// Used to prevent resource starvation (Noisy Neighbor problem).
+    /// </summary>
+    ValueTask SetQueueMaxWorkersAsync(
+        string queueName,
+        int? maxWorkers,
+        CancellationToken ct = default);
+
     ValueTask SetQueueActiveAsync(
         string queueName,
         bool isActive,
