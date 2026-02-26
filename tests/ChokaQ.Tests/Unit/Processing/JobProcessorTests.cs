@@ -1,3 +1,4 @@
+using ChokaQ.Abstractions.Observability;
 using ChokaQ.Abstractions.Resilience;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Execution;
@@ -33,7 +34,8 @@ public class JobProcessorTests
             NullLogger<JobProcessor>.Instance,
             _breaker,
             _dispatcher,
-            _stateManager);
+            _stateManager,
+            Substitute.For<IChokaQMetrics>());
     }
 
     [Fact]

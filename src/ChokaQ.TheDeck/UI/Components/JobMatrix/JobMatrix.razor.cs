@@ -2,26 +2,48 @@ using ChokaQ.Abstractions.Enums;
 using ChokaQ.TheDeck.Enums;
 using ChokaQ.TheDeck.Models;
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.SignalR.Client;
 
 namespace ChokaQ.TheDeck.UI.Components.JobMatrix;
 
+/// <summary>
+/// Pure presentation component for the job table.
+/// All actions (single and bulk) are raised as EventCallbacks to the parent orchestrator.
+/// </summary>
 public partial class JobMatrix
 {
     [Parameter] public List<JobViewModel> Jobs { get; set; } = new();
     [Parameter] public bool IsConnected { get; set; }
     [Parameter] public EventCallback OnClearHistory { get; set; }
     [Parameter] public EventCallback<(DateTime?, DateTime?)> OnLoadHistory { get; set; }
-    [Parameter] public HubConnection? HubConnection { get; set; }
     [Parameter] public JobStatus? ActiveStatusFilter { get; set; }
     [Parameter] public EventCallback<string> OnJobSelected { get; set; }
     [Parameter] public JobSource CurrentSource { get; set; } = JobSource.Hot;
     [Parameter] public EventCallback<JobSource> OnSourceChanged { get; set; }
+
     /// <summary>
-    /// Event fired when an action (Retry/Cancel) is performed, 
+    /// Event fired when an action is performed,
     /// signaling the parent to reload data (crucial for History Mode).
     /// </summary>
     [Parameter] public EventCallback OnRefreshRequested { get; set; }
+
+    // --- Single-Row Action Callbacks ---
+
+    /// <summary>Raised when user clicks Cancel on a single row.</summary>
+    [Parameter] public EventCallback<string> OnCancel { get; set; }
+
+    /// <summary>Raised when user clicks Restart on a single row.</summary>
+    [Parameter] public EventCallback<string> OnRestart { get; set; }
+
+    // --- Bulk Action Callbacks ---
+
+    /// <summary>Raised when user clicks bulk Cancel for selected jobs.</summary>
+    [Parameter] public EventCallback<HashSet<string>> OnBulkCancel { get; set; }
+
+    /// <summary>Raised when user clicks bulk Retry for selected jobs.</summary>
+    [Parameter] public EventCallback<HashSet<string>> OnBulkRetry { get; set; }
+
+    /// <summary>Raised when user clicks bulk Purge for selected DLQ jobs.</summary>
+    [Parameter] public EventCallback<HashSet<string>> OnBulkPurge { get; set; }
 
     private string _searchQuery = "";
     private DateTime? _dateFrom;
@@ -78,53 +100,46 @@ public partial class JobMatrix
         }
     }
 
-    private void ClearSelection() => _selectedJobIds.Clear();
+    public void ClearSelection() => _selectedJobIds.Clear();
 
     private async Task HandleJobSelected(string jobId)
     {
         await OnJobSelected.InvokeAsync(jobId);
     }
 
-    private async Task RestartSelected()
-    {
-        if (HubConnection is not null && IsConnected)
-        {
-            var toProcess = _selectedJobIds.ToList();
-            foreach (var id in toProcess) await HubConnection.InvokeAsync("RestartJob", id);
-            _selectedJobIds.Clear();
-
-            await OnRefreshRequested.InvokeAsync();
-        }
-    }
-
-    private async Task CancelSelected()
-    {
-        if (HubConnection is not null && IsConnected)
-        {
-            var toProcess = _selectedJobIds.ToList();
-            foreach (var id in toProcess) await HubConnection.InvokeAsync("CancelJob", id);
-            _selectedJobIds.Clear();
-
-            await OnRefreshRequested.InvokeAsync();
-        }
-    }
+    // --- Single-Row Actions (delegate to parent) ---
 
     private async Task HandleCancelRequest(string jobId)
     {
-        if (HubConnection is not null && IsConnected)
-        {
-            await HubConnection.InvokeAsync("CancelJob", jobId);
-            await OnRefreshRequested.InvokeAsync();
-        }
+        await OnCancel.InvokeAsync(jobId);
     }
 
     private async Task HandleRestartRequest(string jobId)
     {
-        if (HubConnection is not null && IsConnected)
-        {
-            await HubConnection.InvokeAsync("RestartJob", jobId);
-            await OnRefreshRequested.InvokeAsync();
-        }
+        await OnRestart.InvokeAsync(jobId);
+    }
+
+    // --- Bulk Actions (delegate to parent) ---
+
+    private async Task CancelSelected()
+    {
+        if (_selectedJobIds.Count == 0) return;
+        await OnBulkCancel.InvokeAsync(new HashSet<string>(_selectedJobIds));
+        _selectedJobIds.Clear();
+    }
+
+    private async Task RestartSelected()
+    {
+        if (_selectedJobIds.Count == 0) return;
+        await OnBulkRetry.InvokeAsync(new HashSet<string>(_selectedJobIds));
+        _selectedJobIds.Clear();
+    }
+
+    private async Task PurgeSelected()
+    {
+        if (_selectedJobIds.Count == 0) return;
+        await OnBulkPurge.InvokeAsync(new HashSet<string>(_selectedJobIds));
+        _selectedJobIds.Clear();
     }
 
     private async Task ChangeSource(JobSource source)

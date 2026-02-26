@@ -1,4 +1,5 @@
 ﻿using ChokaQ.Abstractions.Jobs;
+using ChokaQ.Abstractions.Middleware;
 using ChokaQ.Core.Defaults;
 
 namespace ChokaQ.Core;
@@ -14,6 +15,7 @@ public class ChokaQOptions
     internal bool IsPipeMode { get; private set; }
     internal Type? PipeHandlerType { get; private set; }
     internal List<Type> ProfileTypes { get; } = new();
+    internal List<Type> MiddlewareTypes { get; } = new();
 
     // --- Storage Configuration ---
 
@@ -48,6 +50,16 @@ public class ChokaQOptions
     }
 
     /// <summary>
+    /// Registers a middleware to intercept job execution.
+    /// Middlewares are executed in the order they are added (Pipeline pattern).
+    /// </summary>
+    /// <typeparam name="TMiddleware">The middleware type.</typeparam>
+    public void AddMiddleware<TMiddleware>() where TMiddleware : class, IChokaQMiddleware
+    {
+        MiddlewareTypes.Add(typeof(TMiddleware));
+    }
+
+    /// <summary>
     /// Configures the default In-Memory storage behavior.
     /// Useful for Pipe Mode where no persistent database is used.
     /// </summary>
@@ -66,4 +78,11 @@ public class ChokaQOptions
     /// Base retry delay in seconds (Exponential Backoff starts here). Default: 3.
     /// </summary>
     public int RetryDelaySeconds { get; set; } = 3;
+
+    /// <summary>
+    /// Default timeout in seconds before a processing job without heartbeats is considered a zombie.
+    /// This value is used if a queue does not have a specific timeout configured.
+    /// Default: 600 seconds (10 minutes).
+    /// </summary>
+    public int ZombieTimeoutSeconds { get; set; } = 600;
 }

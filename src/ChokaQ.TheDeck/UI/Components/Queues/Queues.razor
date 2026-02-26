@@ -31,13 +31,13 @@
                     <th class="queues__th queues__th--reserv2">Failed</th>
                     <th class="queues__th queues__th--reserv1">Buffered</th>
                     <th class="queues__th queues__th--reserv3">Pending</th>
-                    <th class="queues__th queues__th--reserv4">Reserv 4</th>
+                    <th class="queues__th queues__th--timeout">Max Workers</th>
                     <th class="queues__th queues__th--timeout">Zombie (s)</th>
                     <th class="queues__th queues__th--updated">Last Updated</th>
                     <th class="queues__th queues__th--status">Status</th>
                     <th class="queues__th queues__th--toggle">Pause / Resume</th>
                     <th class="queues__th queues__th--actions">
-                         <label class="queues__show-hidden-label">
+                        <label class="queues__show-hidden-label">
                             <input type="checkbox" @bind="_showInactive" /> SHOW HIDDEN
                         </label>
                     </th>
@@ -94,7 +94,14 @@
                             }
                         </td>
 
-                        <td class="queues__reserv4-cell">---</td>
+                        <td class="queues__timeout-cell">
+                            <input type="number"
+                                   class="queues__timeout-input"
+                                   value="@q.MaxWorkers"
+                                   placeholder="?"
+                                   min="1"
+                                   @onchange="@(e => UpdateMaxWorkers(q.Name, e.Value))" />
+                        </td>
 
                         <td class="queues__timeout-cell">
                             <input type="number"
@@ -138,15 +145,6 @@
                                         title="Restore queue"
                                         @onclick="() => ActivateQueue(q.Name)">
                                     UNHIDE
-                                </button>
-                            }
-
-                            @if (!q.IsActive)
-                            {
-                                <button class="deck-btn queues__action-btn deck-btn-danger queues__action-btn--delete"
-                                        title="Delete queue"
-                                        @onclick="() => DeleteQueue(q.Name)">
-                                    DELETE
                                 </button>
                             }
                         </td>

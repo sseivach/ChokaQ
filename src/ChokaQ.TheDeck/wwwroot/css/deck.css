@@ -2351,3 +2351,104 @@ input[type="checkbox"]:checked::after {
     background: var(--deck-info);
     color: #fff;
 }
+
+/* ==========================================
+   COMPONENT STYLES: Toasts
+   ========================================== */
+.toast-container {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    z-index: 9999;
+    pointer-events: none; /* Let clicks pass through container */
+}
+
+.toast {
+    pointer-events: auto; /* Re-enable clicks for the toast itself */
+    display: flex;
+    align-items: center;
+    min-width: 250px;
+    max-width: 400px;
+    background: var(--sector-bg);
+    border: 1px solid var(--sector-border-color);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    border-left: 4px solid var(--deck-info);
+    padding: 0.75rem 1rem;
+    border-radius: 4px;
+    color: var(--deck-text-color);
+    font-family: var(--deck-font-family);
+    font-size: 0.85rem;
+    animation: toast-slide-in 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+.toast--success {
+    border-left-color: var(--deck-success);
+}
+
+.toast--error {
+    border-left-color: var(--deck-danger);
+}
+
+.toast--warning {
+    border-left-color: var(--deck-warning);
+}
+
+.toast--info {
+    border-left-color: var(--deck-info);
+}
+
+.toast__icon {
+    font-weight: bold;
+    margin-right: 0.75rem;
+    font-size: 1.1rem;
+}
+
+.toast--success .toast__icon {
+    color: var(--deck-success);
+}
+
+.toast--error .toast__icon {
+    color: var(--deck-danger);
+}
+
+.toast--warning .toast__icon {
+    color: var(--deck-warning);
+}
+
+.toast--info .toast__icon {
+    color: var(--deck-info);
+}
+
+.toast__message {
+    flex: 1;
+    line-height: 1.4;
+}
+
+.toast__close {
+    background: transparent;
+    border: none;
+    color: var(--deck-text-color);
+    opacity: 0.5;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0 0 0 0.75rem;
+}
+
+    .toast__close:hover {
+        opacity: 1;
+    }
+
+@keyframes toast-slide-in {
+    from {
+        transform: translateX(120%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}

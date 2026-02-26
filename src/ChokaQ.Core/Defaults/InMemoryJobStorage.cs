@@ -9,13 +9,6 @@ namespace ChokaQ.Core.Defaults;
 /// <summary>
 /// Thread-safe in-memory implementation of the Three Pillars storage.
 /// Suitable for "Pipe Mode" (Rocket Speed) or local development.
-/// 
-/// Storage structure:
-/// - _hotJobs: Active jobs (Pending, Fetched, Processing)
-/// - _archiveJobs: Succeeded jobs (History)
-/// - _dlqJobs: Failed/Cancelled/Zombie jobs (Dead Letter Queue)
-/// - _stats: Pre-aggregated counters per queue
-/// - _queues: Queue configuration
 /// </summary>
 public class InMemoryJobStorage : IJobStorage
 {
@@ -56,7 +49,6 @@ public class InMemoryJobStorage : IJobStorage
         string? idempotencyKey = null,
         CancellationToken ct = default)
     {
-        // Idempotency check
         if (!string.IsNullOrEmpty(idempotencyKey))
         {
             var existing = _hotJobs.Values.FirstOrDefault(j => j.IdempotencyKey == idempotencyKey);
@@ -92,6 +84,14 @@ public class InMemoryJobStorage : IJobStorage
         return new ValueTask<string>(id);
     }
 
+    /// <summary>
+    /// Atomically fetches and locks the next batch of pending jobs.
+    /// NOTE: This uses an O(N) LINQ scan over the hot dictionary. While a PriorityQueue (O(log N)) 
+    /// seems better, it introduces severe Head-of-Line blocking issues with Paused Queues and 
+    /// Scheduled jobs (requiring constant dequeue/re-enqueue spinning). 
+    /// Since the primary In-Memory execution path uses System.Threading.Channels (O(1)) instead 
+    /// of this polling method, this LINQ approach is kept for safety and simplicity in custom polling scenarios.
+    /// </summary>
     public ValueTask<IEnumerable<JobHotEntity>> FetchNextBatchAsync(
         string workerId,
         int batchSize,
@@ -100,11 +100,18 @@ public class InMemoryJobStorage : IJobStorage
     {
         var now = DateTime.UtcNow;
 
+        // Calculate active counts per queue for Bulkhead pattern (MaxWorkers)
+        var activeCounts = _hotJobs.Values
+            .Where(j => j.Status == JobStatus.Fetched || j.Status == JobStatus.Processing)
+            .GroupBy(j => j.Queue)
+            .ToDictionary(g => g.Key, g => g.Count());
+
         var candidates = _hotJobs.Values
             .Where(j => j.Status == JobStatus.Pending &&
                         (allowedQueues == null || allowedQueues.Contains(j.Queue)) &&
                         (!j.ScheduledAtUtc.HasValue || j.ScheduledAtUtc <= now) &&
-                        !IsQueuePaused(j.Queue))
+                        !IsQueuePaused(j.Queue) &&
+                        !IsQueueLimitReached(j.Queue, activeCounts))
             .OrderByDescending(j => j.Priority)
             .ThenBy(j => j.ScheduledAtUtc ?? j.CreatedAtUtc)
             .Take(batchSize)
@@ -126,6 +133,12 @@ public class InMemoryJobStorage : IJobStorage
             if (_hotJobs.TryUpdate(job.Id, fetched, job))
             {
                 lockedJobs.Add(fetched);
+
+                // Update local active count so we don't exceed limit within the same batch fetch
+                if (activeCounts.ContainsKey(job.Queue))
+                    activeCounts[job.Queue]++;
+                else
+                    activeCounts[job.Queue] = 1;
             }
         }
 
@@ -215,6 +228,26 @@ public class InMemoryJobStorage : IJobStorage
         return MoveToDLQ(jobId, FailureReason.Cancelled, error);
     }
 
+    public ValueTask<int> ArchiveCancelledBatchAsync(string[] jobIds, string? cancelledBy = null, CancellationToken ct = default)
+    {
+        int count = 0;
+        var error = cancelledBy != null ? $"Cancelled by: {cancelledBy}" : "Cancelled by admin (Batch)";
+
+        foreach (var id in jobIds)
+        {
+            lock (_transitionLock)
+            {
+                if (_hotJobs.TryGetValue(id, out var job) &&
+                   (job.Status == JobStatus.Pending || job.Status == JobStatus.Fetched))
+                {
+                    MoveToDLQ(id, FailureReason.Cancelled, error).GetAwaiter().GetResult();
+                    count++;
+                }
+            }
+        }
+        return new ValueTask<int>(count);
+    }
+
     public ValueTask ArchiveZombieAsync(string jobId, CancellationToken ct = default)
     {
         return MoveToDLQ(jobId, FailureReason.Zombie, "Zombie: Worker heartbeat expired");
@@ -238,10 +271,10 @@ public class InMemoryJobStorage : IJobStorage
                 Type: dlqJob.Type,
                 Payload: updates?.Payload ?? dlqJob.Payload,
                 Tags: updates?.Tags ?? dlqJob.Tags,
-                IdempotencyKey: null, // Clear idempotency on resurrection
+                IdempotencyKey: null,
                 Priority: updates?.Priority ?? 10,
                 Status: JobStatus.Pending,
-                AttemptCount: 0, // Reset attempts
+                AttemptCount: 0,
                 WorkerId: null,
                 HeartbeatUtc: null,
                 ScheduledAtUtc: null,
@@ -261,7 +294,6 @@ public class InMemoryJobStorage : IJobStorage
     public ValueTask<int> ResurrectBatchAsync(string[] jobIds, string? resurrectedBy = null, CancellationToken ct = default)
     {
         int count = 0;
-        // Process in batches of 1000
         foreach (var batch in jobIds.Chunk(1000))
         {
             foreach (var id in batch)
@@ -303,8 +335,6 @@ public class InMemoryJobStorage : IJobStorage
 
     public ValueTask ReleaseJobAsync(string jobId, CancellationToken ct = default)
     {
-        // In-Memory implementation logic (simplified):
-        // Revert status to Pending so other workers/threads can pick it up.
         if (_hotJobs.TryGetValue(jobId, out var job))
         {
             var released = job with
@@ -360,7 +390,6 @@ public class InMemoryJobStorage : IJobStorage
         if (!_hotJobs.TryGetValue(jobId, out var job))
             return new ValueTask<bool>(false);
 
-        // Safety Gate: Only Pending jobs can be edited
         if (job.Status != JobStatus.Pending)
             return new ValueTask<bool>(false);
 
@@ -429,12 +458,11 @@ public class InMemoryJobStorage : IJobStorage
 
     public ValueTask<StatsSummaryEntity> GetSummaryStatsAsync(CancellationToken ct = default)
     {
-        // Hybrid: Real-time counts from Hot + totals from Stats
         var hotValues = _hotJobs.Values;
         var statsValues = _stats.Values;
 
         var stats = new StatsSummaryEntity(
-            Queue: null, // Aggregated across all queues
+            Queue: null,
             Pending: hotValues.Count(x => x.Status == JobStatus.Pending),
             Fetched: hotValues.Count(x => x.Status == JobStatus.Fetched),
             Processing: hotValues.Count(x => x.Status == JobStatus.Processing),
@@ -450,7 +478,6 @@ public class InMemoryJobStorage : IJobStorage
 
     public ValueTask<IEnumerable<StatsSummaryEntity>> GetQueueStatsAsync(CancellationToken ct = default)
     {
-        // Per-queue stats
         var allQueues = _queues.Keys.ToList();
         var result = new List<StatsSummaryEntity>();
 
@@ -594,7 +621,6 @@ public class InMemoryJobStorage : IJobStorage
 
     public ValueTask<IEnumerable<QueueEntity>> GetQueuesAsync(CancellationToken ct = default)
     {
-        // Collect all unique queues from all three pillars
         var allQueues = _hotJobs.Values.Select(j => j.Queue)
             .Concat(_archiveJobs.Values.Select(j => j.Queue))
             .Concat(_dlqJobs.Values.Select(j => j.Queue))
@@ -609,6 +635,7 @@ public class InMemoryJobStorage : IJobStorage
                 IsPaused: queueData.IsPaused,
                 IsActive: queueData.IsActive,
                 ZombieTimeoutSeconds: queueData.ZombieTimeoutSeconds,
+                MaxWorkers: queueData.MaxWorkers,
                 LastUpdatedUtc: queueData.LastUpdatedUtc
             );
         }).ToList();
@@ -632,6 +659,14 @@ public class InMemoryJobStorage : IJobStorage
         return ValueTask.CompletedTask;
     }
 
+    public ValueTask SetQueueMaxWorkersAsync(string queueName, int? maxWorkers, CancellationToken ct = default)
+    {
+        _queues.AddOrUpdate(queueName,
+            new QueueData(queueName) { MaxWorkers = maxWorkers },
+            (_, old) => { old.MaxWorkers = maxWorkers; old.LastUpdatedUtc = DateTime.UtcNow; return old; });
+        return ValueTask.CompletedTask;
+    }
+
     public ValueTask SetQueueActiveAsync(string queueName, bool isActive, CancellationToken ct = default)
     {
         _queues.AddOrUpdate(queueName,
@@ -641,8 +676,38 @@ public class InMemoryJobStorage : IJobStorage
     }
 
     // ========================================================================
-    // ZOMBIE DETECTION
+    // RECOVERY & ZOMBIE DETECTION
     // ========================================================================
+
+    public ValueTask<int> RecoverAbandonedAsync(int timeoutSeconds, CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+        int count = 0;
+
+        var abandonedJobs = _hotJobs.Values
+            .Where(j => j.Status == JobStatus.Fetched && j.LastUpdatedUtc < now.AddSeconds(-timeoutSeconds))
+            .ToList();
+
+        foreach (var job in abandonedJobs)
+        {
+            lock (_transitionLock)
+            {
+                var recovered = job with
+                {
+                    Status = JobStatus.Pending,
+                    WorkerId = null,
+                    AttemptCount = Math.Max(0, job.AttemptCount - 1),
+                    LastUpdatedUtc = now
+                };
+
+                if (_hotJobs.TryUpdate(job.Id, recovered, job))
+                {
+                    count++;
+                }
+            }
+        }
+        return new ValueTask<int>(count);
+    }
 
     public ValueTask<int> ArchiveZombiesAsync(int globalTimeoutSeconds, CancellationToken ct = default)
     {
@@ -655,16 +720,13 @@ public class InMemoryJobStorage : IJobStorage
 
         foreach (var job in processingJobs)
         {
-            // Determine effective timeout
             int timeout = globalTimeoutSeconds;
             if (_queues.TryGetValue(job.Queue, out var q) && q.ZombieTimeoutSeconds.HasValue)
                 timeout = q.ZombieTimeoutSeconds.Value;
 
-            // Check heartbeat expiration
             var heartbeat = job.HeartbeatUtc ?? job.StartedAtUtc ?? job.LastUpdatedUtc;
             if (heartbeat < now.AddSeconds(-timeout))
             {
-                // Move to DLQ
                 lock (_transitionLock)
                 {
                     if (_hotJobs.TryRemove(job.Id, out var removed))
@@ -706,7 +768,6 @@ public class InMemoryJobStorage : IJobStorage
     {
         var query = _archiveJobs.Values.AsEnumerable();
 
-        // 1. Filter
         if (!string.IsNullOrEmpty(filter.Queue))
             query = query.Where(x => x.Queue == filter.Queue);
 
@@ -720,15 +781,13 @@ public class InMemoryJobStorage : IJobStorage
             query = query.Where(x => x.Id.Contains(filter.SearchTerm, StringComparison.OrdinalIgnoreCase) ||
                                      x.Type.Contains(filter.SearchTerm, StringComparison.OrdinalIgnoreCase));
 
-        // 2. Sort
         if (filter.SortDescending)
-            query = query.OrderByDescending(x => x.FinishedAtUtc); // Simplified sort
+            query = query.OrderByDescending(x => x.FinishedAtUtc);
         else
             query = query.OrderBy(x => x.FinishedAtUtc);
 
         var total = query.Count();
 
-        // 3. Page
         var items = query
             .Skip((filter.PageNumber - 1) * filter.PageSize)
             .Take(filter.PageSize)
@@ -744,12 +803,11 @@ public class InMemoryJobStorage : IJobStorage
     {
         var query = _dlqJobs.Values.AsEnumerable();
 
-        // Similar filters...
         if (!string.IsNullOrEmpty(filter.Queue))
             query = query.Where(x => x.Queue == filter.Queue);
 
         if (filter.FromUtc.HasValue)
-            query = query.Where(x => x.CreatedAtUtc >= filter.FromUtc); // DLQ usually uses Created or Failed
+            query = query.Where(x => x.CreatedAtUtc >= filter.FromUtc);
 
         if (!string.IsNullOrEmpty(filter.SearchTerm))
             query = query.Where(x => x.Id.Contains(filter.SearchTerm, StringComparison.OrdinalIgnoreCase));
@@ -811,6 +869,18 @@ public class InMemoryJobStorage : IJobStorage
         return _queues.TryGetValue(queue, out var q) && q.IsPaused;
     }
 
+    private bool IsQueueLimitReached(string queue, Dictionary<string, int> activeCounts)
+    {
+        if (_queues.TryGetValue(queue, out var q) && q.MaxWorkers.HasValue)
+        {
+            if (activeCounts.TryGetValue(queue, out var active))
+            {
+                return active >= q.MaxWorkers.Value;
+            }
+        }
+        return false;
+    }
+
     private void IncrementStats(string queue, long succeeded = 0, long failed = 0, long retried = 0)
     {
         _stats.AddOrUpdate(queue,
@@ -846,7 +916,6 @@ public class InMemoryJobStorage : IJobStorage
         if (totalCount < _maxCapacity)
             return;
 
-        // First: Remove old archived jobs
         var archiveToRemove = _archiveJobs.Values
             .OrderBy(j => j.FinishedAtUtc)
             .Take(1000)
@@ -856,7 +925,6 @@ public class InMemoryJobStorage : IJobStorage
         foreach (var id in archiveToRemove)
             _archiveJobs.TryRemove(id, out _);
 
-        // If still over capacity: Remove old DLQ jobs
         if (_hotJobs.Count + _archiveJobs.Count + _dlqJobs.Count >= _maxCapacity)
         {
             var dlqToRemove = _dlqJobs.Values
@@ -880,6 +948,7 @@ public class InMemoryJobStorage : IJobStorage
         public bool IsPaused { get; set; }
         public bool IsActive { get; set; } = true;
         public int? ZombieTimeoutSeconds { get; set; }
+        public int? MaxWorkers { get; set; }
         public DateTime LastUpdatedUtc { get; set; } = DateTime.UtcNow;
 
         public QueueData(string name) => Name = name;

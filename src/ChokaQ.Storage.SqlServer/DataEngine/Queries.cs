@@ -56,12 +56,14 @@ internal sealed class Queries
     public readonly string GetQueues;
     public readonly string SetQueuePaused;
     public readonly string SetQueueZombieTimeout;
+    public readonly string SetQueueMaxWorkers;
     public readonly string SetQueueActive;
 
     // ========================================================================
-    // ZOMBIE DETECTION
+    // RECOVERY & ZOMBIE DETECTION
     // ========================================================================
 
+    public readonly string RecoverAbandoned;
     public readonly string ArchiveZombies;
 
     // ========================================================================
@@ -72,6 +74,8 @@ internal sealed class Queries
     public readonly string GetArchiveCount;
     public readonly string GetDLQPaged;
     public readonly string GetDLQCount;
+
+    public readonly string ArchiveCancelledBatch;
 
     public Queries(string schema)
     {
@@ -86,10 +90,10 @@ internal sealed class Queries
             (@Id, @Queue, @Type, @Payload, @Tags, @IdempotencyKey, @Priority, 0,
              0, @ScheduledAt, SYSUTCDATETIME(), SYSUTCDATETIME(), @CreatedBy);
             
-            -- Ensure queue exists in config
+            -- Ensure queue exists in config (Added MaxWorkers)
             IF NOT EXISTS (SELECT 1 FROM [{schema}].[Queues] WHERE [Name] = @Queue)
-                INSERT INTO [{schema}].[Queues] ([Name], [IsPaused], [IsActive], [LastUpdatedUtc])
-                VALUES (@Queue, 0, 1, SYSUTCDATETIME());
+                INSERT INTO [{schema}].[Queues] ([Name], [IsPaused], [IsActive], [MaxWorkers], [LastUpdatedUtc])
+                VALUES (@Queue, 0, 1, NULL, SYSUTCDATETIME());
             
             -- Ensure stats row exists (MERGE for atomicity)
             MERGE [{schema}].[StatsSummary] AS target
@@ -99,15 +103,25 @@ internal sealed class Queries
                 INSERT ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal])
                 VALUES (@Queue, 0, 0, 0);";
 
+        // THE BULKHEAD PATTERN: 
+        // Calculates currently active jobs per queue and filters out queues exceeding their MaxWorkers limit.
         FetchNextBatch = $@"
-            WITH CTE AS (
+            WITH ActiveCounts AS (
+                SELECT [Queue], COUNT(1) AS CurrentActive
+                FROM [{schema}].[JobsHot] WITH (NOLOCK)
+                WHERE [Status] IN (1, 2)
+                GROUP BY [Queue]
+            ),
+            CTE AS (
                 SELECT TOP (@Limit) h.*
                 FROM [{schema}].[JobsHot] h WITH (UPDLOCK, READPAST)
                 LEFT JOIN [{schema}].[Queues] q ON q.[Name] = h.[Queue]
+                LEFT JOIN ActiveCounts ac ON ac.[Queue] = h.[Queue]
                 WHERE h.[Status] = 0
                   AND (h.[ScheduledAtUtc] IS NULL OR h.[ScheduledAtUtc] <= SYSUTCDATETIME())
                   AND (q.[IsPaused] = 0 OR q.[IsPaused] IS NULL)
                   AND (q.[IsActive] = 1 OR q.[IsActive] IS NULL)
+                  AND (q.[MaxWorkers] IS NULL OR ISNULL(ac.CurrentActive, 0) < q.[MaxWorkers])
                   {{QUEUE_FILTER}}
                 ORDER BY h.[Priority] DESC, ISNULL(h.[ScheduledAtUtc], h.[CreatedAtUtc]) ASC
             )
@@ -134,8 +148,6 @@ internal sealed class Queries
 
         GetJob = $"SELECT * FROM [{schema}].[JobsHot] WHERE [Id] = @Id";
 
-        // Reverts a job from Fetched (1) to Pending (0).
-        // Decrements AttemptCount because the execution did not actually start.
         ReleaseJob = $@"
             UPDATE [{schema}].[JobsHot]
             SET [Status] = 0,
@@ -228,17 +240,32 @@ internal sealed class Queries
             WHERE [Queue] = @Queue;";
 
         ResurrectBatch = $@"
-                -- Move batch to Hot
-                INSERT INTO [{schema}].[JobsHot]
-                ([Id], [Queue], [Type], [Payload], [Tags], [Priority], [Status], [AttemptCount],
-                 [CreatedAtUtc], [LastUpdatedUtc], [CreatedBy], [LastModifiedBy])
-                SELECT [Id], [Queue], [Type], [Payload], [Tags], 10, 0, 0,
-                       [CreatedAtUtc], SYSUTCDATETIME(), [CreatedBy], @ResurrectedBy
-                FROM [{schema}].[JobsDLQ]
-                WHERE [Id] IN @Ids;
+            DECLARE @ResurrectedIds TABLE (Id varchar(50), Queue varchar(255));
 
-                -- Remove from DLQ
-                DELETE FROM [{schema}].[JobsDLQ] WHERE [Id] IN @Ids;";
+            -- 1. Move batch to Hot (reset state)
+            INSERT INTO [{schema}].[JobsHot]
+            ([Id], [Queue], [Type], [Payload], [Tags], [Priority], [Status], [AttemptCount],
+             [CreatedAtUtc], [LastUpdatedUtc], [CreatedBy], [LastModifiedBy])
+            OUTPUT inserted.Id, inserted.Queue INTO @ResurrectedIds
+            SELECT [Id], [Queue], [Type], [Payload], [Tags], 10, 0, 0,
+                   [CreatedAtUtc], SYSUTCDATETIME(), [CreatedBy], @ResurrectedBy
+            FROM [{schema}].[JobsDLQ]
+            WHERE [Id] IN (SELECT value FROM OPENJSON(@JsonIds));
+
+            -- 2. Remove from DLQ
+            DELETE FROM [{schema}].[JobsDLQ] 
+            WHERE [Id] IN (SELECT Id FROM @ResurrectedIds);
+
+            -- 3. Update stats (Decrement failed counts securely)
+            UPDATE s
+            SET s.[FailedTotal] = CASE WHEN s.[FailedTotal] > counts.ResurrectedCount THEN s.[FailedTotal] - counts.ResurrectedCount ELSE 0 END,
+                s.[LastActivityUtc] = SYSUTCDATETIME()
+            FROM [{schema}].[StatsSummary] s
+            INNER JOIN (
+                SELECT Queue, COUNT(*) as ResurrectedCount FROM @ResurrectedIds GROUP BY Queue
+            ) counts ON counts.Queue = s.[Queue];
+
+            SELECT COUNT(*) FROM @ResurrectedIds;";
 
         RescheduleForRetry = $@"
             DECLARE @Queue varchar(255);
@@ -276,7 +303,7 @@ internal sealed class Queries
 
         PurgeDLQ = $@"
             DELETE FROM [{schema}].[JobsDLQ] 
-            WHERE [Id] IN @Ids;
+            WHERE [Id] IN (SELECT value FROM OPENJSON(@JsonIds));
 
             UPDATE s
             SET s.[FailedTotal] = (
@@ -286,7 +313,6 @@ internal sealed class Queries
             ),
             s.[LastActivityUtc] = SYSUTCDATETIME()
             FROM [{schema}].[StatsSummary] s;";
-
 
         PurgeArchive = $@"
             DECLARE @DeletedIds TABLE (Id nvarchar(50));
@@ -352,30 +378,26 @@ internal sealed class Queries
             ORDER BY q.[Name]";
 
         GetActiveJobs = $@"
-            SELECT TOP (@Limit) * 
-            FROM [{schema}].[JobsHot] WITH (NOLOCK)
+            SELECT TOP (@Limit) * FROM [{schema}].[JobsHot] WITH (NOLOCK)
             {{WHERE_CLAUSE}}
             ORDER BY [CreatedAtUtc] DESC";
 
         GetArchiveJobs = $@"
-            SELECT TOP (@Limit) * 
-            FROM [{schema}].[JobsArchive] WITH (NOLOCK)
+            SELECT TOP (@Limit) * FROM [{schema}].[JobsArchive] WITH (NOLOCK)
             {{WHERE_CLAUSE}}
             ORDER BY [FinishedAtUtc] DESC";
 
         GetArchiveJob = $"SELECT * FROM [{schema}].[JobsArchive] WITH (NOLOCK) WHERE [Id] = @Id";
 
         GetDLQJobs = $@"
-            SELECT TOP (@Limit) * 
-            FROM [{schema}].[JobsDLQ] WITH (NOLOCK)
+            SELECT TOP (@Limit) * FROM [{schema}].[JobsDLQ] WITH (NOLOCK)
             {{WHERE_CLAUSE}}
             ORDER BY [FailedAtUtc] DESC";
 
         GetDLQJob = $"SELECT * FROM [{schema}].[JobsDLQ] WITH (NOLOCK) WHERE [Id] = @Id";
 
-        // QUEUE MANAGEMENT
         GetQueues = $@"
-            SELECT q.[Name], q.[IsPaused], q.[IsActive], q.[ZombieTimeoutSeconds], q.[LastUpdatedUtc]
+            SELECT q.[Name], q.[IsPaused], q.[IsActive], q.[ZombieTimeoutSeconds], q.[MaxWorkers], q.[LastUpdatedUtc]
             FROM [{schema}].[Queues] q WITH (NOLOCK)
             ORDER BY q.[Name]";
 
@@ -385,8 +407,8 @@ internal sealed class Queries
             WHEN MATCHED THEN 
                 UPDATE SET [IsPaused] = @IsPaused, [LastUpdatedUtc] = SYSUTCDATETIME()
             WHEN NOT MATCHED THEN 
-                INSERT ([Name], [IsPaused], [IsActive], [LastUpdatedUtc]) 
-                VALUES (@Name, @IsPaused, 1, SYSUTCDATETIME());";
+                INSERT ([Name], [IsPaused], [IsActive], [MaxWorkers], [LastUpdatedUtc]) 
+                VALUES (@Name, @IsPaused, 1, NULL, SYSUTCDATETIME());";
 
         SetQueueZombieTimeout = $@"
             MERGE [{schema}].[Queues] AS t
@@ -394,8 +416,17 @@ internal sealed class Queries
             WHEN MATCHED THEN 
                 UPDATE SET [ZombieTimeoutSeconds] = @Timeout, [LastUpdatedUtc] = SYSUTCDATETIME()
             WHEN NOT MATCHED THEN 
-                INSERT ([Name], [IsPaused], [IsActive], [ZombieTimeoutSeconds], [LastUpdatedUtc]) 
-                VALUES (@Name, 0, 1, @Timeout, SYSUTCDATETIME());";
+                INSERT ([Name], [IsPaused], [IsActive], [ZombieTimeoutSeconds], [MaxWorkers], [LastUpdatedUtc]) 
+                VALUES (@Name, 0, 1, @Timeout, NULL, SYSUTCDATETIME());";
+
+        SetQueueMaxWorkers = $@"
+            MERGE [{schema}].[Queues] AS t
+            USING (SELECT @Name AS Name) AS s ON (t.[Name] = s.Name)
+            WHEN MATCHED THEN 
+                UPDATE SET [MaxWorkers] = @MaxWorkers, [LastUpdatedUtc] = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN 
+                INSERT ([Name], [IsPaused], [IsActive], [MaxWorkers], [LastUpdatedUtc]) 
+                VALUES (@Name, 0, 1, @MaxWorkers, SYSUTCDATETIME());";
 
         SetQueueActive = $@"
             UPDATE [{schema}].[Queues]
@@ -404,16 +435,28 @@ internal sealed class Queries
                 [LastUpdatedUtc] = SYSUTCDATETIME()
             WHERE [Name] = @Name";
 
-        // ZOMBIE DETECTION
+        // ========================================================================
+        // RECOVERY & ZOMBIE DETECTION
+        // ========================================================================
+
+        RecoverAbandoned = $@"
+            UPDATE [{schema}].[JobsHot]
+            SET [Status] = 0,
+                [WorkerId] = NULL,
+                [AttemptCount] = CASE WHEN [AttemptCount] > 0 THEN [AttemptCount] - 1 ELSE 0 END,
+                [LastUpdatedUtc] = SYSUTCDATETIME()
+            WHERE [Status] = 1 
+              AND DATEDIFF(SECOND, [LastUpdatedUtc], SYSUTCDATETIME()) > @TimeoutSeconds;";
+
         ArchiveZombies = $@"
             DECLARE @ZombieIds TABLE (Id varchar(50), Queue varchar(255));
 
-            -- Find zombies (Processing or Fetched with expired heartbeat)
+            -- Find true zombies (Only Processing status with expired heartbeat)
             INSERT INTO @ZombieIds (Id, Queue)
             SELECT h.[Id], h.[Queue]
             FROM [{schema}].[JobsHot] h
             LEFT JOIN [{schema}].[Queues] q ON q.[Name] = h.[Queue]
-            WHERE h.[Status] IN (1, 2)
+            WHERE h.[Status] = 2 -- ONLY Processing
               AND DATEDIFF(SECOND, ISNULL(h.[HeartbeatUtc], h.[LastUpdatedUtc]), SYSUTCDATETIME()) 
                   > ISNULL(q.[ZombieTimeoutSeconds], @GlobalTimeout);
 
@@ -423,7 +466,7 @@ internal sealed class Queries
              [WorkerId], [CreatedBy], [LastModifiedBy], [CreatedAtUtc], [FailedAtUtc])
             SELECT h.[Id], h.[Queue], h.[Type], h.[Payload], h.[Tags], 
                    2, -- Zombie
-                   'Zombie: Worker heartbeat expired',
+                   'Zombie: Worker heartbeat expired during execution',
                    h.[AttemptCount], h.[WorkerId], h.[CreatedBy], h.[LastModifiedBy], 
                    h.[CreatedAtUtc], SYSUTCDATETIME()
             FROM [{schema}].[JobsHot] h
@@ -444,8 +487,7 @@ internal sealed class Queries
 
             SELECT COUNT(*) FROM @ZombieIds;";
 
-        // HISTORY - 1. ARCHIVE PAGED
-        // Note: {ORDER_BY} and {WHERE_CLAUSE} are replaced at runtime in SqlJobStorage
+        // HISTORY
         GetArchivePaged = $@"
             SELECT * FROM [{schema}].[JobsArchive] WITH (NOLOCK)
             {{WHERE_CLAUSE}}
@@ -457,7 +499,6 @@ internal sealed class Queries
             FROM [{schema}].[JobsArchive] WITH (NOLOCK)
             {{WHERE_CLAUSE}}";
 
-        // HISTORY - 2. DLQ PAGED
         GetDLQPaged = $@"
             SELECT * FROM [{schema}].[JobsDLQ] WITH (NOLOCK)
             {{WHERE_CLAUSE}}
@@ -468,5 +509,33 @@ internal sealed class Queries
             SELECT COUNT(1) 
             FROM [{schema}].[JobsDLQ] WITH (NOLOCK)
             {{WHERE_CLAUSE}}";
+
+        ArchiveCancelledBatch = $@"
+            DECLARE @CancelledIds TABLE (Id varchar(50), Queue varchar(255));
+
+            -- 1. Insert into DLQ (Only Pending or Fetched)
+            INSERT INTO [{schema}].[JobsDLQ]
+            ([Id], [Queue], [Type], [Payload], [Tags], [FailureReason], [ErrorDetails], [AttemptCount],
+             [WorkerId], [CreatedBy], [LastModifiedBy], [CreatedAtUtc], [FailedAtUtc])
+            OUTPUT inserted.Id, inserted.Queue INTO @CancelledIds
+            SELECT [Id], [Queue], [Type], [Payload], [Tags], 1, @Error, [AttemptCount],
+                   [WorkerId], [CreatedBy], @CancelledBy, [CreatedAtUtc], SYSUTCDATETIME()
+            FROM [{schema}].[JobsHot]
+            WHERE [Id] IN (SELECT value FROM OPENJSON(@JsonIds)) AND [Status] IN (0, 1);
+
+            -- 2. Delete from Hot
+            DELETE FROM [{schema}].[JobsHot] 
+            WHERE [Id] IN (SELECT Id FROM @CancelledIds);
+
+            -- 3. Update Stats in bulk
+            UPDATE s
+            SET s.[FailedTotal] = s.[FailedTotal] + counts.CancelledCount,
+                s.[LastActivityUtc] = SYSUTCDATETIME()
+            FROM [{schema}].[StatsSummary] s
+            INNER JOIN (
+                SELECT Queue, COUNT(*) as CancelledCount FROM @CancelledIds GROUP BY Queue
+            ) counts ON counts.Queue = s.[Queue];
+
+            SELECT COUNT(*) FROM @CancelledIds;";
     }
 }

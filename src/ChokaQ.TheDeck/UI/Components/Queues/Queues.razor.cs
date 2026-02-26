@@ -95,6 +95,25 @@ public partial class Queues : IDisposable
         }
     }
 
+    private async Task UpdateMaxWorkers(string name, object? value)
+    {
+        int? parsedValue = null;
+        if (value is string strVal && int.TryParse(strVal, out int iVal)) parsedValue = Math.Max(1, iVal);
+        else if (value is int intVal) parsedValue = Math.Max(1, intVal);
+
+        var q = _queues.FirstOrDefault(x => x.Name == name);
+        if (q != null)
+        {
+            var index = _queues.IndexOf(q);
+            _queues[index] = q with { MaxWorkers = parsedValue };
+        }
+
+        if (HubConnection is not null && IsConnected)
+        {
+            await HubConnection.InvokeAsync("UpdateQueueMaxWorkers", name, parsedValue);
+        }
+    }
+
     // Soft Delete (Deactivate)
     private async Task DeactivateQueue(string name)
     {
@@ -113,11 +132,6 @@ public partial class Queues : IDisposable
             await HubConnection.InvokeAsync("SetQueueActive", name, true);
             await Refresh();
         }
-    }
-
-    private void DeleteQueue(string name)
-    {
-        Console.WriteLine($"DELETE {name} (Not Implemented)");
     }
 
     private string GetQueueStatus(QueueEntity q)

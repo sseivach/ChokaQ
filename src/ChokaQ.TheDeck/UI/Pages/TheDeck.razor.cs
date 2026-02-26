@@ -27,49 +27,38 @@ public partial class TheDeck : IAsyncDisposable
     private StatsSummaryEntity _counts = new(null, 0, 0, 0, 0, 0, 0, 0, null);
     private List<CircuitStatsDto> _circuits = new();
     private List<LogEntry> _logs = new();
+    private List<ToastModel> _activeToasts = new();
 
     private Components.OpsPanel.OpsPanel _opsPanel = default!;
     private System.Timers.Timer? _uiRefreshTimer;
 
     // --- Mode & Context ---
-
-    // The current source of truth for the table (Hot, Archive, or DLQ)
     private JobSource _currentContext = JobSource.Hot;
-
-    // Computed property to determine if we are in a historical (static) view
     private bool IsHistoryMode => _currentContext != JobSource.Hot;
-
-    // Filter for Live Hot jobs (e.g., only show "Processing"). Null means show all active.
     private JobStatus? _activeStatusFilter;
 
-    // --- History State (Data binding for OpsPanel) ---
+    // --- History State ---
     private int _historyTotalItems;
     private int _historyPageNumber = 1;
     private int _historyPageSize = 100;
 
     private bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
-    private const int MaxLiveCount = 100; // Limit live rows to keep DOM light
+    private const int MaxLiveCount = 100;
 
-    // Throttling for SignalR updates to prevent UI freezing
     private DateTime _lastStatsUpdate = DateTime.MinValue;
     private static readonly TimeSpan StatsUpdateThrottle = TimeSpan.FromMilliseconds(1000);
     private bool _renderPending = false;
-
-    // Cache the last filter to support refresh actions (like Retry/Delete)
     private HistoryFilterDto? _lastHistoryFilter;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadDataAsync();
 
-        // Start background timer for counters and live table updates
-        // It runs every 2 seconds but respects the IsHistoryMode flag logic inside LoadDataAsync
         _uiRefreshTimer = new System.Timers.Timer(2000);
         _uiRefreshTimer.AutoReset = true;
         _uiRefreshTimer.Elapsed += async (sender, e) => await LoadDataAsync();
         _uiRefreshTimer.Start();
 
-        // Initialize SignalR
         var hubPath = Options.RoutePrefix.TrimEnd('/') + "/hub";
         var hubUrl = Navigation.ToAbsoluteUri(hubPath);
 
@@ -84,28 +73,19 @@ public partial class TheDeck : IAsyncDisposable
         AddLog("System connected", "Success");
     }
 
-    /// <summary>
-    /// The "Smart Timer" Loop.
-    /// Updates global counters regardless of mode.
-    /// Updates the Job Table ONLY if in Active (Hot) Mode.
-    /// </summary>
     private async Task LoadDataAsync()
     {
         try
         {
-            // 1. Always update global counters and circuit breakers (Fast & Cheap operation)
             _counts = await JobStorage.GetSummaryStatsAsync();
             _circuits = CircuitBreaker.GetCircuitStats().ToList();
 
-            // 2. STOP: If not in Hot (Live) mode, do not touch the table.
-            // In Archive/DLQ modes, the table is static and controlled by the OpsPanel filters.
             if (_currentContext != JobSource.Hot)
             {
                 await InvokeAsync(StateHasChanged);
                 return;
             }
 
-            // 3. Live Mode: Load Active (Hot) Jobs
             var hotJobs = await JobStorage.GetActiveJobsAsync(MaxLiveCount, statusFilter: _activeStatusFilter);
             var viewModels = MapHotJobs(hotJobs);
 
@@ -115,72 +95,57 @@ public partial class TheDeck : IAsyncDisposable
                 StateHasChanged();
             });
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // FIX: Prevent silent failure. Report stale data state to the UI console.
+            await InvokeAsync(() =>
+            {
+                AddLog($"Data sync failed. Showing stale data. Reason: {ex.Message}", "Error");
+                StateHasChanged();
+            });
+        }
     }
 
-    /// <summary>
-    /// Handles the explicit Source switch (Active / Archive / DLQ) from the toolbar.
-    /// </summary>
-    /// <summary>
-    /// Handles the explicit Source switch (Active / Archive / DLQ) from the toolbar.
-    /// </summary>
     private async Task HandleSourceChanged(JobSource source)
     {
-        // Avoid reloading if clicking the same tab
         if (_currentContext == source) return;
 
         _currentContext = source;
-        _jobs.Clear(); // Clear table to indicate context switch
-        _activeStatusFilter = null; // Reset status filters
+        _jobs.Clear();
+        _activeStatusFilter = null;
 
-        // This closes any open Inspector or Editor and clears selected Job ID.
-        // Doing this BEFORE loading new data ensures no "ghost" jobs remain in the UI.
         _opsPanel.ClearPanel();
 
         if (source == JobSource.Hot)
         {
-            // SWITCH TO ACTIVE
-            // ClearPanel already closed everything, so just load data.
             await LoadDataAsync();
         }
         else
         {
-            // SWITCH TO ARCHIVE OR DLQ
-            // We want the panel to show Filters, not be empty.
             _opsPanel.ShowHistoryFilter();
-
-            // "Show me something, bro" - Load last 10 records immediately
             await LoadInitialHistory(source);
         }
 
         StateHasChanged();
     }
 
-    /// <summary>
-    /// Loads a small batch of recent records so the table isn't empty on context switch.
-    /// </summary>
     private async Task LoadInitialHistory(JobSource source)
     {
         var filter = new HistoryFilterDto(
-            FromUtc: null, // Null means "all time" (or last N records)
+            FromUtc: null,
             ToUtc: null,
             SearchTerm: null,
             Queue: null,
             Status: null,
             PageNumber: 1,
-            PageSize: 10, // Just 10 items for a quick preview
+            PageSize: 10,
             SortBy: "Date",
             SortDescending: true
         );
 
-        // Reuse the existing load mechanism
         await HandleHistoryLoadRequest(filter);
     }
 
-    /// <summary>
-    /// Callback from OpsPanel -> HistoryFilter.
-    /// Executed when user clicks "LOAD DATA" or changes page/sort.
-    /// </summary>
     private async Task HandleHistoryLoadRequest(HistoryFilterDto filter)
     {
         _lastHistoryFilter = filter;
@@ -191,20 +156,17 @@ public partial class TheDeck : IAsyncDisposable
 
             if (_currentContext == JobSource.Archive)
             {
-                // Fetch from Archive Table
                 var result = await JobStorage.GetArchivePagedAsync(filter);
                 _historyTotalItems = result.TotalCount;
                 viewModels = MapArchiveJobs(result.Items);
             }
-            else // DLQ
+            else
             {
-                // Fetch from DLQ Table
                 var result = await JobStorage.GetDLQPagedAsync(filter);
                 _historyTotalItems = result.TotalCount;
                 viewModels = MapDLQJobs(result.Items);
             }
 
-            // Update local state to reflect current page in pagination controls
             _historyPageNumber = filter.PageNumber;
             _historyPageSize = filter.PageSize;
 
@@ -213,8 +175,6 @@ public partial class TheDeck : IAsyncDisposable
                 _jobs = viewModels;
                 StateHasChanged();
             });
-
-            AddLog($"Loaded {viewModels.Count} records from {_currentContext}", "Info");
         }
         catch (Exception ex)
         {
@@ -222,31 +182,21 @@ public partial class TheDeck : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Called when JobMatrix reports a change (Retry/Cancel clicked).
-    /// </summary>
     private async Task HandleDataRefreshRequest()
     {
         if (IsHistoryMode && _lastHistoryFilter != null)
         {
-            // Small delay to allow SQL Transaction (Resurrect) to commit
             await Task.Delay(100);
             await HandleHistoryLoadRequest(_lastHistoryFilter);
         }
         else if (!IsHistoryMode)
         {
-            // In Live mode, just force an immediate timer tick
             await LoadDataAsync();
         }
     }
 
-    /// <summary>
-    /// Handles user clicking on top Stats Cards (Pending, Fetched, etc.).
-    /// Only interactive when in Active (Hot) mode.
-    /// </summary>
     private async Task HandleStatusSelected(JobStatus? status)
     {
-        // Stats clicking is disabled in Archive/DLQ to prevent "Magic Context Switching"
         if (_currentContext == JobSource.Hot)
         {
             _activeStatusFilter = status;
@@ -254,38 +204,22 @@ public partial class TheDeck : IAsyncDisposable
         }
     }
 
-    // --- Interaction Handlers (Actions) ---
-
     private void HandleJobInspectorRequested(string jobId)
     {
         _opsPanel.ShowJobInspector(jobId);
     }
 
-    /// <summary>
-    /// Handles the "Resurrect" action from the Inspector.
-    /// Moves a job from DLQ back to Hot (Active).
-    /// </summary>
     private async Task HandleRequeueRequested(string jobId)
     {
-        // 1. Send the command to the backend via SignalR hub
         if (_hubConnection != null) await _hubConnection.InvokeAsync("ResurrectJob", jobId, null, null);
-        AddLog($"Resurrect request sent for {jobId}", "Info");
+        AddLog($"Resurrect request sent for {jobId}", "Success");
 
-        // 2. OPTIMISTIC UI: Manual counter manipulation ("Twitching the counter")
-        // We know for sure that one job leaves the DLQ (Failed state).
-        // Let's decrease it immediately so the user sees instant feedback.
         if (_counts != null && _counts.FailedTotal > 0)
         {
-            // StatsSummaryEntity is a record, so we use 'with' to update the value
             _counts = _counts with { FailedTotal = _counts.FailedTotal - 1 };
         }
 
-        // 3. Close the Inspector
-        // The job is gone from the morgue, nothing to look at here.
         _opsPanel.ClearPanel();
-
-        // 4. Refresh the table data
-        // This will remove the row from the grid.
         await HandleDataRefreshRequest();
     }
 
@@ -298,7 +232,59 @@ public partial class TheDeck : IAsyncDisposable
         await HandleDataRefreshRequest();
     }
 
-    // --- Mappers (Entity -> ViewModel) ---
+    private async Task HandleSingleCancel(string jobId)
+    {
+        if (_hubConnection is null) return;
+        await _hubConnection.InvokeAsync("CancelJob", jobId);
+        AddLog($"Cancel request sent for {jobId}", "Warning");
+        await HandleDataRefreshRequest();
+    }
+
+    private async Task HandleSingleRestart(string jobId)
+    {
+        if (_hubConnection is null) return;
+        await _hubConnection.InvokeAsync("RestartJob", jobId);
+        AddLog($"Restart request sent for {jobId}", "Success");
+        await HandleDataRefreshRequest();
+    }
+
+    private async Task HandleBulkCancel(HashSet<string> jobIds)
+    {
+        if (_hubConnection is null || jobIds.Count == 0) return;
+        await _hubConnection.InvokeAsync("CancelJobs", jobIds.ToArray());
+        AddLog($"Bulk cancel: {jobIds.Count} jobs", "Warning");
+        await HandleDataRefreshRequest();
+    }
+
+    private async Task HandleBulkRetry(HashSet<string> jobIds)
+    {
+        if (_hubConnection is null || jobIds.Count == 0) return;
+        await _hubConnection.InvokeAsync("RestartJobs", jobIds.ToArray());
+        AddLog($"Bulk retry: {jobIds.Count} jobs", "Success");
+
+        if (_currentContext == JobSource.DLQ && _counts.FailedTotal > 0)
+        {
+            var decrease = Math.Min(jobIds.Count, (int)_counts.FailedTotal);
+            _counts = _counts with { FailedTotal = _counts.FailedTotal - decrease };
+        }
+
+        await HandleDataRefreshRequest();
+    }
+
+    private async Task HandleBulkPurge(HashSet<string> jobIds)
+    {
+        if (_hubConnection is null || jobIds.Count == 0) return;
+        await _hubConnection.InvokeAsync("PurgeDLQ", jobIds.ToArray());
+        AddLog($"Bulk purge: {jobIds.Count} jobs permanently deleted", "Error");
+
+        if (_counts.FailedTotal > 0)
+        {
+            var decrease = Math.Min(jobIds.Count, (int)_counts.FailedTotal);
+            _counts = _counts with { FailedTotal = _counts.FailedTotal - decrease };
+        }
+
+        await HandleDataRefreshRequest();
+    }
 
     private List<JobViewModel> MapHotJobs(IEnumerable<JobHotEntity> entities)
     {
@@ -355,16 +341,12 @@ public partial class TheDeck : IAsyncDisposable
         }).ToList();
     }
 
-    // --- Logging & SignalR ---
-
     private void RegisterHubHandlers()
     {
         if (_hubConnection == null) return;
 
-        // Listen for live updates only if we are in Live Mode
         _hubConnection.On<JobUpdateDto>("JobUpdated", (dto) =>
         {
-            // Only update UI if we are in Live Mode
             if (IsHistoryMode) return;
 
             InvokeAsync(() =>
@@ -381,7 +363,6 @@ public partial class TheDeck : IAsyncDisposable
                 }
                 else
                 {
-                    // Add new job to the top
                     _jobs.Insert(0, new JobViewModel
                     {
                         Id = dto.JobId,
@@ -401,7 +382,6 @@ public partial class TheDeck : IAsyncDisposable
             });
         });
 
-        // Stats updates are always relevant (counters)
         _hubConnection.On("StatsUpdated", () =>
         {
             if (DateTime.UtcNow - _lastStatsUpdate < StatsUpdateThrottle) return;
@@ -415,11 +395,43 @@ public partial class TheDeck : IAsyncDisposable
         });
     }
 
+    // --- TOAST AND LOGGING LOGIC ---
+
     private void AddLog(string message, string level)
     {
         _logs.Add(new LogEntry(DateTime.Now, message, level));
         if (_logs.Count > 500) _logs.RemoveAt(0);
+
+        // Fire off a toast silently in the background
+        _ = ShowToastAsync(message, level);
+
         ThrottledRender();
+    }
+
+    private async Task ShowToastAsync(string message, string level)
+    {
+        var toast = new ToastModel(Guid.NewGuid(), message, level);
+        _activeToasts.Add(toast);
+        await InvokeAsync(StateHasChanged);
+
+        // Auto-dismiss after 4 seconds
+        await Task.Delay(4000);
+
+        if (_activeToasts.Contains(toast))
+        {
+            _activeToasts.Remove(toast);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void RemoveToast(Guid id)
+    {
+        var toast = _activeToasts.FirstOrDefault(t => t.Id == id);
+        if (toast != null)
+        {
+            _activeToasts.Remove(toast);
+            StateHasChanged();
+        }
     }
 
     private void HandleLog((string Message, string Level) log) => AddLog(log.Message, log.Level);

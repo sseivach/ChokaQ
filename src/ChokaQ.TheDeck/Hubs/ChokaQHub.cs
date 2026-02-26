@@ -47,6 +47,13 @@ public class ChokaQHub : Hub
 
     public async Task ToggleQueue(string queueName, bool pause)
     {
+        // Fail Fast Validation
+        if (queueName?.Length > 255)
+        {
+            _logger.LogWarning("TheDeck: Rejected ToggleQueue due to invalid queue length.");
+            return;
+        }
+
         _logger.LogInformation("TheDeck: ToggleQueue {Queue} -> Paused={Pause}", queueName, pause);
         await _storage.SetQueuePausedAsync(queueName, pause);
     }
@@ -59,8 +66,18 @@ public class ChokaQHub : Hub
 
     public async Task UpdateQueueTimeout(string queueName, int? timeoutSeconds)
     {
+        if (queueName?.Length > 255) return;
+
         _logger.LogInformation("TheDeck: UpdateQueueTimeout {Queue} -> {Timeout}s", queueName, timeoutSeconds);
         await _storage.SetQueueZombieTimeoutAsync(queueName, timeoutSeconds);
+    }
+
+    public async Task UpdateQueueMaxWorkers(string queueName, int? maxWorkers)
+    {
+        if (queueName?.Length > 255) return;
+
+        _logger.LogInformation("TheDeck: UpdateQueueMaxWorkers {Queue} -> {Limit}", queueName, maxWorkers);
+        await _storage.SetQueueMaxWorkersAsync(queueName, maxWorkers);
     }
 
     public async Task PurgeDLQ(string[] jobIds)
@@ -73,6 +90,14 @@ public class ChokaQHub : Hub
     {
         _logger.LogInformation("TheDeck: EditJob requested for {JobId}", jobId);
 
+        // --- FAIL FAST VALIDATION ---
+        if (newTags != null && newTags.Length > 1000)
+        {
+            _logger.LogWarning("TheDeck: Rejected EditJob for {JobId}. Tags exceed 1000 chars.", jobId);
+            return false;
+        }
+        // ----------------------------
+
         // Create DTO with changes
         var updates = new JobDataUpdateDto(newPayload, newTags, newPriority);
 
@@ -82,7 +107,6 @@ public class ChokaQHub : Hub
         // 2. If not found in Active, try to find and update in DLQ (Morgue)
         if (!updated)
         {
-            // Ensure your IJobStorage interface has UpdateDLQJobDataAsync or similar
             updated = await _storage.UpdateDLQJobDataAsync(jobId, updates, "TheDeck Admin");
         }
 
@@ -96,7 +120,31 @@ public class ChokaQHub : Hub
 
     public async Task SetQueueActive(string queueName, bool isActive)
     {
+        if (queueName?.Length > 255) return;
+
         _logger.LogInformation("TheDeck: SetQueueActive {Queue} -> {Active}", queueName, isActive);
         await _storage.SetQueueActiveAsync(queueName, isActive);
+    }
+
+    // ========================================================================
+    // BULK OPERATIONS
+    // ========================================================================
+
+    public async Task CancelJobs(string[] jobIds)
+    {
+        _logger.LogInformation("TheDeck: Bulk CancelJobs requested for {Count} jobs", jobIds.Length);
+        await _workerManager.CancelJobsAsync(jobIds);
+    }
+
+    public async Task RestartJobs(string[] jobIds)
+    {
+        _logger.LogInformation("TheDeck: Bulk RestartJobs requested for {Count} jobs", jobIds.Length);
+        await _workerManager.RestartJobsAsync(jobIds);
+    }
+
+    public async Task<int> ResurrectJobs(string[] jobIds)
+    {
+        _logger.LogInformation("TheDeck: Bulk ResurrectJobs requested for {Count} jobs", jobIds.Length);
+        return await _storage.ResurrectBatchAsync(jobIds, "TheDeck Admin");
     }
 }

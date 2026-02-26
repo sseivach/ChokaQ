@@ -1,12 +1,15 @@
-using ChokaQ.Abstractions.Contexts;
+﻿using ChokaQ.Abstractions.Contexts;
 using ChokaQ.Abstractions.Jobs;
+using ChokaQ.Abstractions.Middleware;
 using ChokaQ.Abstractions.Notifications;
+using ChokaQ.Abstractions.Observability;
 using ChokaQ.Abstractions.Resilience;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Abstractions.Workers;
 using ChokaQ.Core.Contexts;
 using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
+using ChokaQ.Core.Observability;
 using ChokaQ.Core.Processing;
 using ChokaQ.Core.Resilience;
 using ChokaQ.Core.State;
@@ -61,6 +64,12 @@ public static class ChokaQCoreExtensions
         // Register core infrastructure (storage, queues, processors)
         AddInfrastructure(services, options);
 
+        // Register Middlewares in the order they were added
+        foreach (var middlewareType in options.MiddlewareTypes)
+        {
+            services.AddTransient(typeof(IChokaQMiddleware), middlewareType);
+        }
+
         // Register strategy-specific services (Bus vs Pipe)
         if (options.IsPipeMode)
         {
@@ -83,6 +92,7 @@ public static class ChokaQCoreExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IDeduplicator, InMemoryDeduplicator>();
         services.TryAddSingleton<ICircuitBreaker, InMemoryCircuitBreaker>();
+        services.TryAddSingleton<IChokaQMetrics, ChokaQMetrics>();
 
         // Register InMemoryJobStorage with the configured options (Three Pillars)
         services.TryAddSingleton<IJobStorage>(sp => new InMemoryJobStorage(options.InMemoryOptions));
@@ -99,6 +109,7 @@ public static class ChokaQCoreExtensions
             sp.GetRequiredService<ICircuitBreaker>(),
             sp.GetRequiredService<IJobDispatcher>(),
             sp.GetRequiredService<IJobStateManager>(),
+            sp.GetRequiredService<IChokaQMetrics>(),
             options
         ));
         services.TryAddSingleton<JobWorker>();
@@ -106,8 +117,13 @@ public static class ChokaQCoreExtensions
 
         services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
 
-        // Register the Zombie Rescue Service
-        services.AddHostedService<ZombieRescueService>();
+        // Register the Zombie Rescue Service with configured options
+        services.AddHostedService(sp => new ZombieRescueService(
+            sp.GetRequiredService<IJobStorage>(),
+            sp.GetRequiredService<IChokaQNotifier>(),
+            sp.GetRequiredService<ILogger<ZombieRescueService>>(),
+            options
+        ));
     }
 
     private static void AddPipeStrategy(IServiceCollection services, ChokaQOptions options)

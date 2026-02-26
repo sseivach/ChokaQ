@@ -35,10 +35,14 @@
                        IsConnected="IsConnected"
                        CurrentSource="_currentContext"
                        OnSourceChanged="HandleSourceChanged"
-                       HubConnection="_hubConnection"
                        ActiveStatusFilter="_activeStatusFilter"
                        OnJobSelected="HandleJobInspectorRequested"
-                       OnRefreshRequested="HandleDataRefreshRequest" />
+                       OnRefreshRequested="HandleDataRefreshRequest"
+                       OnCancel="HandleSingleCancel"
+                       OnRestart="HandleSingleRestart"
+                       OnBulkCancel="HandleBulkCancel"
+                       OnBulkRetry="HandleBulkRetry"
+                       OnBulkPurge="HandleBulkPurge" />
         </section>
 
         <footer class="deck__row deck__row--console">
@@ -73,4 +77,5 @@
         </section>
     </aside>
 
+    <ToastContainer Toasts="_activeToasts" OnClose="RemoveToast" />
 </main>

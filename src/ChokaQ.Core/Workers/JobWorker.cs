@@ -135,6 +135,25 @@ public class JobWorker : BackgroundService, IWorkerManager
         }
     }
 
+    /// <summary>
+    /// Batch cancellation via parallel Task.WhenAll.
+    /// </summary>
+    public Task CancelJobsAsync(IEnumerable<string> jobIds) =>
+        Task.WhenAll(jobIds.Select(CancelJobAsync));
+
+    /// <summary>
+    /// Batch restart: uses ResurrectBatchAsync for single DB roundtrip, then re-queues.
+    /// </summary>
+    public async Task RestartJobsAsync(IEnumerable<string> jobIds)
+    {
+        var ids = jobIds.ToArray();
+        var resurrected = await _storage.ResurrectBatchAsync(ids, "Admin restart");
+        _logger.LogInformation("Bulk restart: {Count}/{Total} jobs resurrected from DLQ.", resurrected, ids.Length);
+
+        // Re-queue all resurrected jobs for the in-memory channel
+        foreach (var id in ids) await RequeueJobFromStorage(id);
+    }
+
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
         UpdateWorkerCount(1);

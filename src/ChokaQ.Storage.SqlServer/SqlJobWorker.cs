@@ -284,6 +284,43 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
         }
     }
 
+    /// <summary>
+    /// Batch cancellation via parallel Task.WhenAll.
+    /// </summary>
+    /// <summary>
+    /// Batch cancellation: stops running tasks in memory, then uses a single DB roundtrip 
+    /// (via OPENJSON) to move all remaining Pending/Fetched jobs to the DLQ.
+    /// </summary>
+    public async Task CancelJobsAsync(IEnumerable<string> jobIds)
+    {
+        var ids = jobIds.ToArray();
+        if (ids.Length == 0) return;
+
+        // 1. Cancel running tasks in memory (blazing fast, no DB call)
+        if (_processor is JobProcessor concreteProcessor)
+        {
+            foreach (var id in ids)
+            {
+                concreteProcessor.CancelJob(id);
+            }
+        }
+
+        // 2. Batch move Pending/Fetched jobs to DLQ in ONE SQL call!
+        var count = await _storage.ArchiveCancelledBatchAsync(ids, "Admin batch cancellation");
+        _logger.LogInformation("Bulk cancel: {Count}/{Total} pending jobs archived to DLQ.", count, ids.Length);
+    }
+
+    /// <summary>
+    /// Batch restart: uses ResurrectBatchAsync for a single SQL batch operation.
+    /// Fetcher loop will pick up newly-pending jobs automatically.
+    /// </summary>
+    public async Task RestartJobsAsync(IEnumerable<string> jobIds)
+    {
+        var ids = jobIds.ToArray();
+        var count = await _storage.ResurrectBatchAsync(ids, "Admin restart");
+        _logger.LogInformation("Bulk restart: {Count}/{Total} jobs resurrected from DLQ.", count, ids.Length);
+    }
+
     public override void Dispose()
     {
         _concurrencyLimiter.Dispose();

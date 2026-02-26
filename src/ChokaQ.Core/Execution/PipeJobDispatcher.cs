@@ -1,4 +1,5 @@
 ﻿using ChokaQ.Abstractions.Jobs;
+using ChokaQ.Abstractions.Middleware;
 using ChokaQ.Core.Contexts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -38,9 +39,24 @@ public class PipeJobDispatcher : IJobDispatcher
             throw new InvalidOperationException("Pipe mode is enabled, but no implementation of IChokaQPipeHandler was found in the DI container.");
         }
 
-        // 3. Execute
-        // We pass the raw type string and payload directly to the user code.
-        await handler.HandleAsync(jobType, payload, ct);
+        // 3. Build Pipeline
+        var middlewares = serviceProvider.GetServices<IChokaQMiddleware>().Reverse().ToList();
+
+        JobDelegate pipeline = async () =>
+        {
+            await handler.HandleAsync(jobType, payload, ct);
+        };
+
+        // Wrap the core handler with middlewares
+        foreach (var middleware in middlewares)
+        {
+            var next = pipeline;
+            // In Pipe mode, we pass the raw payload string as the `job` object
+            pipeline = () => middleware.InvokeAsync(jobContext, payload, next);
+        }
+
+        // 4. Execute Pipeline
+        await pipeline();
     }
 
     public JobMetadata ParseMetadata(string payload)

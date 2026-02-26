@@ -32,4 +32,16 @@ public class SqlJobStorageOptions
     /// Default: 5 seconds.
     /// </summary>
     public TimeSpan NoQueuesSleepInterval { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Maximum number of retries for transient database errors (e.g., deadlocks, network blips).
+    /// Default: 3.
+    /// </summary>
+    public int MaxTransientRetries { get; set; } = 3;
+
+    /// <summary>
+    /// Base delay before retrying a failed database operation. Grows exponentially.
+    /// Default: 200 milliseconds.
+    /// </summary>
+    public int TransientRetryBaseDelayMs { get; set; } = 200;
 }

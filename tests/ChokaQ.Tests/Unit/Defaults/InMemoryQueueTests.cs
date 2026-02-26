@@ -2,6 +2,7 @@ using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Notifications;
+using ChokaQ.Abstractions.Observability;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
@@ -24,7 +25,7 @@ public class InMemoryQueueTests
         _storage = Substitute.For<IJobStorage>();
         _notifier = Substitute.For<IChokaQNotifier>();
         _registry = new JobTypeRegistry();
-        _queue = new InMemoryQueue(_storage, _notifier, _registry, NullLogger<InMemoryQueue>.Instance);
+        _queue = new InMemoryQueue(_storage, _notifier, _registry, Substitute.For<IChokaQMetrics>(), NullLogger<InMemoryQueue>.Instance);
     }
 
     [Fact]

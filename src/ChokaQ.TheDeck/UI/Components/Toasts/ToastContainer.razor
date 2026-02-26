@@ -1,0 +1,13 @@
+@using ChokaQ.TheDeck.Models
+@namespace ChokaQ.TheDeck.UI.Components.Toasts
+
+<div class="toast-container">
+    @foreach (var toast in Toasts)
+    {
+        <div @key="toast.Id" class="toast toast--@toast.Level.ToLower()">
+            <div class="toast__icon">@GetIcon(toast.Level)</div>
+            <div class="toast__message">@toast.Message</div>
+            <button class="toast__close" @onclick="() => HandleClose(toast.Id)" title="Close">×</button>
+        </div>
+    }
+</div>

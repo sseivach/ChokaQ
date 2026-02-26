@@ -6,10 +6,12 @@ using Microsoft.Extensions.Logging;
 namespace ChokaQ.Core.Resilience;
 
 /// <summary>
-/// Background service that periodically scans for "Zombie" jobs.
-/// A Zombie is a job stuck in 'Processing' state but whose worker has stopped sending heartbeats
-/// (e.g., due to a server crash, power outage, or OOM killer).
+/// Background service that periodically scans for stuck jobs.
 /// 
+/// Step 1 (Recovery): Finds "Abandoned" jobs (stuck in Fetched state due to a worker crash before processing started) 
+/// and returns them to the queue (Pending) for another worker to pick up.
+/// 
+/// Step 2 (Zombie Kill): Finds "Zombie" jobs (stuck in Processing state with an expired heartbeat).
 /// In Three Pillars architecture, zombies are moved to DLQ with FailureReason.Zombie.
 /// </summary>
 public class ZombieRescueService : BackgroundService
@@ -17,49 +19,65 @@ public class ZombieRescueService : BackgroundService
     private readonly IJobStorage _storage;
     private readonly IChokaQNotifier _notifier;
     private readonly ILogger<ZombieRescueService> _logger;
+    private readonly int _globalZombieTimeoutSeconds;
 
     // Config: How often to run the cleanup scan
     private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(1);
 
-    // Config: Default fallback timeout if queue specific setting is missing.
-    // 10 minutes allows for some network latency or long GC pauses before declaring death.
-    private const int DefaultGlobalZombieTimeoutSeconds = 600;
-
     public ZombieRescueService(
         IJobStorage storage,
         IChokaQNotifier notifier,
-        ILogger<ZombieRescueService> logger)
+        ILogger<ZombieRescueService> logger,
+        ChokaQOptions options)
     {
         _storage = storage;
         _notifier = notifier;
         _logger = logger;
+        _globalZombieTimeoutSeconds = options.ZombieTimeoutSeconds;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Zombie Rescue Service started. Watching for dead workers...");
+        _logger.LogInformation("Zombie Rescue Service started. Watching for abandoned and dead jobs...");
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                // Execute the cleanup - zombies are moved to DLQ
-                int zombiesArchived = await _storage.ArchiveZombiesAsync(DefaultGlobalZombieTimeoutSeconds, stoppingToken);
+                bool statsChanged = false;
+
+                // --- STEP 1: RECOVER ABANDONED JOBS ---
+                // Jobs that were Fetched but never made it to Processing.
+                // We use the same timeout setting for simplicity. They get returned to Pending (Status 0).
+                int abandonedRecovered = await _storage.RecoverAbandonedAsync(_globalZombieTimeoutSeconds, stoppingToken);
+
+                if (abandonedRecovered > 0)
+                {
+                    _logger.LogWarning("RECOVERY: Found {Count} abandoned jobs (stuck in Fetched state). Returned them to Pending queue.", abandonedRecovered);
+                    statsChanged = true;
+                }
+
+                // --- STEP 2: ARCHIVE TRUE ZOMBIES ---
+                // Jobs that were Processing but stopped sending heartbeats.
+                // They get moved to the DLQ.
+                int zombiesArchived = await _storage.ArchiveZombiesAsync(_globalZombieTimeoutSeconds, stoppingToken);
 
                 if (zombiesArchived > 0)
                 {
-                    _logger.LogWarning(
-                        "ZOMBIE ALERT: Archived {Count} dead jobs to DLQ. They can be resurrected from the Morgue view.",
-                        zombiesArchived);
+                    _logger.LogWarning("ZOMBIE ALERT: Archived {Count} dead jobs to DLQ. They can be resurrected from the Morgue view.", zombiesArchived);
+                    statsChanged = true;
+                }
 
-                    // Notify dashboard to refresh
+                // --- STEP 3: NOTIFY UI ---
+                if (statsChanged)
+                {
                     try
                     {
                         await _notifier.NotifyStatsUpdatedAsync();
                     }
                     catch
                     {
-                        // Ignore notification failures
+                        // Ignore notification failures - UI will eventually catch up
                     }
                 }
             }

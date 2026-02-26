@@ -134,6 +134,15 @@ public interface IJobStorage
     /// <param name="ct">Cancellation token.</param>
     ValueTask ReleaseJobAsync(string jobId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Atomically moves a batch of cancelled jobs to DLQ: Hot → DLQ.
+    /// Only affects jobs in Pending or Fetched status.
+    /// </summary>
+    ValueTask<int> ArchiveCancelledBatchAsync(
+        string[] jobIds,
+        string? cancelledBy = null,
+        CancellationToken ct = default);
+
     // ========================================================================
     // RETRY LOGIC (Stays in Hot)
     // ========================================================================
@@ -297,21 +306,35 @@ public interface IJobStorage
         int? timeoutSeconds,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Sets the maximum number of parallel workers allowed for a specific queue.
+    /// Used to prevent resource starvation (Noisy Neighbor problem).
+    /// </summary>
+    ValueTask SetQueueMaxWorkersAsync(
+        string queueName,
+        int? maxWorkers,
+        CancellationToken ct = default);
+
     ValueTask SetQueueActiveAsync(
-        string queueName, 
-        bool isActive, 
+        string queueName,
+        bool isActive,
         CancellationToken ct = default);
 
     // ========================================================================
-    // ZOMBIE DETECTION
+    // RECOVERY & ZOMBIE DETECTION
     // ========================================================================
 
     /// <summary>
-    /// Finds and archives zombie jobs (Processing with expired heartbeat).
+    /// Recovers abandoned jobs (stuck in Fetched state) by reverting them to Pending.
+    /// This happens when a worker crashes after fetching but before processing.
+    /// </summary>
+    /// <returns>Number of recovered jobs.</returns>
+    ValueTask<int> RecoverAbandonedAsync(int timeoutSeconds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Finds and archives true zombie jobs (Processing with expired heartbeat) to the DLQ.
     /// </summary>
     /// <param name="globalTimeoutSeconds">Default timeout if queue-specific not set.</param>
     /// <returns>Number of zombies archived to DLQ.</returns>
-    ValueTask<int> ArchiveZombiesAsync(
-        int globalTimeoutSeconds,
-        CancellationToken ct = default);
+    ValueTask<int> ArchiveZombiesAsync(int globalTimeoutSeconds, CancellationToken ct = default);
 }
