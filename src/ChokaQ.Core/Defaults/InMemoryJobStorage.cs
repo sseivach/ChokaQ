@@ -92,6 +92,14 @@ public class InMemoryJobStorage : IJobStorage
         return new ValueTask<string>(id);
     }
 
+    /// <summary>
+    /// Atomically fetches and locks the next batch of pending jobs.
+    /// NOTE: This uses an O(N) LINQ scan over the hot dictionary. While a PriorityQueue (O(log N))
+    /// seems better, it introduces severe Head-of-Line blocking issues with Paused Queues and
+    /// Scheduled jobs (requiring constant dequeue/re-enqueue spinning).
+    /// Since the primary In-Memory execution path uses System.Threading.Channels (O(1)) instead
+    /// of this polling method, this LINQ approach is kept for safety and simplicity in custom polling scenarios.
+    /// </summary>
     public ValueTask<IEnumerable<JobHotEntity>> FetchNextBatchAsync(
         string workerId,
         int batchSize,
