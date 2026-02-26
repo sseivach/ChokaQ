@@ -25,9 +25,9 @@ public class SqlJobStorage : IJobStorage
     private readonly SqlJobStorageOptions _options;
     private readonly string _schema;
     private readonly Queries _q;
-    private readonly IChokaQMetrics _metrics;
+    private readonly IChokaQMetrics? _metrics;
 
-    public SqlJobStorage(IOptions<SqlJobStorageOptions> options, IChokaQMetrics metrics)
+    public SqlJobStorage(IOptions<SqlJobStorageOptions> options, IChokaQMetrics? metrics = null)
     {
         _options = options.Value;
         _schema = _options.SchemaName;
@@ -68,7 +68,6 @@ public class SqlJobStorage : IJobStorage
         {
             await using var conn = await OpenConnectionAsync(ct);
 
-            // 1. L2 Cache Check: Try to find existing Idempotency Key
             if (!string.IsNullOrEmpty(idempotencyKey))
             {
                 var existingId = await conn.QueryFirstOrDefaultAsync<string>(
@@ -81,7 +80,6 @@ public class SqlJobStorage : IJobStorage
 
             try
             {
-                // 2. Insert new job
                 await conn.ExecuteAsync(_q.EnqueueJob, new
                 {
                     Id = id,
@@ -95,15 +93,12 @@ public class SqlJobStorage : IJobStorage
                     ScheduledAt = delay.HasValue ? DateTime.UtcNow.Add(delay.Value) : (DateTime?)null
                 }, ct);
 
-                _metrics.RecordEnqueue(queue, jobType);
+                _metrics?.RecordEnqueue(queue, jobType);
 
                 return id;
             }
-            catch (SqlException ex) when (ex.Number == 2601 || ex.Number == 2627) // Unique Constraint Violation
+            catch (SqlException ex) when (ex.Number == 2601 || ex.Number == 2627)
             {
-                // RACE CONDITION RESOLVED:
-                // Another instance inserted the exact same IdempotencyKey between our SELECT and INSERT.
-                // We catch the SQL engine rejection and do one final lookup to return the winner's ID.
                 if (!string.IsNullOrEmpty(idempotencyKey))
                 {
                     var winnerId = await conn.QueryFirstOrDefaultAsync<string>(
@@ -113,8 +108,6 @@ public class SqlJobStorage : IJobStorage
                     if (winnerId != null)
                         return winnerId;
                 }
-
-                // If it was a PK violation on the ID itself, rethrow.
                 throw;
             }
         }, ct);
@@ -130,7 +123,6 @@ public class SqlJobStorage : IJobStorage
         {
             await using var conn = await OpenConnectionAsync(ct);
 
-            // CTE + UPDLOCK + READPAST = atomic lock acquisition without race conditions
             var queueFilter = allowedQueues?.Length > 0
                 ? "AND h.[Queue] IN @Queues"
                 : "";
@@ -523,8 +515,17 @@ public class SqlJobStorage : IJobStorage
     }
 
     // ========================================================================
-    // ZOMBIE DETECTION
+    // RECOVERY & ZOMBIE DETECTION
     // ========================================================================
+
+    public async ValueTask<int> RecoverAbandonedAsync(int timeoutSeconds, CancellationToken ct = default)
+    {
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            return await conn.ExecuteAsync(_q.RecoverAbandoned, new { TimeoutSeconds = timeoutSeconds }, ct);
+        }, ct);
+    }
 
     public async ValueTask<int> ArchiveZombiesAsync(int globalTimeoutSeconds, CancellationToken ct = default)
     {
@@ -608,10 +609,9 @@ public class SqlJobStorage : IJobStorage
         var sb = new System.Text.StringBuilder("WHERE 1=1");
         var p = new Dictionary<string, object?>();
 
-        // Date Range
         if (filter.FromUtc.HasValue)
         {
-            var col = isArchive ? "[FinishedAtUtc]" : "[CreatedAtUtc]"; // Or FailedAtUtc depending on requirement
+            var col = isArchive ? "[FinishedAtUtc]" : "[CreatedAtUtc]";
             sb.Append($" AND {col} >= @FromUtc");
             p["FromUtc"] = filter.FromUtc.Value;
         }
@@ -622,14 +622,12 @@ public class SqlJobStorage : IJobStorage
             p["ToUtc"] = filter.ToUtc.Value;
         }
 
-        // Queue
         if (!string.IsNullOrEmpty(filter.Queue))
         {
             sb.Append(" AND [Queue] = @Queue");
             p["Queue"] = filter.Queue;
         }
 
-        // Search Term (Expensive LIKE)
         if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
         {
             sb.Append(" AND ([Id] LIKE @Search OR [Type] LIKE @Search OR [Tags] LIKE @Search)");
@@ -639,7 +637,6 @@ public class SqlJobStorage : IJobStorage
         return (sb.ToString(), p);
     }
 
-    // Helper to merge two anonymous objects or dictionaries into one dictionary
     private Dictionary<string, object?> MergeParams(Dictionary<string, object?> first, object second)
     {
         var result = new Dictionary<string, object?>(first);

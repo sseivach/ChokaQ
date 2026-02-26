@@ -323,7 +323,6 @@ public class InMemoryJobStorage : IJobStorage
 
     public ValueTask ReleaseJobAsync(string jobId, CancellationToken ct = default)
     {
-        // In-Memory implementation logic (simplified):
         // Revert status to Pending so other workers/threads can pick it up.
         if (_hotJobs.TryGetValue(jobId, out var job))
         {
@@ -661,14 +660,45 @@ public class InMemoryJobStorage : IJobStorage
     }
 
     // ========================================================================
-    // ZOMBIE DETECTION
+    // RECOVERY & ZOMBIE DETECTION
     // ========================================================================
+
+    public ValueTask<int> RecoverAbandonedAsync(int timeoutSeconds, CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+        int count = 0;
+
+        var abandonedJobs = _hotJobs.Values
+            .Where(j => j.Status == JobStatus.Fetched && j.LastUpdatedUtc < now.AddSeconds(-timeoutSeconds))
+            .ToList();
+
+        foreach (var job in abandonedJobs)
+        {
+            lock (_transitionLock)
+            {
+                var recovered = job with
+                {
+                    Status = JobStatus.Pending,
+                    WorkerId = null,
+                    AttemptCount = Math.Max(0, job.AttemptCount - 1),
+                    LastUpdatedUtc = now
+                };
+
+                if (_hotJobs.TryUpdate(job.Id, recovered, job))
+                {
+                    count++;
+                }
+            }
+        }
+        return new ValueTask<int>(count);
+    }
 
     public ValueTask<int> ArchiveZombiesAsync(int globalTimeoutSeconds, CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
         int count = 0;
 
+        // In-memory engine already ignores Fetched here, so this is purely for Processing jobs
         var processingJobs = _hotJobs.Values
             .Where(j => j.Status == JobStatus.Processing)
             .ToList();

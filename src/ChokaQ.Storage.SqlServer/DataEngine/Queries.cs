@@ -59,9 +59,10 @@ internal sealed class Queries
     public readonly string SetQueueActive;
 
     // ========================================================================
-    // ZOMBIE DETECTION
+    // RECOVERY & ZOMBIE DETECTION
     // ========================================================================
 
+    public readonly string RecoverAbandoned;
     public readonly string ArchiveZombies;
 
     // ========================================================================
@@ -136,8 +137,6 @@ internal sealed class Queries
 
         GetJob = $"SELECT * FROM [{schema}].[JobsHot] WHERE [Id] = @Id";
 
-        // Reverts a job from Fetched (1) to Pending (0).
-        // Decrements AttemptCount because the execution did not actually start.
         ReleaseJob = $@"
             UPDATE [{schema}].[JobsHot]
             SET [Status] = 0,
@@ -304,7 +303,6 @@ internal sealed class Queries
             s.[LastActivityUtc] = SYSUTCDATETIME()
             FROM [{schema}].[StatsSummary] s;";
 
-
         PurgeArchive = $@"
             DECLARE @DeletedIds TABLE (Id nvarchar(50));
 
@@ -369,28 +367,24 @@ internal sealed class Queries
             ORDER BY q.[Name]";
 
         GetActiveJobs = $@"
-            SELECT TOP (@Limit) * 
-            FROM [{schema}].[JobsHot] WITH (NOLOCK)
+            SELECT TOP (@Limit) * FROM [{schema}].[JobsHot] WITH (NOLOCK)
             {{WHERE_CLAUSE}}
             ORDER BY [CreatedAtUtc] DESC";
 
         GetArchiveJobs = $@"
-            SELECT TOP (@Limit) * 
-            FROM [{schema}].[JobsArchive] WITH (NOLOCK)
+            SELECT TOP (@Limit) * FROM [{schema}].[JobsArchive] WITH (NOLOCK)
             {{WHERE_CLAUSE}}
             ORDER BY [FinishedAtUtc] DESC";
 
         GetArchiveJob = $"SELECT * FROM [{schema}].[JobsArchive] WITH (NOLOCK) WHERE [Id] = @Id";
 
         GetDLQJobs = $@"
-            SELECT TOP (@Limit) * 
-            FROM [{schema}].[JobsDLQ] WITH (NOLOCK)
+            SELECT TOP (@Limit) * FROM [{schema}].[JobsDLQ] WITH (NOLOCK)
             {{WHERE_CLAUSE}}
             ORDER BY [FailedAtUtc] DESC";
 
         GetDLQJob = $"SELECT * FROM [{schema}].[JobsDLQ] WITH (NOLOCK) WHERE [Id] = @Id";
 
-        // QUEUE MANAGEMENT
         GetQueues = $@"
             SELECT q.[Name], q.[IsPaused], q.[IsActive], q.[ZombieTimeoutSeconds], q.[LastUpdatedUtc]
             FROM [{schema}].[Queues] q WITH (NOLOCK)
@@ -421,16 +415,29 @@ internal sealed class Queries
                 [LastUpdatedUtc] = SYSUTCDATETIME()
             WHERE [Name] = @Name";
 
-        // ZOMBIE DETECTION
+        // ========================================================================
+        // RECOVERY & ZOMBIE DETECTION
+        // ========================================================================
+
+        // Safely rolls back abandoned (Fetched but not Processing) jobs to Pending
+        RecoverAbandoned = $@"
+            UPDATE [{schema}].[JobsHot]
+            SET [Status] = 0,
+                [WorkerId] = NULL,
+                [AttemptCount] = CASE WHEN [AttemptCount] > 0 THEN [AttemptCount] - 1 ELSE 0 END,
+                [LastUpdatedUtc] = SYSUTCDATETIME()
+            WHERE [Status] = 1 
+              AND DATEDIFF(SECOND, [LastUpdatedUtc], SYSUTCDATETIME()) > @TimeoutSeconds;";
+
         ArchiveZombies = $@"
             DECLARE @ZombieIds TABLE (Id varchar(50), Queue varchar(255));
 
-            -- Find zombies (Processing or Fetched with expired heartbeat)
+            -- Find true zombies (Only Processing status with expired heartbeat)
             INSERT INTO @ZombieIds (Id, Queue)
             SELECT h.[Id], h.[Queue]
             FROM [{schema}].[JobsHot] h
             LEFT JOIN [{schema}].[Queues] q ON q.[Name] = h.[Queue]
-            WHERE h.[Status] IN (1, 2)
+            WHERE h.[Status] = 2 -- ONLY Processing
               AND DATEDIFF(SECOND, ISNULL(h.[HeartbeatUtc], h.[LastUpdatedUtc]), SYSUTCDATETIME()) 
                   > ISNULL(q.[ZombieTimeoutSeconds], @GlobalTimeout);
 
@@ -440,7 +447,7 @@ internal sealed class Queries
              [WorkerId], [CreatedBy], [LastModifiedBy], [CreatedAtUtc], [FailedAtUtc])
             SELECT h.[Id], h.[Queue], h.[Type], h.[Payload], h.[Tags], 
                    2, -- Zombie
-                   'Zombie: Worker heartbeat expired',
+                   'Zombie: Worker heartbeat expired during execution',
                    h.[AttemptCount], h.[WorkerId], h.[CreatedBy], h.[LastModifiedBy], 
                    h.[CreatedAtUtc], SYSUTCDATETIME()
             FROM [{schema}].[JobsHot] h
@@ -461,8 +468,7 @@ internal sealed class Queries
 
             SELECT COUNT(*) FROM @ZombieIds;";
 
-        // HISTORY - 1. ARCHIVE PAGED
-        // Note: {ORDER_BY} and {WHERE_CLAUSE} are replaced at runtime in SqlJobStorage
+        // HISTORY
         GetArchivePaged = $@"
             SELECT * FROM [{schema}].[JobsArchive] WITH (NOLOCK)
             {{WHERE_CLAUSE}}
@@ -474,7 +480,6 @@ internal sealed class Queries
             FROM [{schema}].[JobsArchive] WITH (NOLOCK)
             {{WHERE_CLAUSE}}";
 
-        // HISTORY - 2. DLQ PAGED
         GetDLQPaged = $@"
             SELECT * FROM [{schema}].[JobsDLQ] WITH (NOLOCK)
             {{WHERE_CLAUSE}}
