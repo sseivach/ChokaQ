@@ -12,6 +12,8 @@ namespace ChokaQ.Storage.SqlServer;
 
 /// <summary>
 /// SQL Server implementation of IJobStorage using Three Pillars architecture.
+/// /// <summary>
+/// SQL Server implementation of IJobStorage using Three Pillars architecture.
 /// 
 /// Tables:
 /// - JobsHot: Active jobs (Pending, Fetched, Processing)
@@ -19,6 +21,7 @@ namespace ChokaQ.Storage.SqlServer;
 /// - JobsDLQ: Failed/Cancelled/Zombie jobs (Dead Letter Queue)
 /// - StatsSummary: Pre-aggregated counters
 /// - Queues: Queue configuration
+/// All database calls are wrapped in a resilient transient fault handling policy.
 /// </summary>
 public class SqlJobStorage : IJobStorage
 {
@@ -361,19 +364,25 @@ public class SqlJobStorage : IJobStorage
     }
 
     // ========================================================================
-    // OBSERVABILITY (Dashboard)
+    // OBSERVABILITY (Dashboard) - NOW PROTECTED WITH RETRIES
     // ========================================================================
 
     public async ValueTask<StatsSummaryEntity> GetSummaryStatsAsync(CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        return await conn.QuerySingleAsync<StatsSummaryEntity>(_q.GetSummaryStats, null, ct);
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            return await conn.QuerySingleAsync<StatsSummaryEntity>(_q.GetSummaryStats, null, ct);
+        }, ct);
     }
 
     public async ValueTask<IEnumerable<StatsSummaryEntity>> GetQueueStatsAsync(CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        return await conn.QueryAsync<StatsSummaryEntity>(_q.GetQueueStats, null, ct);
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            return await conn.QueryAsync<StatsSummaryEntity>(_q.GetQueueStats, null, ct);
+        }, ct);
     }
 
     public async ValueTask<IEnumerable<JobHotEntity>> GetActiveJobsAsync(
@@ -383,22 +392,25 @@ public class SqlJobStorage : IJobStorage
         string? searchTerm = null,
         CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-
-        var where = "WHERE 1=1";
-        if (statusFilter.HasValue) where += " AND [Status] = @Status";
-        if (!string.IsNullOrEmpty(queueFilter)) where += " AND [Queue] = @Queue";
-        if (!string.IsNullOrEmpty(searchTerm))
-            where += " AND ([Id] LIKE @Search OR [Type] LIKE @Search OR [Tags] LIKE @Search)";
-
-        var sql = _q.GetActiveJobs.Replace("{WHERE_CLAUSE}", where);
-
-        return await conn.QueryAsync<JobHotEntity>(sql, new
+        return await ExecuteWithRetryAsync(async () =>
         {
-            Limit = limit,
-            Status = statusFilter.HasValue ? (int)statusFilter.Value : (int?)null,
-            Queue = queueFilter,
-            Search = $"%{searchTerm}%"
+            await using var conn = await OpenConnectionAsync(ct);
+
+            var where = "WHERE 1=1";
+            if (statusFilter.HasValue) where += " AND [Status] = @Status";
+            if (!string.IsNullOrEmpty(queueFilter)) where += " AND [Queue] = @Queue";
+            if (!string.IsNullOrEmpty(searchTerm))
+                where += " AND ([Id] LIKE @Search OR [Type] LIKE @Search OR [Tags] LIKE @Search)";
+
+            var sql = _q.GetActiveJobs.Replace("{WHERE_CLAUSE}", where);
+
+            return await conn.QueryAsync<JobHotEntity>(sql, new
+            {
+                Limit = limit,
+                Status = statusFilter.HasValue ? (int)statusFilter.Value : (int?)null,
+                Queue = queueFilter,
+                Search = $"%{searchTerm}%"
+            }, ct);
         }, ct);
     }
 
@@ -410,23 +422,26 @@ public class SqlJobStorage : IJobStorage
         string? tagFilter = null,
         CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-
-        var where = "WHERE 1=1";
-        if (!string.IsNullOrEmpty(queueFilter)) where += " AND [Queue] = @Queue";
-        if (fromDate.HasValue) where += " AND [FinishedAtUtc] >= @FromDate";
-        if (toDate.HasValue) where += " AND [FinishedAtUtc] <= @ToDate";
-        if (!string.IsNullOrEmpty(tagFilter)) where += " AND [Tags] LIKE @TagFilter";
-
-        var sql = _q.GetArchiveJobs.Replace("{WHERE_CLAUSE}", where);
-
-        return await conn.QueryAsync<JobArchiveEntity>(sql, new
+        return await ExecuteWithRetryAsync(async () =>
         {
-            Limit = limit,
-            Queue = queueFilter,
-            FromDate = fromDate,
-            ToDate = toDate,
-            TagFilter = $"%{tagFilter}%"
+            await using var conn = await OpenConnectionAsync(ct);
+
+            var where = "WHERE 1=1";
+            if (!string.IsNullOrEmpty(queueFilter)) where += " AND [Queue] = @Queue";
+            if (fromDate.HasValue) where += " AND [FinishedAtUtc] >= @FromDate";
+            if (toDate.HasValue) where += " AND [FinishedAtUtc] <= @ToDate";
+            if (!string.IsNullOrEmpty(tagFilter)) where += " AND [Tags] LIKE @TagFilter";
+
+            var sql = _q.GetArchiveJobs.Replace("{WHERE_CLAUSE}", where);
+
+            return await conn.QueryAsync<JobArchiveEntity>(sql, new
+            {
+                Limit = limit,
+                Queue = queueFilter,
+                FromDate = fromDate,
+                ToDate = toDate,
+                TagFilter = $"%{tagFilter}%"
+            }, ct);
         }, ct);
     }
 
@@ -439,39 +454,48 @@ public class SqlJobStorage : IJobStorage
         DateTime? toDate = null,
         CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-
-        var where = "WHERE 1=1";
-        if (!string.IsNullOrEmpty(queueFilter)) where += " AND [Queue] = @Queue";
-        if (reasonFilter.HasValue) where += " AND [FailureReason] = @Reason";
-        if (fromDate.HasValue) where += " AND [CreatedAtUtc] >= @FromDate";
-        if (toDate.HasValue) where += " AND [CreatedAtUtc] <= @ToDate";
-        if (!string.IsNullOrEmpty(searchTerm))
-            where += " AND ([Id] LIKE @Search OR [Type] LIKE @Search OR [Tags] LIKE @Search OR [ErrorDetails] LIKE @Search)";
-
-        var sql = _q.GetDLQJobs.Replace("{WHERE_CLAUSE}", where);
-
-        return await conn.QueryAsync<JobDLQEntity>(sql, new
+        return await ExecuteWithRetryAsync(async () =>
         {
-            Limit = limit,
-            Queue = queueFilter,
-            Reason = reasonFilter.HasValue ? (int)reasonFilter.Value : (int?)null,
-            FromDate = fromDate,
-            ToDate = toDate,
-            Search = $"%{searchTerm}%"
+            await using var conn = await OpenConnectionAsync(ct);
+
+            var where = "WHERE 1=1";
+            if (!string.IsNullOrEmpty(queueFilter)) where += " AND [Queue] = @Queue";
+            if (reasonFilter.HasValue) where += " AND [FailureReason] = @Reason";
+            if (fromDate.HasValue) where += " AND [CreatedAtUtc] >= @FromDate";
+            if (toDate.HasValue) where += " AND [CreatedAtUtc] <= @ToDate";
+            if (!string.IsNullOrEmpty(searchTerm))
+                where += " AND ([Id] LIKE @Search OR [Type] LIKE @Search OR [Tags] LIKE @Search OR [ErrorDetails] LIKE @Search)";
+
+            var sql = _q.GetDLQJobs.Replace("{WHERE_CLAUSE}", where);
+
+            return await conn.QueryAsync<JobDLQEntity>(sql, new
+            {
+                Limit = limit,
+                Queue = queueFilter,
+                Reason = reasonFilter.HasValue ? (int)reasonFilter.Value : (int?)null,
+                FromDate = fromDate,
+                ToDate = toDate,
+                Search = $"%{searchTerm}%"
+            }, ct);
         }, ct);
     }
 
     public async ValueTask<JobArchiveEntity?> GetArchiveJobAsync(string jobId, CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        return await conn.QueryFirstOrDefaultAsync<JobArchiveEntity>(_q.GetArchiveJob, new { Id = jobId }, ct);
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            return await conn.QueryFirstOrDefaultAsync<JobArchiveEntity>(_q.GetArchiveJob, new { Id = jobId }, ct);
+        }, ct);
     }
 
     public async ValueTask<JobDLQEntity?> GetDLQJobAsync(string jobId, CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-        return await conn.QueryFirstOrDefaultAsync<JobDLQEntity>(_q.GetDLQJob, new { Id = jobId }, ct);
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            await using var conn = await OpenConnectionAsync(ct);
+            return await conn.QueryFirstOrDefaultAsync<JobDLQEntity>(_q.GetDLQJob, new { Id = jobId }, ct);
+        }, ct);
     }
 
     // ========================================================================
@@ -546,69 +570,75 @@ public class SqlJobStorage : IJobStorage
     }
 
     // ========================================================================
-    // HISTORY
+    // HISTORY - NOW PROTECTED WITH RETRIES
     // ========================================================================
 
     public async ValueTask<PagedResult<JobArchiveEntity>> GetArchivePagedAsync(
         HistoryFilterDto filter,
         CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-
-        var (whereSql, parameters) = BuildFilterSql(filter, isArchive: true);
-
-        var countSql = _q.GetArchiveCount.Replace("{WHERE_CLAUSE}", whereSql);
-        var totalCount = await conn.ExecuteScalarAsync<int>(countSql, parameters, ct);
-
-        if (totalCount == 0)
-            return PagedResult<JobArchiveEntity>.Empty(filter.PageSize);
-
-        var orderBy = SqlSortBuilder.BuildOrderBy(filter.SortBy, filter.SortDescending, isArchive: true);
-
-        var dataSql = _q.GetArchivePaged
-            .Replace("{WHERE_CLAUSE}", whereSql)
-            .Replace("{ORDER_BY}", orderBy);
-
-        var combinedParams = MergeParams(parameters, new
+        return await ExecuteWithRetryAsync(async () =>
         {
-            Offset = (filter.PageNumber - 1) * filter.PageSize,
-            Limit = filter.PageSize
-        });
+            await using var conn = await OpenConnectionAsync(ct);
 
-        var items = await conn.QueryAsync<JobArchiveEntity>(dataSql, combinedParams, ct);
+            var (whereSql, parameters) = BuildFilterSql(filter, isArchive: true);
 
-        return new PagedResult<JobArchiveEntity>(items, totalCount, filter.PageNumber, filter.PageSize);
+            var countSql = _q.GetArchiveCount.Replace("{WHERE_CLAUSE}", whereSql);
+            var totalCount = await conn.ExecuteScalarAsync<int>(countSql, parameters, ct);
+
+            if (totalCount == 0)
+                return PagedResult<JobArchiveEntity>.Empty(filter.PageSize);
+
+            var orderBy = SqlSortBuilder.BuildOrderBy(filter.SortBy, filter.SortDescending, isArchive: true);
+
+            var dataSql = _q.GetArchivePaged
+                .Replace("{WHERE_CLAUSE}", whereSql)
+                .Replace("{ORDER_BY}", orderBy);
+
+            var combinedParams = MergeParams(parameters, new
+            {
+                Offset = (filter.PageNumber - 1) * filter.PageSize,
+                Limit = filter.PageSize
+            });
+
+            var items = await conn.QueryAsync<JobArchiveEntity>(dataSql, combinedParams, ct);
+
+            return new PagedResult<JobArchiveEntity>(items, totalCount, filter.PageNumber, filter.PageSize);
+        }, ct);
     }
 
     public async ValueTask<PagedResult<JobDLQEntity>> GetDLQPagedAsync(
         HistoryFilterDto filter,
         CancellationToken ct = default)
     {
-        await using var conn = await OpenConnectionAsync(ct);
-
-        var (whereSql, parameters) = BuildFilterSql(filter, isArchive: false);
-
-        var countSql = _q.GetDLQCount.Replace("{WHERE_CLAUSE}", whereSql);
-        var totalCount = await conn.ExecuteScalarAsync<int>(countSql, parameters, ct);
-
-        if (totalCount == 0)
-            return PagedResult<JobDLQEntity>.Empty(filter.PageSize);
-
-        var orderBy = SqlSortBuilder.BuildOrderBy(filter.SortBy, filter.SortDescending, isArchive: false);
-
-        var dataSql = _q.GetDLQPaged
-            .Replace("{WHERE_CLAUSE}", whereSql)
-            .Replace("{ORDER_BY}", orderBy);
-
-        var combinedParams = MergeParams(parameters, new
+        return await ExecuteWithRetryAsync(async () =>
         {
-            Offset = (filter.PageNumber - 1) * filter.PageSize,
-            Limit = filter.PageSize
-        });
+            await using var conn = await OpenConnectionAsync(ct);
 
-        var items = await conn.QueryAsync<JobDLQEntity>(dataSql, combinedParams, ct);
+            var (whereSql, parameters) = BuildFilterSql(filter, isArchive: false);
 
-        return new PagedResult<JobDLQEntity>(items, totalCount, filter.PageNumber, filter.PageSize);
+            var countSql = _q.GetDLQCount.Replace("{WHERE_CLAUSE}", whereSql);
+            var totalCount = await conn.ExecuteScalarAsync<int>(countSql, parameters, ct);
+
+            if (totalCount == 0)
+                return PagedResult<JobDLQEntity>.Empty(filter.PageSize);
+
+            var orderBy = SqlSortBuilder.BuildOrderBy(filter.SortBy, filter.SortDescending, isArchive: false);
+
+            var dataSql = _q.GetDLQPaged
+                .Replace("{WHERE_CLAUSE}", whereSql)
+                .Replace("{ORDER_BY}", orderBy);
+
+            var combinedParams = MergeParams(parameters, new
+            {
+                Offset = (filter.PageNumber - 1) * filter.PageSize,
+                Limit = filter.PageSize
+            });
+
+            var items = await conn.QueryAsync<JobDLQEntity>(dataSql, combinedParams, ct);
+
+            return new PagedResult<JobDLQEntity>(items, totalCount, filter.PageNumber, filter.PageSize);
+        }, ct);
     }
 
     // --- Private Helpers ---
