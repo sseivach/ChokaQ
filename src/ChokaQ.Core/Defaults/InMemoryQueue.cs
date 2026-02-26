@@ -60,11 +60,30 @@ public class InMemoryQueue : IChokaQQueue
         string? tags = null,
         CancellationToken ct = default) where TJob : IChokaQJob
     {
-        // 1. Serialize payload for persistence
-        var payload = JsonSerializer.Serialize(job, job.GetType());
+        // --- FAIL FAST VALIDATION ---
+
+        if (string.IsNullOrWhiteSpace(queue))
+            throw new ArgumentException("Queue name cannot be null or empty.", nameof(queue));
+
+        if (queue.Length > 255)
+            throw new ArgumentException($"Queue name '{queue}' exceeds maximum length of 255 characters.", nameof(queue));
+
+        if (createdBy != null && createdBy.Length > 100)
+            throw new ArgumentException($"CreatedBy '{createdBy}' exceeds maximum length of 100 characters.", nameof(createdBy));
+
+        if (tags != null && tags.Length > 1000)
+            throw new ArgumentException("Tags exceed maximum length of 1000 characters.", nameof(tags));
 
         // Resolve Key from Registry first. 
         var jobTypeName = _registry.GetKeyByType(job.GetType()) ?? job.GetType().Name;
+
+        if (jobTypeName.Length > 255)
+            throw new InvalidOperationException($"Job Type Key '{jobTypeName}' exceeds maximum length of 255 characters.");
+
+        // ----------------------------
+
+        // 1. Serialize payload for persistence
+        var payload = JsonSerializer.Serialize(job, job.GetType());
 
         // 2. Persist to Storage (Hot table, Status: Pending)
         await _storage.EnqueueAsync(
