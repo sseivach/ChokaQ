@@ -7,7 +7,9 @@
 
 **Current Status:** Work in Progress / Proof of Concept
 
-**ChokaQ** is a high-performance, strictly **zero-dependency** background job engine designed for .NET 10. It bridges the gap between simple in-memory channels and heavy message brokers, offering atomic reliability backed by SQL Server without the overhead of Entity Framework or any other third-party ORM.
+**ChokaQ** is an enterprise-grade background job framework designed for high-load environments where reliability and minimal dependency footprint are critical. It bridges the gap between simple in-memory channels and heavy message brokers, offering atomic reliability backed by a robust Three Pillars storage architecture using SQL Server, completely avoiding the overhead of Entity Framework or any other third-party ORM.
+
+![ChokaQ Dashboard](scr1.jpg)
 
 ---
 
@@ -51,29 +53,31 @@ To guarantee consistent performance regardless of historical data volume, data i
 ## Technical Capabilities
 
 ### Core Engine
-* **True Zero-Dependency:** The Core library depends only on standard Microsoft.Extensions abstractions. The engine does not rely on third-party libraries (uses native `Microsoft.Data.SqlClient`).
+* **True Zero-Dependency:** The Core library depends only on standard Microsoft.Extensions abstractions. The engine does not rely on third-party libraries (uses native `Microsoft.Data.SqlClient`), avoiding transitive dependency bloat and simplifying long-term maintenance.
+* **Near-Native Execution:** Performance-optimized job dispatching using cached compiled Expression Trees, completely eliminating the overhead of standard reflection.
 * **Atomic State Transitions:** All lifecycle events use SQL transactions with the `OUTPUT` clause to ensure data is never lost during movement between Hot, Archive, and DLQ tables.
 
 ### Concurrency
 * **Elastic Concurrency:** The number of active workers can be scaled up or down at runtime via the dashboard without restarting the application (implemented via `ElasticSemaphore`).
+* **Bulkhead Isolation:** Advanced queue management that prevents the "noisy neighbor" problem. By enforcing concurrency limits at the database level, the system ensures that resource-intensive tasks do not stall high-priority, lightweight operations.
 * **Prefetching:** Workers use an internal bounded channel to buffer jobs from SQL, decoupling database latency from processing throughput.
 
 ### Resilience & Reliability
+* **Smart Worker Logic:** Intelligent failure handling that distinguishes between transient and fatal errors. Non-transient exceptions bypass retry policies and are routed to the DLQ immediately to preserve system resources and provide instant visibility into code defects.
 * **Circuit Breaker:** In-memory protection that tracks failure rates per Job Type. Automatically opens the circuit to block execution of failing job types, preventing cascading system failures.
-* **Zombie Rescue:** A background service (`ZombieRescueService`) that monitors heartbeats. Automatically detects crashed workers and moves "zombie" jobs to the DLQ.
+* **Zombie Rescue:** Built-in self-healing mechanisms via a background service (`ZombieRescueService`) that monitors heartbeats. Automatically recovers abandoned or "zombie" jobs, ensuring no task is lost due to process crashes or network instability.
 * **Smart Retries:** Configurable exponential backoff strategies with jitter to prevent "thundering herd" effects on external services.
 * **Idempotency:** Built-in support for idempotency keys to prevent duplicate job processing.
 
 ### "The Deck" (Dashboard)
-A сontrol plane powered by **Blazor Server** and **SignalR**.
+A reactive administrative dashboard built with **Blazor Server** and **SignalR**. It features real-time job monitoring, swappable visual themes, and specialized tools for operational management.
 
 * **Visual Themes:** Includes two built-in themes: **Blueprint** (Engineering Blue) for clarity and **Carbon** (High-Contrast Dark) for low-light environments.
 * **Queue Management:** Queues can be paused, resumed, or deactivated at runtime. Changes propagate immediately to all workers via the database.
 * **Live Matrix:** Virtualized grid for active jobs.
 * **Ops Panel:**
     * **Inspector:** View full job details and exception stack traces.
-    * **JSON Editor:** Modify payloads of Pending or DLQ jobs on the fly.
-    * **Resurrection:** Failed jobs in the DLQ can be "resurrected" back to the Hot table for processing, with optional modification of their payload.
+    * **Administrative Control (Hot-Edit & Resurrect):** Modify job payloads or tags directly within the Dead Letter Queue to fix data-driven failures and restart execution immediately, eliminating the need for manual database scripts or job re-enqueuing.
     * **History Filter:** Server-side filtering of the Archive table.
 * **Bulk Actions:** Retry, Cancel, or Purge jobs in batches.
 * **Circuits View:** Monitor the state (Closed/Open/HalfOpen) of all circuit breakers.
