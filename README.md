@@ -10,6 +10,7 @@
 **ChokaQ** is an enterprise-grade background job framework designed for high-load environments where reliability and minimal dependency footprint are critical. It bridges the gap between simple in-memory channels and heavy message brokers, offering atomic reliability backed by a robust Three Pillars storage architecture using SQL Server, completely avoiding the overhead of Entity Framework or any other third-party ORM.
 
 ![ChokaQ Dashboard](scr1.jpg)
+![ChokaQ Dashboard - Ops Panel](scr2.jpg)
 
 ---
 
