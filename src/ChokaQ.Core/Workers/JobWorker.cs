@@ -82,7 +82,7 @@ public class JobWorker : BackgroundService, IWorkerManager
         {
             _logger.LogInformation("Archiving pending job {JobId} to DLQ as Cancelled.", jobId);
             await _stateManager.ArchiveCancelledAsync(
-                jobId, job.Type, job.Queue, "Admin cancellation");
+                jobId, job.Type, job.Queue, ChokaQ.Abstractions.Enums.JobCancellationReason.Admin, "Admin cancellation");
         }
     }
 
@@ -232,6 +232,8 @@ public class JobWorker : BackgroundService, IWorkerManager
                             workerId,
                             storageJob.AttemptCount,
                             storageJob.CreatedBy,
+                            storageJob.ScheduledAtUtc,
+                            storageJob.CreatedAtUtc,
                             workerCt
                         );
 

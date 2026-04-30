@@ -78,10 +78,12 @@ public class JobStateManager : IJobStateManager
         string jobId,
         string jobType,
         string queue,
-        string? cancelledBy = null,
+        ChokaQ.Abstractions.Enums.JobCancellationReason reason,
+        string? details = null,
         CancellationToken ct = default)
     {
         // 1. Archive: Hot → DLQ
+        var cancelledBy = details == null ? reason.ToString() : $"{reason}: {details}";
         await _storage.ArchiveCancelledAsync(jobId, cancelledBy, ct);
 
         // 2. Notify dashboard

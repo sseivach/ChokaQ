@@ -7,7 +7,7 @@ namespace ChokaQ.Abstractions.DTOs;
 /// Used for resilience monitoring in the dashboard.
 /// </summary>
 public record CircuitStatsDto(
-    string JobType,
+    string CircuitKey,
     CircuitStatus Status,
     int FailureCount,
     DateTime? ResetAtUtc

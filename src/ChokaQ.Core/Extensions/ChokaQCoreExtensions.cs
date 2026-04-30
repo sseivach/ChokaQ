@@ -1,4 +1,4 @@
-﻿using ChokaQ.Abstractions.Contexts;
+using ChokaQ.Abstractions.Contexts;
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Middleware;
 using ChokaQ.Abstractions.Notifications;

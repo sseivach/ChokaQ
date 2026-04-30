@@ -52,10 +52,10 @@ public class JobStateManagerTests
     public async Task ArchiveCancelledAsync_ShouldCallStorage_AndNotifyFailure()
     {
         // Act
-        await _manager.ArchiveCancelledAsync("job1", "TestJob", "default", "admin");
+        await _manager.ArchiveCancelledAsync("job1", "TestJob", "default", JobCancellationReason.Admin, "admin");
 
         // Assert
-        await _storage.Received(1).ArchiveCancelledAsync("job1", "admin", Arg.Any<CancellationToken>());
+        await _storage.Received(1).ArchiveCancelledAsync("job1", "Admin: admin", Arg.Any<CancellationToken>());
         await _notifier.Received(1).NotifyJobFailedAsync("job1", "default", "Cancelled");
         await _notifier.Received(1).NotifyStatsUpdatedAsync();
     }

@@ -1,4 +1,4 @@
-﻿using ChokaQ.Abstractions.Jobs;
+using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Middleware;
 using ChokaQ.Core.Defaults;
 
@@ -24,6 +24,7 @@ public class ChokaQOptions
     /// Access via ConfigureInMemory() method.
     /// </summary>
     public InMemoryStorageOptions InMemoryOptions { get; } = new();
+
 
     // --- Public API ---
 
@@ -68,6 +69,7 @@ public class ChokaQOptions
     {
         configure(InMemoryOptions);
     }
+
 
     /// <summary>
     /// Default maximum retries for failed jobs. Default: 3.

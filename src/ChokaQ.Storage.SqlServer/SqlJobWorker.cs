@@ -209,6 +209,8 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                             "sql-worker",
                             job.AttemptCount,
                             job.CreatedBy,
+                            job.ScheduledAtUtc,
+                            job.CreatedAtUtc,
                             ct);
                     }
                     catch (Exception ex)
@@ -245,7 +247,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
         var job = await _storage.GetJobAsync(jobId);
         if (job != null && (job.Status == JobStatus.Pending || job.Status == JobStatus.Fetched))
         {
-            await _stateManager.ArchiveCancelledAsync(jobId, job.Type, job.Queue, "Admin cancellation");
+            await _stateManager.ArchiveCancelledAsync(jobId, job.Type, job.Queue, ChokaQ.Abstractions.Enums.JobCancellationReason.Admin, "Admin cancellation");
         }
     }
 

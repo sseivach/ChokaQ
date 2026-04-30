@@ -1,4 +1,4 @@
-﻿namespace ChokaQ.Core.Processing;
+namespace ChokaQ.Core.Processing;
 
 /// <summary>
 /// Encapsulates the complete lifecycle of processing a single job.
@@ -37,5 +37,7 @@ public interface IJobProcessor
         string workerId,
         int attemptCount,
         string? createdBy,
+        DateTime? scheduledAtUtc,
+        DateTime createdAtUtc,
         CancellationToken workerCt);
 }

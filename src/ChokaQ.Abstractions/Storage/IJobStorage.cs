@@ -5,8 +5,16 @@ using ChokaQ.Abstractions.Enums;
 namespace ChokaQ.Abstractions.Storage;
 
 /// <summary>
-/// Defines the contract for job persistence providers.
-/// Implements the "Three Pillars" architecture: Hot, Archive, DLQ.
+/// Defines the storage contract for ChokaQ.
+/// 
+/// [ARCHITECTURE PATTERN - "The Three Pillars"]:
+/// High-throughput message queues cannot use a single massive table. 
+/// ChokaQ splits data into three specialized tables (Pillars) to guarantee O(1) reads:
+/// 1. HOT: Only active/pending jobs. Extremely small, fits entirely in RAM/cache. Heavily indexed.
+/// 2. ARCHIVE: Successfully completed jobs. Append-only, partitioned by date. Used for historical analytics.
+/// 3. DLQ (Morgue): Failed/Poisoned jobs. Small, human-readable, requires manual intervention.
+/// 
+/// All state transitions (e.g., Hot -> Archive) MUST be atomic database transactions.
 /// </summary>
 public interface IJobStorage
 {

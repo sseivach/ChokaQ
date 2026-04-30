@@ -1,4 +1,4 @@
-﻿using ChokaQ.Abstractions.DTOs;
+using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Notifications;
@@ -39,15 +39,33 @@ public class InMemoryQueue : IChokaQQueue
         _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
         _logger = logger;
 
-        // Use Bounded channel to support Backpressure and prevent OutOfMemory exceptions
-        var options = new BoundedChannelOptions(MaxChannelCapacity)
+        // ==============================================================================================
+        // SCALABILITY: BURST HANDLING & LAYERED BACKPRESSURE
+        // ==============================================================================================
+        // The BoundedChannel is the first layer of backpressure in the scaling path.
+        //
+        // NORMAL LOAD: Jobs flow through the channel freely with near-zero latency.
+        //
+        // BURST / SPIKE (x10 traffic):
+        //   1. Channel absorbs the spike in memory (up to MaxChannelCapacity).
+        //   2. When full, EnqueueAsync.WriteAsync() BLOCKS the calling thread (natural throttle).
+        //   3. Queue Lag metric spikes → triggers external autoscaling (k8s HPA, KEDA).
+        //   4. New worker instances come online → lag normalizes.
+        //
+        // SCALABILITY PATH (when SQL becomes the bottleneck):
+        //   Replace this BoundedChannel with a Kafka consumer group:
+        //   - Channel.CreateBounded<IChokaQJob>() → KafkaConsumerChannel
+        //   - Handler contracts (IChokaQJobHandler<T>) remain UNCHANGED.
+        //   - Workers scale horizontally across consumer group partitions.
+        //
+        // Use BoundedChannelFullMode.Wait to apply backpressure (don't drop or throw).
+        var channelOptions = new BoundedChannelOptions(MaxChannelCapacity)
         {
-            // If the channel is full, the Writer will wait (await) instead of throwing or dropping jobs
-            FullMode = BoundedChannelFullMode.Wait,
-            SingleReader = false,
-            SingleWriter = false
+            FullMode = BoundedChannelFullMode.Wait, // Backpressure: caller blocks when full
+            SingleReader = false,                   // Multiple workers can consume concurrently
+            SingleWriter = false                    // Multiple enqueues can happen concurrently
         };
-        _queue = Channel.CreateBounded<IChokaQJob>(options);
+        _queue = Channel.CreateBounded<IChokaQJob>(channelOptions);
     }
 
     public ChannelReader<IChokaQJob> Reader => _queue.Reader;

@@ -36,7 +36,8 @@ public interface IJobStateManager
         string jobId,
         string jobType,
         string queue,
-        string? cancelledBy = null,
+        ChokaQ.Abstractions.Enums.JobCancellationReason reason,
+        string? details = null,
         CancellationToken ct = default);
 
     /// <summary>

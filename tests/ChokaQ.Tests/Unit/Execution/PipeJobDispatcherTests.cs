@@ -26,6 +26,9 @@ public class PipeJobDispatcherTests
         _scope.ServiceProvider.Returns(_serviceProvider);
         _serviceProvider.GetService(typeof(IChokaQPipeHandler)).Returns(_handler);
 
+        _serviceProvider.GetService(typeof(IEnumerable<ChokaQ.Abstractions.Middleware.IChokaQMiddleware>))
+            .Returns(Array.Empty<ChokaQ.Abstractions.Middleware.IChokaQMiddleware>());
+
         // Setup internal JobContext via reflection
         var notifier = Substitute.For<ChokaQ.Abstractions.Notifications.IChokaQNotifier>();
         var jobContextType = typeof(PipeJobDispatcher).Assembly.GetType("ChokaQ.Core.Contexts.JobContext")!;

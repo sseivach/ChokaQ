@@ -1,4 +1,4 @@
-﻿using ChokaQ.Abstractions.Observability;
+using ChokaQ.Abstractions.Observability;
 using System.Diagnostics.Metrics;
 
 namespace ChokaQ.Core.Observability;
@@ -16,6 +16,12 @@ public class ChokaQMetrics : IChokaQMetrics, IDisposable
     private readonly Counter<long> _completedCounter;
     private readonly Counter<long> _failedCounter;
     private readonly Histogram<double> _durationHistogram;
+    
+    // Observability metrics
+    private readonly Histogram<double> _queueLagHistogram;
+    private readonly Counter<long> _dlqCounter;
+    private readonly Counter<long> _retryCounter;
+    private readonly UpDownCounter<long> _activeWorkersCounter;
 
     public ChokaQMetrics()
     {
@@ -38,6 +44,27 @@ public class ChokaQMetrics : IChokaQMetrics, IDisposable
             "chokaq.jobs.processing_duration",
             unit: "ms",
             description: "Time taken to process a job");
+
+        // [OBSERVABILITY PATTERN - "Saturation Signal"]:
+        // Queue Lag is the golden signal for scaling asynchronous workers. 
+        // It answers: "How long are jobs waiting before being picked up?"
+        // High lag is the primary trigger for cluster autoscaling.
+        _queueLagHistogram = _meter.CreateHistogram<double>(
+            "chokaq.jobs.queue_lag",
+            unit: "ms",
+            description: "Time spent in queue before processing (Primary Saturation Signal)");
+
+        _dlqCounter = _meter.CreateCounter<long>(
+            "chokaq.jobs.dlq",
+            description: "Total number of jobs moved to Dead Letter Queue");
+
+        _retryCounter = _meter.CreateCounter<long>(
+            "chokaq.jobs.retried",
+            description: "Total number of jobs scheduled for retry");
+
+        _activeWorkersCounter = _meter.CreateUpDownCounter<long>(
+            "chokaq.workers.active",
+            description: "Current number of active processing workers");
     }
 
     public void RecordEnqueue(string queue, string jobType)
@@ -65,6 +92,35 @@ public class ChokaQMetrics : IChokaQMetrics, IDisposable
             new KeyValuePair<string, object?>("queue", queue),
             new KeyValuePair<string, object?>("type", jobType),
             new KeyValuePair<string, object?>("error", errorType));
+    }
+
+    public void RecordQueueLag(string queue, string jobType, double lagMs)
+    {
+        _queueLagHistogram.Record(lagMs,
+            new KeyValuePair<string, object?>("queue", queue),
+            new KeyValuePair<string, object?>("type", jobType));
+    }
+
+    public void RecordDlq(string queue, string jobType, string reason)
+    {
+        _dlqCounter.Add(1,
+            new KeyValuePair<string, object?>("queue", queue),
+            new KeyValuePair<string, object?>("type", jobType),
+            new KeyValuePair<string, object?>("reason", reason));
+    }
+
+    public void RecordRetry(string queue, string jobType, int attempt)
+    {
+        _retryCounter.Add(1,
+            new KeyValuePair<string, object?>("queue", queue),
+            new KeyValuePair<string, object?>("type", jobType),
+            new KeyValuePair<string, object?>("attempt", attempt));
+    }
+
+    public void RecordActiveWorkerDelta(string queue, int delta)
+    {
+        _activeWorkersCounter.Add(delta,
+            new KeyValuePair<string, object?>("queue", queue));
     }
 
     public void Dispose()

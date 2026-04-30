@@ -48,7 +48,7 @@ public class JobProcessorTests
             .Returns(Task.CompletedTask);
 
         // Act
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         await _stateManager.Received(1).ArchiveSucceededAsync(
@@ -65,7 +65,7 @@ public class JobProcessorTests
             .Returns(Task.CompletedTask);
 
         // Act
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         _breaker.Received(1).ReportSuccess("TestJob");
@@ -79,10 +79,10 @@ public class JobProcessorTests
         _breaker.IsExecutionPermitted("TestJob").Returns(true);
         _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
         _dispatcher.DispatchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Throws(new InvalidOperationException("Test error"));
+            .Throws(new Exception("Test error"));
 
         // Act
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         await _stateManager.Received(1).RescheduleForRetryAsync(
@@ -98,10 +98,10 @@ public class JobProcessorTests
         _breaker.IsExecutionPermitted("TestJob").Returns(true);
         _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
         _dispatcher.DispatchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Throws(new InvalidOperationException("Test error"));
+            .Throws(new Exception("Test error"));
 
         // Act - Attempt 3 (last retry)
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 3, null, CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 3, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         await _stateManager.Received(1).ArchiveFailedAsync(
@@ -115,10 +115,10 @@ public class JobProcessorTests
         _breaker.IsExecutionPermitted("TestJob").Returns(true);
         _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
         _dispatcher.DispatchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Throws(new InvalidOperationException("Test error"));
+            .Throws(new Exception("Test error"));
 
         // Act
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         _breaker.Received(1).ReportFailure("TestJob");
@@ -134,11 +134,11 @@ public class JobProcessorTests
             .Throws(new OperationCanceledException());
 
         // Act
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         await _stateManager.Received(1).ArchiveCancelledAsync(
-            "job1", "TestJob", "default", "Worker/Admin cancellation", Arg.Any<CancellationToken>());
+            "job1", "TestJob", "default", ChokaQ.Abstractions.Enums.JobCancellationReason.Timeout, "Execution Timeout or Admin Cancellation", Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -150,7 +150,7 @@ public class JobProcessorTests
         _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
 
         // Act
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         await _stateManager.Received(1).RescheduleForRetryAsync(
@@ -179,7 +179,7 @@ public class JobProcessorTests
             });
 
         // Act
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, "user1", CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, "user1", DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         await _stateManager.Received(1).MarkAsProcessingAsync(
@@ -211,7 +211,7 @@ public class JobProcessorTests
             });
 
         // Act
-        var processTask = _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, CancellationToken.None);
+        var processTask = _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
         await Task.Delay(50); // Give it time to start
         _processor.CancelJob("job1");
 
