@@ -102,16 +102,7 @@ private readonly Channel<JobHotEntity> _channel =
 
 ### The Producer-Consumer Flow
 
-```
-┌──────────────┐     ┌─────────────────────────┐     ┌──────────────┐
-│   FETCHER    │     │    BOUNDED CHANNEL       │     │  PROCESSORS  │
-│  (Producer)  │────▶│  [job][job][job]...[job]  │────▶│  (Consumers) │
-│              │     │     capacity: 100        │     │              │
-│  Polls SQL   │     │                          │     │  Parallel    │
-│  every 5s    │     │  Backpressure: Writer    │     │  via Elastic │
-│              │     │  blocks when full        │     │  Semaphore   │
-└──────────────┘     └─────────────────────────┘     └──────────────┘
-```
+<img src="/bounded_channel.png" alt="Bounded Channel Flow Diagram" style="width: 100%; max-width: 900px; margin: 1.5rem auto; display: block;" />
 
 **Why this design prevents memory issues:**
 

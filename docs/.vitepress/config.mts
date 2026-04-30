@@ -3,14 +3,14 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: "ChokaQ",
   description: "Zero-Dependency Background Job Engine for .NET 10",
-
+  
   head: [
     ['link', { rel: 'icon', href: '/logo.png' }],
     ['meta', { name: 'theme-color', content: '#4589ff' }],
     ['meta', { property: 'og:title', content: 'ChokaQ — Zero-Dependency Job Engine' }],
     ['meta', { property: 'og:description', content: 'Enterprise-grade background job framework with Three Pillars architecture, Expression Trees, and zero third-party dependencies.' }],
   ],
-
+  
   appearance: 'dark',
 
   themeConfig: {
@@ -87,10 +87,6 @@ export default defineConfig({
     footer: {
       message: 'Apache 2.0 Licensed',
       copyright: '© 2026 Sergei Seivach'
-    },
-
-    lastUpdated: {
-      text: 'Last updated'
     }
   }
 })

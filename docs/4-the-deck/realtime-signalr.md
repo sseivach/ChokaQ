@@ -18,18 +18,7 @@ That's it. Two lines.
 
 ## Architecture: Blazor Server + SignalR
 
-```
-┌──────────────┐     WebSocket      ┌──────────────┐
-│   Browser    │◄──────────────────▶│  ASP.NET Core │
-│  (The Deck)  │   (SignalR Hub)    │   Process     │
-│              │                    │               │
-│  Blazor WASM │                    │  ChokaQ Hub   │
-│  Components  │                    │  ├─ OnJobCompleted()
-│              │                    │  ├─ OnJobFailed()
-│              │                    │  ├─ OnStatsUpdated()
-│              │                    │  └─ OnConsoleMessage()
-└──────────────┘                    └──────────────┘
-```
+<img src="/signalr_architecture.png" alt="SignalR Architecture Diagram" style="width: 100%; max-width: 900px; margin: 1.5rem auto; display: block;" />
 
 **Why Blazor Server?**
 - UI logic runs on the server — no API layer needed

@@ -152,11 +152,13 @@ The `ISNULL` handles the common case where `ScheduledAtUtc` is NULL (immediate e
 
 ```
 Database state BEFORE fetch:
-┌──────────┬──────────┬──────────┐
-│ Job-1 (P)│ Job-2 (P)│ Job-3 (P)│
-│ Job-4 (P)│ Job-5 (P)│ Job-6 (P)│
-│ Job-7 (P)│ Job-8 (P)│ Job-9 (P)│
-└──────────┴──────────┴──────────┘
+
+| Row 1 | Row 2 | Row 3 |
+|---|---|---|
+| Job-1 (P) | Job-2 (P) | Job-3 (P) |
+| Job-4 (P) | Job-5 (P) | Job-6 (P) |
+| Job-7 (P) | Job-8 (P) | Job-9 (P) |
+
 
 Worker A executes: UPDATE TOP(2) ... WITH (UPDLOCK, READPAST)
   → Locks Job-1, Job-2
