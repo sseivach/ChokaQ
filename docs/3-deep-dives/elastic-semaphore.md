@@ -1,103 +1,87 @@
-# Elastic Semaphore
+# Elastic Semaphore (Lock-Free)
 
 ## The Problem: Static Concurrency Limits
 
-Standard `SemaphoreSlim` is initialized with a fixed capacity:
+Standard `SemaphoreSlim` is initialized with a fixed capacity. Changing from 10 to 20 workers usually requires **restarting the application** or dealing with complex permit tracking and background cancellation tasks.
+
+## The Solution: Logical Concurrency + Coalescing Channel
+
+ChokaQ implements a completely lock-free, state-driven `ElasticSemaphore` that drops the physical concept of "permits" entirely.
+
+Instead of managing `SemaphoreSlim` slots, it uses two integers (`_activeWorkers`, `_targetCapacity`) and a highly optimized `Channel<byte>`.
+
+### 1. Lock-Free Fast Path
+
+When a worker tries to acquire a slot, it doesn't wait on a lock. It uses an atomic `CompareExchange` (CAS) operation:
 
 ```csharp
-var semaphore = new SemaphoreSlim(initialCount: 10, maxCount: 10);
-```
+int current = Volatile.Read(ref _activeWorkers);
+int target = Volatile.Read(ref _targetCapacity);
 
-Changing from 10 to 20 workers requires **restarting the application**.
-
-## The Solution: ElasticSemaphore
-
-ChokaQ wraps `SemaphoreSlim` with dynamic scaling:
-
-```csharp
-// From: ChokaQ.Core/Concurrency/ElasticSemaphore.cs
-
-public class ElasticSemaphore
+if (current < target)
 {
-    private readonly SemaphoreSlim _semaphore;
-    private int _targetCapacity;
-    private int _actualCapacity;
-    private CancellationTokenSource? _burnCts;
-
-    public ElasticSemaphore(int initialCapacity)
+    // Try to atomically claim the slot
+    if (Interlocked.CompareExchange(ref _activeWorkers, current + 1, current) == current)
     {
-        _currentCapacity = initialCapacity;
-        // MaxCount = int.MaxValue allows infinite upward scaling
-        _semaphore = new SemaphoreSlim(initialCapacity, int.MaxValue);
+        // Slot acquired!
+        return; 
     }
 }
 ```
 
-The trick: `maxCount = int.MaxValue` allows `Release()` beyond the initial count.
+This makes the "hot path" (when the system is under load but has capacity) nearly instantaneous, with zero allocations and zero context switches.
 
-## Scaling Up: Minting Permits
+### 2. The Coalescing Signal
 
-```csharp
-if (diff > 0)
-{
-    _semaphore.Release(diff);  // "Mint" new permits
-    _actualCapacity += diff;
-}
-```
-
-Capacity 10 → 15: call `_semaphore.Release(5)`. Workers immediately see 5 more slots.
-
-## Scaling Down: The Burn Pattern
-
-`SemaphoreSlim` has no `Reduce()`. So we **acquire** permits and **never release them**:
+If the capacity is full, the worker drops into the "Slow Path" and awaits a signal:
 
 ```csharp
-private async Task BurnPermitsAsync(int count, CancellationToken ct)
-{
-    for (int i = 0; i < count; i++)
+private readonly Channel<byte> _signal = Channel.CreateBounded<byte>(
+    new BoundedChannelOptions(1)
     {
-        await _semaphore.WaitAsync(ct);
-        // ...and NEVER release it. The permit is destroyed.
-        Interlocked.Decrement(ref _actualCapacity);
-    }
+        FullMode = BoundedChannelFullMode.DropOldest
+    });
+
+// ... inside Slow Path:
+await _signal.Reader.ReadAsync(ct);
+```
+
+By configuring the `Channel` with a capacity of `1` and `DropOldest`, it acts as an asynchronous **edge-triggered wakeup**. It guarantees that signals never accumulate, preventing runaway CPU loops, while ensuring that sleepers are woken up when state changes.
+
+### 3. Relay Wakeup (Chain Propagation)
+
+When capacity is increased from 10 to 100, we don't want to wake 90 sleeping threads simultaneously (the "Thundering Herd" problem). 
+
+Instead, ChokaQ uses a **Relay Wakeup** pattern. When a worker successfully acquires a slot, it checks if there is *still* more capacity available. If yes, it passes the baton by waking exactly *one* more waiter:
+
+```csharp
+// Inside successful Fast Path:
+int latestTarget = Volatile.Read(ref _targetCapacity);
+
+if (current + 1 < latestTarget)
+{
+    _signal.Writer.TryWrite(1); // Wake exactly one more waiter
 }
 ```
 
-Capacity 15 → 10: burn tasks acquire 5 permits in the background. If all slots are busy, burns **wait gracefully** — no workers are interrupted.
+This creates a smooth, chain-reaction scale-up that gracefully ramps up concurrency without slamming the thread pool.
 
-::: warning 🎯 Key Insight
-Burning is **asynchronous and non-blocking**. Capacity gradually decreases as jobs complete. This is a graceful drain, not a hard cut.
-:::
+### 4. Zero-Friction Scaling
 
-## Defensive Cancellation (Anti-Drift)
-
-Rapid resizes (15→10→20) dynamically cancel old burn tasks to prevent "permit drift". The engine tracks the *physical* `_actualCapacity` rather than just the logical target:
+Because the implementation relies purely on evaluating `_activeWorkers < _targetCapacity` inside a `while(true)` loop, dynamically changing the limit is as simple as updating a variable and sending a single ping:
 
 ```csharp
-// Cancel ANY previous burn operation (Up or Down)
-_burnCts?.Cancel(); 
+public void SetCapacity(int newCapacity)
+{
+    Volatile.Write(ref _targetCapacity, newCapacity);
 
-// Calculate based on physical reality, not target
-int diff = _targetCapacity - _actualCapacity; 
-```
-
-This defensive approach ensures that if a previous scale-down operation was interrupted, the math self-corrects perfectly on the next adjustment.
-
-## Integration with SqlJobWorker
-
-```csharp
-await _semaphore.WaitAsync(ct);  // Wait for processing slot
-try {
-    await _processor.ProcessAsync(job, ct);
-} finally {
-    _semaphore.Release();         // Return the permit
+    // Kickstart the wakeup chain
+    _signal.Writer.TryWrite(1);
 }
 ```
 
-Admin changes concurrency via The Deck → `_semaphore.Resize(newLimit)` → instant effect.
+If you scale down (e.g., 20 → 10), `_targetCapacity` is instantly updated. Existing workers finish their current jobs and call `Release()`, which decrements `_activeWorkers`. No new workers will be allowed to pass the Fast Path until `_activeWorkers` naturally drains below 10. 
 
-::: tip 💡 Design Decision
-Recreating a `SemaphoreSlim` with the new capacity would require waiting for all existing `WaitAsync()` calls to complete before disposing the old instance. During that drain period, no new work could start. The burn pattern solves this, allowing **seamless** capacity changes with zero downtime — existing workers keep running, only the available slot count changes.
-:::
+No cancellation tokens, no background burner tasks, no permit leaks. Just pure, state-driven mathematics.
 
 > *Next: [In-Memory Engine](/3-deep-dives/memory-management) — BoundedChannels and backpressure.*

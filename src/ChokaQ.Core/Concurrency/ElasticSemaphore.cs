@@ -1,152 +1,217 @@
 using System;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace ChokaQ.Core.Concurrency;
 
 /// <summary>
-/// A wrapper around SemaphoreSlim that allows dynamic scaling (Elasticity).
-/// Supports hot-swapping concurrency limits without recreating the object.
+/// Production-grade elastic concurrency limiter.
+///
+/// KEY DESIGN PRINCIPLES:
+///
+/// 1. Logical Concurrency Control (No Physical Permits)
+///    ------------------------------------------------
+///    We do NOT rely on SemaphoreSlim permits.
+///    Instead, concurrency is enforced via:
+///      - _activeWorkers (current running count)
+///      - _targetCapacity (limit)
+///
+///    This eliminates:
+///      - permit leaks
+///      - race conditions during resizing
+///      - complex synchronization bugs
+///
+/// 2. Coalescing Signal (Bounded Channel)
+///    ----------------------------------
+///    Channel with capacity = 1 and DropOldest ensures:
+///      - signals NEVER accumulate
+///      - prevents runaway CPU loops
+///      - acts as an async "edge-triggered" wakeup
+///
+/// 3. Relay Wakeup (Chain Propagation)
+///    --------------------------------
+///    Each successful worker wakes exactly ONE next waiter,
+///    if capacity still allows.
+///
+///    This ensures:
+///      - fast scale-up (no "stuck sleepers")
+///      - no thundering herd
+///      - smooth capacity ramp-up
+///
+/// 4. State-Driven Model (Critical)
+///    -----------------------------
+///    Signals DO NOT guarantee availability.
+///    They only mean:
+///      "state may have changed — re-check"
+///
+///    Correctness is achieved by:
+///      - loop + re-check pattern
+///
+/// 5. Lock-Free Fast Path
+///    -------------------
+///    Uses Interlocked.CompareExchange for minimal overhead.
+///
+/// 6. Contention Backoff
+///    ------------------
+///    SpinWait + Task.Yield prevents CPU burn under heavy contention.
+///
+///
+/// LIMITATIONS (Explicit by design):
+/// --------------------------------
+/// - No strict FIFO fairness (competitive scheduling)
+/// - Possible starvation in extreme edge cases
+/// - Designed for throughput, not strict ordering
+///
+///
+/// This implementation is suitable for:
+/// - high-throughput job processors
+/// - background workers
+/// - distributed task runners
 /// </summary>
-/// <remarks>
-/// Used by JobWorker to dynamically adjust worker count via dashboard
-/// without restarting the application.
-/// 
-/// Scale UP: Simply releases additional permits into the pool.
-/// Scale DOWN: "Burns" permits by acquiring and never releasing them.
-/// </remarks>
 public class ElasticSemaphore : IDisposable
 {
-    private readonly SemaphoreSlim _semaphore;
-    private readonly object _lock = new();
-    private CancellationTokenSource? _burnCts;
-
-    // The logical maximum concurrency we want to enforce.
     private int _targetCapacity;
-    
-    // Tracks the exact number of permits that actually exist in the pool right now.
-    private int _actualCapacity;
+    private int _activeWorkers;
 
     /// <summary>
-    /// Gets the current maximum capacity (concurrency limit).
+    /// Coalescing async signal (binary event).
+    ///
+    /// IMPORTANT:
+    /// - Capacity = 1 → acts like AutoResetEvent
+    /// - DropOldest → prevents signal accumulation
     /// </summary>
-    public int Capacity => _targetCapacity;
+    private readonly Channel<byte> _signal = Channel.CreateBounded<byte>(
+        new BoundedChannelOptions(1)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest
+        });
+
+    private volatile bool _disposed;
 
     /// <summary>
-    /// Gets the approximate number of threads currently occupying a slot.
-    /// Formula: ActualCapacity - AvailablePermits
+    /// Current concurrency limit.
     /// </summary>
-    public int RunningCount => _actualCapacity - _semaphore.CurrentCount;
+    public int Capacity => Volatile.Read(ref _targetCapacity);
+
+    /// <summary>
+    /// Current number of running workers.
+    /// </summary>
+    public int RunningCount => Volatile.Read(ref _activeWorkers);
 
     public ElasticSemaphore(int initialCapacity)
     {
-        if (initialCapacity <= 0) initialCapacity = 1;
-        
+        if (initialCapacity < 1) initialCapacity = 1;
         _targetCapacity = initialCapacity;
-        _actualCapacity = initialCapacity;
-
-        // Initialize with int.MaxValue to allow "infinite" scaling UP.
-        // But we only release 'initialCapacity' permits to start.
-        _semaphore = new SemaphoreSlim(initialCapacity, int.MaxValue);
     }
 
     /// <summary>
-    /// Asynchronously waits to enter the semaphore.
+    /// Asynchronously acquires a logical execution slot.
     /// </summary>
-    public Task WaitAsync(CancellationToken cancellationToken = default)
+    public async Task WaitAsync(CancellationToken ct = default)
     {
-        return _semaphore.WaitAsync(cancellationToken);
+        SpinWait spin = new();
+
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(ElasticSemaphore));
+
+            int current = Volatile.Read(ref _activeWorkers);
+            int target = Volatile.Read(ref _targetCapacity);
+
+            // =========================
+            // FAST PATH (Lock-Free)
+            // =========================
+            if (current < target)
+            {
+                if (Interlocked.CompareExchange(ref _activeWorkers, current + 1, current) == current)
+                {
+                    // RELAY WAKEUP:
+                    // If capacity still available, wake exactly ONE more waiter.
+                    int latestTarget = Volatile.Read(ref _targetCapacity);
+
+                    if (current + 1 < latestTarget)
+                    {
+                        _signal.Writer.TryWrite(1);
+                    }
+
+                    return;
+                }
+
+                // CAS failed → contention
+                // Use adaptive backoff to avoid CPU burn
+                if (spin.Count > 10)
+                {
+                    await Task.Yield();
+                }
+                else
+                {
+                    spin.SpinOnce();
+                }
+
+                continue;
+            }
+
+            // =========================
+            // SLOW PATH (Async Wait)
+            // =========================
+            try
+            {
+                await _signal.Reader.ReadAsync(ct);
+            }
+            catch (ChannelClosedException)
+            {
+                throw new ObjectDisposedException(nameof(ElasticSemaphore));
+            }
+
+            // After wakeup → ALWAYS re-check state
+        }
     }
 
     /// <summary>
-    /// Exits the semaphore.
+    /// Releases a logical execution slot.
     /// </summary>
     public void Release()
     {
-        try
+        int newValue = Interlocked.Decrement(ref _activeWorkers);
+
+        // Defensive protection against misuse (double release)
+        if (newValue < 0)
         {
-            _semaphore.Release();
+            Interlocked.Exchange(ref _activeWorkers, 0);
+            newValue = 0;
         }
-        catch (SemaphoreFullException)
+
+        // Wake one waiter if capacity allows
+        if (newValue < Volatile.Read(ref _targetCapacity))
         {
-            // Should not happen given int.MaxValue max capacity, 
-            // but good to catch just in case logic drifts.
+            _signal.Writer.TryWrite(1);
         }
     }
 
     /// <summary>
-    /// Dynamically adjusts the semaphore capacity.
-    /// Thread-safe and supports being called multiple times.
+    /// Dynamically updates concurrency limit.
     /// </summary>
-    /// <param name="newCapacity">The new target concurrency limit (minimum 1).</param>
     public void SetCapacity(int newCapacity)
     {
-        if (newCapacity <= 0) newCapacity = 1;
+        if (newCapacity < 1) newCapacity = 1;
 
-        lock (_lock)
-        {
-            if (newCapacity == _targetCapacity) return;
+        Volatile.Write(ref _targetCapacity, newCapacity);
 
-            // CRITICAL FIX: Cancel any previous burn operation IN ALL CASES (Up or Down)
-            _burnCts?.Cancel();
-            _burnCts?.Dispose();
-            _burnCts = null;
-
-            _targetCapacity = newCapacity;
-
-            // Calculate diff based on the ACTUAL capacity, not the target.
-            // This prevents drifting when previous burns were interrupted.
-            int diff = _targetCapacity - _actualCapacity;
-
-            if (diff > 0)
-            {
-                // SCALE UP: Simply release more permits into the pool instantly.
-                _semaphore.Release(diff);
-                _actualCapacity += diff;
-            }
-            else if (diff < 0)
-            {
-                // SCALE DOWN: We need to remove permits asynchronously.
-                // Since SemaphoreSlim doesn't have "Reduce", spawn a background task to consume ("burn") them.
-                int permitsToBurn = Math.Abs(diff);
-
-                _burnCts = new CancellationTokenSource();
-                _ = BurnPermitsAsync(permitsToBurn, _burnCts.Token);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Consumes permits permanently to reduce capacity.
-    /// Supports cancellation for graceful shutdown.
-    /// </summary>
-    private async Task BurnPermitsAsync(int count, CancellationToken ct)
-    {
-        for (int i = 0; i < count; i++)
-        {
-            try
-            {
-                // Acquire a permit...
-                await _semaphore.WaitAsync(ct);
-
-                // ...and NEVER release it.
-                // Decrement actual capacity since the permit is successfully burned.
-                Interlocked.Decrement(ref _actualCapacity);
-            }
-            catch (OperationCanceledException)
-            {
-                // Shutdown or capacity change requested - stop burning permits
-                break;
-            }
-        }
+        // Kickstart wakeup chain (relay will propagate further)
+        _signal.Writer.TryWrite(1);
     }
 
     public void Dispose()
     {
-        // Cancel any pending burn operations to allow graceful shutdown
-        _burnCts?.Cancel();
-        _burnCts?.Dispose();
+        _disposed = true;
 
-        _semaphore.Dispose();
+        // Wake at least one waiter to speed up shutdown
+        _signal.Writer.TryWrite(1);
+
+        _signal.Writer.TryComplete();
     }
 }
