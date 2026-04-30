@@ -1,0 +1,301 @@
+/* ==========================================
+   CHOKAQ DOCS — CUSTOM THEME
+   Colors extracted from The Deck (Carbon skin)
+   ========================================== */
+
+/* --- Google Fonts --- */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+/* ==========================================
+   VITEPRESS BRAND COLORS
+   ========================================== */
+
+:root {
+  /* Brand — ChokaQ Blue (from Carbon --deck-info) */
+  --vp-c-brand-1: #4589ff;
+  --vp-c-brand-2: #5a9aff;
+  --vp-c-brand-3: #4589ff;
+  --vp-c-brand-soft: rgba(69, 137, 255, 0.14);
+
+  /* Tip — Green (from Carbon --deck-success) */
+  --vp-c-tip-1: #42be65;
+  --vp-c-tip-2: #42be65;
+  --vp-c-tip-3: #42be65;
+  --vp-c-tip-soft: rgba(66, 190, 101, 0.14);
+
+  /* Warning — Yellow (from Carbon --deck-warning) */
+  --vp-c-warning-1: #f1c21b;
+  --vp-c-warning-2: #f1c21b;
+  --vp-c-warning-3: #f1c21b;
+  --vp-c-warning-soft: rgba(241, 194, 27, 0.14);
+
+  /* Danger — Red (from Carbon --deck-danger) */
+  --vp-c-danger-1: #fa4d56;
+  --vp-c-danger-2: #fa4d56;
+  --vp-c-danger-3: #fa4d56;
+  --vp-c-danger-soft: rgba(250, 77, 86, 0.14);
+}
+
+/* ==========================================
+   DARK MODE OVERRIDES
+   ========================================== */
+
+.dark {
+  --vp-c-bg: #161616;
+  --vp-c-bg-alt: #1a1a1a;
+  --vp-c-bg-elv: #222222;
+  --vp-c-bg-soft: #262626;
+
+  --vp-c-border: #393939;
+  --vp-c-divider: #393939;
+  --vp-c-gutter: #1a1a1a;
+
+  --vp-c-text-1: #f4f4f4;
+  --vp-c-text-2: #c6c6c6;
+  --vp-c-text-3: #8d8d8d;
+
+  --vp-code-block-bg: #0d0d0d;
+  --vp-code-line-highlight-color: rgba(69, 137, 255, 0.08);
+
+  /* Sidebar */
+  --vp-sidebar-bg-color: #141414;
+
+  /* Nav */
+  --vp-nav-bg-color: rgba(22, 22, 22, 0.85);
+
+  /* Hero gradient */
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(135deg, #4589ff 0%, #42be65 50%, #f1c21b 100%);
+  --vp-home-hero-image-background-image: linear-gradient(135deg, rgba(69, 137, 255, 0.3) 0%, rgba(66, 190, 101, 0.15) 100%);
+  --vp-home-hero-image-filter: blur(56px);
+}
+
+/* ==========================================
+   TYPOGRAPHY
+   ========================================== */
+
+:root {
+  --vp-font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --vp-font-family-mono: 'JetBrains Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+
+/* ==========================================
+   HOME PAGE HERO ENHANCEMENTS
+   ========================================== */
+
+.VPHero .name {
+  font-weight: 900 !important;
+  letter-spacing: -1px;
+}
+
+.VPHero .text {
+  font-weight: 700 !important;
+  background: linear-gradient(135deg, #f4f4f4 0%, #8d8d8d 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.VPHero .tagline {
+  color: var(--vp-c-text-2) !important;
+  font-size: 1.1rem !important;
+}
+
+/* Hero action buttons */
+.VPButton.brand {
+  background-color: #4589ff !important;
+  border-color: #4589ff !important;
+  transition: all 0.3s ease;
+}
+
+.VPButton.brand:hover {
+  background-color: #5a9aff !important;
+  border-color: #5a9aff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(69, 137, 255, 0.4);
+}
+
+/* ==========================================
+   FEATURE CARDS
+   ========================================== */
+
+.dark .VPFeature {
+  background-color: #1a1a1a !important;
+  border: 1px solid #333 !important;
+  transition: all 0.3s ease;
+}
+
+.dark .VPFeature:hover {
+  border-color: #4589ff !important;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.VPFeature .title {
+  font-weight: 700 !important;
+}
+
+/* ==========================================
+   CUSTOM CONTAINERS (Tips, Warnings, etc.)
+   ========================================== */
+
+.dark .custom-block {
+  border-radius: 4px;
+}
+
+.dark .custom-block.tip {
+  background-color: rgba(66, 190, 101, 0.06);
+  border-color: #42be65;
+}
+
+.dark .custom-block.warning {
+  background-color: rgba(241, 194, 27, 0.06);
+  border-color: #f1c21b;
+}
+
+.dark .custom-block.danger {
+  background-color: rgba(250, 77, 86, 0.06);
+  border-color: #fa4d56;
+}
+
+.dark .custom-block.info {
+  background-color: rgba(69, 137, 255, 0.06);
+  border-color: #4589ff;
+}
+
+/* ==========================================
+   CODE BLOCKS
+   ========================================== */
+
+.dark .vp-code-group .tabs label {
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dark div[class*='language-'] code {
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.85rem;
+  line-height: 1.7;
+}
+
+/* ==========================================
+   SIDEBAR ENHANCEMENTS
+   ========================================== */
+
+.dark .VPSidebar {
+  border-right: 1px solid #262626;
+}
+
+.dark .VPSidebarItem .text {
+  font-size: 0.875rem;
+}
+
+.dark .VPSidebarItem.is-active > .item > .link > .text {
+  color: #4589ff !important;
+  font-weight: 600;
+}
+
+/* ==========================================
+   TABLES (for comparison charts)
+   ========================================== */
+
+.dark .vp-doc table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.dark .vp-doc th {
+  background-color: #1a1a1a;
+  border-bottom: 2px solid #4589ff;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.5px;
+  padding: 0.75rem 1rem;
+}
+
+.dark .vp-doc td {
+  border-bottom: 1px solid #333;
+  padding: 0.6rem 1rem;
+}
+
+.dark .vp-doc tr:hover td {
+  background-color: rgba(69, 137, 255, 0.04);
+}
+
+/* ==========================================
+   IMAGES — Architecture Diagrams
+   ========================================== */
+
+.vp-doc img {
+  border-radius: 8px;
+  border: 1px solid #333;
+  margin: 1.5rem 0;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.vp-doc img:hover {
+  transform: scale(1.01);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* ==========================================
+   SCROLLBAR (Matching The Deck)
+   ========================================== */
+
+.dark ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background-color: #393939;
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: #525252;
+}
+
+/* ==========================================
+   BADGE STYLES (for inline labels)
+   ========================================== */
+
+.badge-hot {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 3px;
+  background: rgba(23, 162, 184, 0.2);
+  color: #17a2b8;
+  border: 1px solid rgba(23, 162, 184, 0.4);
+}
+
+.badge-archive {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 3px;
+  background: rgba(66, 190, 101, 0.2);
+  color: #42be65;
+  border: 1px solid rgba(66, 190, 101, 0.4);
+}
+
+.badge-dlq {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 3px;
+  background: rgba(250, 77, 86, 0.2);
+  color: #fa4d56;
+  border: 1px solid rgba(250, 77, 86, 0.4);
+}
