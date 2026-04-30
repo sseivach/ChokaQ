@@ -12,7 +12,7 @@ namespace ChokaQ.TheDeck.UI.Components.OpsPanel;
 /// </summary>
 public partial class OpsPanel
 {
-    // --- Parameters from Parent (TheDeck) ---
+
 
     /// <summary>
     /// Indicates if the application is currently in History Mode (orange state).
@@ -20,15 +20,14 @@ public partial class OpsPanel
     /// </summary>
     [Parameter] public bool IsHistoryMode { get; set; }
 
-    // --- Data Parameters for History Filter (Placeholders for Stage 3) ---
-    // These are passed down from TheDeck so the filter component knows what to display.
+
     [Parameter] public JobSource CurrentContext { get; set; } = JobSource.Archive;
     [Parameter] public int TotalItems { get; set; }
     [Parameter] public int CurrentPage { get; set; } = 1;
     [Parameter] public int PageSize { get; set; } = 100;
     [Parameter] public HubConnection? HubConnection { get; set; }
 
-    // --- Events ---
+
 
     /// <summary>
     /// Fired when the user requests to requeue (retry) a job.
@@ -46,7 +45,7 @@ public partial class OpsPanel
     /// </summary>
     [Parameter] public EventCallback<HistoryFilterDto> OnLoadRequest { get; set; }
 
-    // --- Internal State ---
+
 
     private OpsTab _activeTab = OpsTab.None;
     private string? _selectedJobId;
@@ -58,21 +57,20 @@ public partial class OpsPanel
     /// </summary>
     protected override void OnParametersSet()
     {
-        // Rule 1: If we switched TO History Mode and nothing is open, show the Filters.
+
         if (IsHistoryMode && _activeTab == OpsTab.None)
         {
             _activeTab = OpsTab.HistoryFilter;
         }
 
-        // Rule 2: If we switched FROM History Mode (to Live) and Filters were open, close the panel.
-        // We don't want to show history filters in Live mode.
+
         if (!IsHistoryMode && _activeTab == OpsTab.HistoryFilter)
         {
             _activeTab = OpsTab.None;
         }
     }
 
-    // --- Public API (Called by TheDeck via @ref) ---
+
 
     /// <summary>
     /// Opens the Job Inspector for a specific job ID.
@@ -105,14 +103,13 @@ public partial class OpsPanel
         _selectedJobId = null;
         _editorModel = null;
 
-        // Logic: If in History Mode, "Closing" an inspector just takes us back to the Filter list.
-        // If in Live Mode, "Closing" shuts the whole panel.
+
         _activeTab = IsHistoryMode ? OpsTab.HistoryFilter : OpsTab.None;
 
         StateHasChanged();
     }
 
-    // --- Internal Logic ---
+
 
     private void SwitchTab(OpsTab tab)
     {
@@ -120,7 +117,7 @@ public partial class OpsPanel
         StateHasChanged();
     }
 
-    // --- Child Component Handlers ---
+
 
     /// <summary>
     /// Handles the "Edit" button click from the Inspector.
@@ -166,13 +163,13 @@ public partial class OpsPanel
         }
     }
 
-    // Bubble up events to parent
+
     private async Task HandleRequeue(string jobId) => await OnRequeue.InvokeAsync(jobId);
 
     private async Task HandleDelete(string jobId)
     {
         await OnDelete.InvokeAsync(jobId);
-        // After deletion, close the inspector for that job
+
         ClearPanel();
     }
 

@@ -21,7 +21,7 @@ public partial class TheDeck : IAsyncDisposable
     [Inject] private IJobStorage JobStorage { get; set; } = default!;
     [Inject] private ICircuitBreaker CircuitBreaker { get; set; } = default!;
 
-    // --- State ---
+
     private HubConnection? _hubConnection;
     private List<JobViewModel> _jobs = new();
     private StatsSummaryEntity _counts = new(null, 0, 0, 0, 0, 0, 0, 0, null);
@@ -32,12 +32,12 @@ public partial class TheDeck : IAsyncDisposable
     private Components.OpsPanel.OpsPanel _opsPanel = default!;
     private System.Timers.Timer? _uiRefreshTimer;
 
-    // --- Mode & Context ---
+
     private JobSource _currentContext = JobSource.Hot;
     private bool IsHistoryMode => _currentContext != JobSource.Hot;
     private JobStatus? _activeStatusFilter;
 
-    // --- History State ---
+
     private int _historyTotalItems;
     private int _historyPageNumber = 1;
     private int _historyPageSize = 100;
@@ -97,7 +97,7 @@ public partial class TheDeck : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            // FIX: Prevent silent failure. Report stale data state to the UI console.
+
             await InvokeAsync(() =>
             {
                 AddLog($"Data sync failed. Showing stale data. Reason: {ex.Message}", "Error");
@@ -395,14 +395,14 @@ public partial class TheDeck : IAsyncDisposable
         });
     }
 
-    // --- TOAST AND LOGGING LOGIC ---
+
 
     private void AddLog(string message, string level)
     {
         _logs.Add(new LogEntry(DateTime.Now, message, level));
         if (_logs.Count > 500) _logs.RemoveAt(0);
 
-        // Fire off a toast silently in the background
+
         _ = ShowToastAsync(message, level);
 
         ThrottledRender();
@@ -414,7 +414,7 @@ public partial class TheDeck : IAsyncDisposable
         _activeToasts.Add(toast);
         await InvokeAsync(StateHasChanged);
 
-        // Auto-dismiss after 4 seconds
+
         await Task.Delay(4000);
 
         if (_activeToasts.Contains(toast))

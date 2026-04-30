@@ -13,13 +13,13 @@ public partial class Queues : IDisposable
     private List<QueueEntity> _queues = new();
     private Dictionary<string, StatsSummaryEntity> _queueStats = new();
 
-    // UI Toggle state
+
     private bool _showInactive = false;
 
-    // SignalR connection state
+
     private bool IsConnected => HubConnection?.State == HubConnectionState.Connected;
 
-    // Filters queues based on the toggle state
+
     private IEnumerable<QueueEntity> VisibleQueues =>
         _showInactive ? _queues : _queues.Where(q => q.IsActive);
 
@@ -114,7 +114,7 @@ public partial class Queues : IDisposable
         }
     }
 
-    // Soft Delete (Deactivate)
+
     private async Task DeactivateQueue(string name)
     {
         if (HubConnection is not null && IsConnected)
@@ -124,7 +124,7 @@ public partial class Queues : IDisposable
         }
     }
 
-    // Restore (Activate)
+
     private async Task ActivateQueue(string name)
     {
         if (HubConnection is not null && IsConnected)
