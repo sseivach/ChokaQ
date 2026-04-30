@@ -18,7 +18,7 @@ ChokaQ sits in the middle: **SQL Server-backed reliability with in-process simpl
 | **Dashboard** | **The Deck** (Blazor Server + SignalR) — built-in |
 | **ORM** | **Custom SqlMapper** — 172 lines, zero deps |
 | **DLQ Management** | **Edit + Resurrect** — fix payloads in-browser |
-| **Concurrency Control** | **ElasticSemaphore** — dynamic runtime scaling |
+| **Concurrency Control** | **DynamicConcurrencyLimiter** — dynamic runtime scaling |
 | **Error Classification** | **Smart Worker** — fatal vs transient routing |
 | **Bulkhead** | **Per-queue database-level** concurrency limits |
 | **Circuit Breaker** | **Built-in per job type** — no external libraries |

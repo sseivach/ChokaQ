@@ -101,7 +101,7 @@ The consumer loop reads from the Prefetch Buffer:
 
 ```csharp
 // For each job from the channel:
-await _semaphore.WaitAsync(ct);      // ElasticSemaphore — concurrency control
+await _semaphore.WaitAsync(ct);      // DynamicConcurrencyLimiter — concurrency control
 try
 {
     await _processor.ProcessAsync(job, ct);

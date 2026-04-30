@@ -57,7 +57,7 @@ export default defineConfig({
         items: [
           { text: 'SQL Concurrency (UPDLOCK)', link: '/3-deep-dives/sql-concurrency' },
           { text: 'Expression Trees', link: '/3-deep-dives/expression-trees' },
-          { text: 'Elastic Semaphore', link: '/3-deep-dives/elastic-semaphore' },
+          { text: 'Dynamic Concurrency Limiter', link: '/3-deep-dives/dynamic-concurrency-limiter' },
           { text: 'In-Memory Engine', link: '/3-deep-dives/memory-management' }
         ]
       },

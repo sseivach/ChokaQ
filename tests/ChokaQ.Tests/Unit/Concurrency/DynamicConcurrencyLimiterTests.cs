@@ -2,13 +2,13 @@ using ChokaQ.Core.Concurrency;
 
 namespace ChokaQ.Tests.Unit.Concurrency;
 
-public class ElasticSemaphoreTests
+public class DynamicConcurrencyLimiterTests
 {
     [Fact]
     public async Task WaitAsync_ShouldAcquirePermit_WhenAvailable()
     {
         // Arrange
-        var semaphore = new ElasticSemaphore(initialCapacity: 3);
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 3);
 
         // Act
         await semaphore.WaitAsync();
@@ -21,7 +21,7 @@ public class ElasticSemaphoreTests
     public async Task WaitAsync_ShouldBlock_WhenNoPermitsAvailable()
     {
         // Arrange
-        var semaphore = new ElasticSemaphore(initialCapacity: 1);
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 1);
         await semaphore.WaitAsync(); // Consume the only permit
 
         // Act
@@ -40,7 +40,7 @@ public class ElasticSemaphoreTests
     public async Task Release_ShouldFreePermit_ForWaiters()
     {
         // Arrange
-        var semaphore = new ElasticSemaphore(initialCapacity: 1);
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 1);
         await semaphore.WaitAsync(); // Consume permit
         var waitTask = semaphore.WaitAsync(); // This will block
 
@@ -56,7 +56,7 @@ public class ElasticSemaphoreTests
     public async Task SetCapacity_ScaleUp_ShouldReleaseAdditionalPermits()
     {
         // Arrange
-        var semaphore = new ElasticSemaphore(initialCapacity: 2);
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 2);
         await semaphore.WaitAsync();
         await semaphore.WaitAsync(); // Both permits consumed
 
@@ -76,7 +76,7 @@ public class ElasticSemaphoreTests
     public async Task SetCapacity_ScaleDown_ShouldBurnPermits()
     {
         // Arrange
-        var semaphore = new ElasticSemaphore(initialCapacity: 5);
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 5);
 
         // Act
         semaphore.SetCapacity(2); // Scale down from 5 to 2
@@ -102,7 +102,7 @@ public class ElasticSemaphoreTests
     public async Task RunningCount_ShouldTrackActivePermits()
     {
         // Arrange
-        var semaphore = new ElasticSemaphore(initialCapacity: 5);
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 5);
 
         // Act & Assert
         semaphore.RunningCount.Should().Be(0);
@@ -124,7 +124,7 @@ public class ElasticSemaphoreTests
     public void Capacity_ShouldReflectCurrentMaximum()
     {
         // Arrange & Act
-        var semaphore = new ElasticSemaphore(initialCapacity: 10);
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 10);
 
         // Assert
         semaphore.Capacity.Should().Be(10);
@@ -134,7 +134,7 @@ public class ElasticSemaphoreTests
     public async Task BurnLoop_CancellationShouldAbort()
     {
         // Arrange
-        var semaphore = new ElasticSemaphore(initialCapacity: 10);
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 10);
 
         // Act
         semaphore.SetCapacity(2); // This starts a burn loop in background
@@ -151,7 +151,7 @@ public class ElasticSemaphoreTests
     {
         // Arrange
         var capacity = 5;
-        var semaphore = new ElasticSemaphore(initialCapacity: capacity);
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: capacity);
         var maxConcurrent = 0;
         var currentConcurrent = 0;
         var lockObj = new object();
@@ -189,7 +189,7 @@ public class ElasticSemaphoreTests
     public void Dispose_ShouldCleanup()
     {
         // Arrange
-        var semaphore = new ElasticSemaphore(initialCapacity: 5);
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 5);
 
         // Act
         semaphore.Dispose();

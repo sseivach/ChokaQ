@@ -59,7 +59,7 @@ To guarantee consistent performance regardless of historical data volume, data i
 * **Atomic State Transitions:** All lifecycle events use SQL transactions with the `OUTPUT` clause to ensure data is never lost during movement between Hot, Archive, and DLQ tables.
 
 ### Concurrency
-* **Elastic Concurrency:** The number of active workers can be scaled up or down at runtime via the dashboard without restarting the application (implemented via `ElasticSemaphore`).
+* **Dynamic Concurrency:** The number of active workers can be scaled up or down at runtime via the dashboard without restarting the application (implemented via `DynamicConcurrencyLimiter`).
 * **Bulkhead Isolation:** Advanced queue management that prevents the "noisy neighbor" problem. By enforcing concurrency limits at the database level, the system ensures that resource-intensive tasks do not stall high-priority, lightweight operations.
 * **Prefetching:** Workers use an internal bounded channel to buffer jobs from SQL, decoupling database latency from processing throughput.
 

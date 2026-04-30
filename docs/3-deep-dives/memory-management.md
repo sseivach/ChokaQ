@@ -167,11 +167,11 @@ This is **event-driven** — zero CPU usage when idle, instant processing when a
 |-----------|-----------|-------|
 | Hot table size | `MaxCapacity` check in `EnqueueAsync` | 100,000 default |
 | Prefetch buffer | `BoundedChannel` with `Wait` mode | 100 jobs |
-| Processing concurrency | `ElasticSemaphore` | Configurable |
+| Processing concurrency | `DynamicConcurrencyLimiter` | Configurable |
 | Archive/DLQ growth | In-memory: unlimited (dev only) | N/A |
 
 ::: tip 💡 Architecture Insight
-OutOfMemory exceptions are prevented through three layers: `MaxCapacity` caps total jobs, `BoundedChannel` caps the fetch buffer with backpressure, and `ElasticSemaphore` caps concurrent processing. Each layer independently prevents resource exhaustion.
+OutOfMemory exceptions are prevented through three layers: `MaxCapacity` caps total jobs, `BoundedChannel` caps the fetch buffer with backpressure, and `DynamicConcurrencyLimiter` caps concurrent processing. Each layer independently prevents resource exhaustion.
 :::
 
 > *Next: Explore [The Deck Dashboard](/4-the-deck/realtime-signalr) — real-time monitoring with SignalR.*

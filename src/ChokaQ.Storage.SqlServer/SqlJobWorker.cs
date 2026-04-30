@@ -32,7 +32,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
     private readonly Channel<JobHotEntity> _prefetchBuffer;
 
     // Encapsulates the logic for dynamic scaling (Permit Burning / Minting)
-    private readonly ElasticSemaphore _concurrencyLimiter;
+    private readonly DynamicConcurrencyLimiter _concurrencyLimiter;
 
     // Shared cache for queue states. Updated by Fetcher, read by Processor.
     private readonly ConcurrentDictionary<string, bool> _queuePauseCache = new();
@@ -81,14 +81,14 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
             SingleReader = false
         });
 
-        // Initialize elastic semaphore with default capacity of 10
-        _concurrencyLimiter = new ElasticSemaphore(10);
+        // Initialize dynamic concurrency limiter with default capacity of 10
+        _concurrencyLimiter = new DynamicConcurrencyLimiter(10);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation(
-            "SQL Worker Starting. Strategy: Prefetch + ElasticSemaphore. Initial Capacity: {Capacity}",
+            "SQL Worker Starting. Strategy: Prefetch + DynamicConcurrencyLimiter. Initial Capacity: {Capacity}",
             _concurrencyLimiter.Capacity);
 
         // Two independent long-running loops:
@@ -171,7 +171,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
     }
 
     /// <summary>
-    /// The "Consumer". Orchestrates parallel execution limited by ElasticSemaphore.
+    /// The "Consumer". Orchestrates parallel execution limited by DynamicConcurrencyLimiter.
     /// Handles immediate release of jobs if the queue becomes paused while the job is in the buffer.
     /// </summary>
     private async Task ProcessorLoopAsync(CancellationToken ct)

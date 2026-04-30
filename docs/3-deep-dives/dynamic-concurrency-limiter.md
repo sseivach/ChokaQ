@@ -1,4 +1,4 @@
-# Elastic Semaphore (Lock-Free)
+# Dynamic Concurrency Limiter (Lock-Free)
 
 ## The Problem: Static Concurrency Limits
 
@@ -6,7 +6,7 @@ Standard `SemaphoreSlim` is initialized with a fixed capacity. Changing from 10 
 
 ## The Solution: Logical Concurrency + Coalescing Channel
 
-ChokaQ implements a completely lock-free, state-driven `ElasticSemaphore` that drops the physical concept of "permits" entirely.
+ChokaQ implements a completely lock-free, state-driven `DynamicConcurrencyLimiter` that drops the physical concept of "permits" entirely.
 
 Instead of managing `SemaphoreSlim` slots, it uses two integers (`_activeWorkers`, `_targetCapacity`) and a highly optimized `Channel<byte>`.
 

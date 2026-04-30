@@ -69,7 +69,7 @@ namespace ChokaQ.Core.Concurrency;
 /// - background workers
 /// - distributed task runners
 /// </summary>
-public class ElasticSemaphore : IDisposable
+public class DynamicConcurrencyLimiter : IDisposable
 {
     private int _targetCapacity;
     private int _activeWorkers;
@@ -99,7 +99,7 @@ public class ElasticSemaphore : IDisposable
     /// </summary>
     public int RunningCount => Volatile.Read(ref _activeWorkers);
 
-    public ElasticSemaphore(int initialCapacity)
+    public DynamicConcurrencyLimiter(int initialCapacity)
     {
         if (initialCapacity < 1) initialCapacity = 1;
         _targetCapacity = initialCapacity;
@@ -117,7 +117,7 @@ public class ElasticSemaphore : IDisposable
             ct.ThrowIfCancellationRequested();
 
             if (_disposed)
-                throw new ObjectDisposedException(nameof(ElasticSemaphore));
+                throw new ObjectDisposedException(nameof(DynamicConcurrencyLimiter));
 
             int current = Volatile.Read(ref _activeWorkers);
             int target = Volatile.Read(ref _targetCapacity);
@@ -164,7 +164,7 @@ public class ElasticSemaphore : IDisposable
             }
             catch (ChannelClosedException)
             {
-                throw new ObjectDisposedException(nameof(ElasticSemaphore));
+                throw new ObjectDisposedException(nameof(DynamicConcurrencyLimiter));
             }
 
             // After wakeup → ALWAYS re-check state

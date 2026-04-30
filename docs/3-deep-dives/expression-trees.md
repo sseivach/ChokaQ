@@ -178,4 +178,4 @@ This pattern is widely used in high-performance .NET libraries. EF Core uses Exp
 
 <br>
 
-> *Next: See how the [Elastic Semaphore](/3-deep-dives/elastic-semaphore) enables runtime concurrency scaling without restarts.*
+> *Next: See how the [Dynamic Concurrency Limiter](/3-deep-dives/dynamic-concurrency-limiter) enables runtime concurrency scaling without restarts.*
