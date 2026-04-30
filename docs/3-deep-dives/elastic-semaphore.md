@@ -20,7 +20,8 @@ ChokaQ wraps `SemaphoreSlim` with dynamic scaling:
 public class ElasticSemaphore
 {
     private readonly SemaphoreSlim _semaphore;
-    private volatile int _currentCapacity;
+    private int _targetCapacity;
+    private int _actualCapacity;
     private CancellationTokenSource? _burnCts;
 
     public ElasticSemaphore(int initialCapacity)
@@ -40,7 +41,7 @@ The trick: `maxCount = int.MaxValue` allows `Release()` beyond the initial count
 if (diff > 0)
 {
     _semaphore.Release(diff);  // "Mint" new permits
-    _currentCapacity = newCapacity;
+    _actualCapacity += diff;
 }
 ```
 
@@ -57,6 +58,7 @@ private async Task BurnPermitsAsync(int count, CancellationToken ct)
     {
         await _semaphore.WaitAsync(ct);
         // ...and NEVER release it. The permit is destroyed.
+        Interlocked.Decrement(ref _actualCapacity);
     }
 }
 ```
@@ -67,15 +69,19 @@ Capacity 15 → 10: burn tasks acquire 5 permits in the background. If all slots
 Burning is **asynchronous and non-blocking**. Capacity gradually decreases as jobs complete. This is a graceful drain, not a hard cut.
 :::
 
-## Cancellation Support
+## Defensive Cancellation (Anti-Drift)
 
-Rapid resize (15→10→20) cancels the old burn:
+Rapid resizes (15→10→20) dynamically cancel old burn tasks to prevent "permit drift". The engine tracks the *physical* `_actualCapacity` rather than just the logical target:
 
 ```csharp
-_burnCts?.Cancel();  // Cancel stale burn from 15→10
-_burnCts = new CancellationTokenSource();
-_ = BurnPermitsAsync(permitsToRemove, _burnCts.Token);
+// Cancel ANY previous burn operation (Up or Down)
+_burnCts?.Cancel(); 
+
+// Calculate based on physical reality, not target
+int diff = _targetCapacity - _actualCapacity; 
 ```
+
+This defensive approach ensures that if a previous scale-down operation was interrupted, the math self-corrects perfectly on the next adjustment.
 
 ## Integration with SqlJobWorker
 

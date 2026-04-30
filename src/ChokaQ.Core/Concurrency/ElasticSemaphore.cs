@@ -1,3 +1,7 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
 namespace ChokaQ.Core.Concurrency;
 
 /// <summary>
@@ -19,6 +23,9 @@ public class ElasticSemaphore : IDisposable
 
     // The logical maximum concurrency we want to enforce.
     private int _targetCapacity;
+    
+    // Tracks the exact number of permits that actually exist in the pool right now.
+    private int _actualCapacity;
 
     /// <summary>
     /// Gets the current maximum capacity (concurrency limit).
@@ -27,15 +34,16 @@ public class ElasticSemaphore : IDisposable
 
     /// <summary>
     /// Gets the approximate number of threads currently occupying a slot.
-    /// Formula: TargetCapacity - AvailablePermits
+    /// Formula: ActualCapacity - AvailablePermits
     /// </summary>
-    public int RunningCount => _targetCapacity - _semaphore.CurrentCount;
+    public int RunningCount => _actualCapacity - _semaphore.CurrentCount;
 
     public ElasticSemaphore(int initialCapacity)
     {
         if (initialCapacity <= 0) initialCapacity = 1;
-
+        
         _targetCapacity = initialCapacity;
+        _actualCapacity = initialCapacity;
 
         // Initialize with int.MaxValue to allow "infinite" scaling UP.
         // But we only release 'initialCapacity' permits to start.
@@ -77,30 +85,34 @@ public class ElasticSemaphore : IDisposable
 
         lock (_lock)
         {
-            int diff = newCapacity - _targetCapacity;
+            if (newCapacity == _targetCapacity) return;
 
-            if (diff == 0) return;
+            // CRITICAL FIX: Cancel any previous burn operation IN ALL CASES (Up or Down)
+            _burnCts?.Cancel();
+            _burnCts?.Dispose();
+            _burnCts = null;
+
+            _targetCapacity = newCapacity;
+
+            // Calculate diff based on the ACTUAL capacity, not the target.
+            // This prevents drifting when previous burns were interrupted.
+            int diff = _targetCapacity - _actualCapacity;
 
             if (diff > 0)
             {
-                // SCALE UP: Simply release more permits into the pool.
+                // SCALE UP: Simply release more permits into the pool instantly.
                 _semaphore.Release(diff);
+                _actualCapacity += diff;
             }
-            else
+            else if (diff < 0)
             {
-                // SCALE DOWN: We need to remove permits. Since SemaphoreSlim 
-                // doesn't have "Reduce", spawn a background task to consume ("burn") them.
+                // SCALE DOWN: We need to remove permits asynchronously.
+                // Since SemaphoreSlim doesn't have "Reduce", spawn a background task to consume ("burn") them.
                 int permitsToBurn = Math.Abs(diff);
 
-                // Cancel any previous burn operation
-                _burnCts?.Cancel();
                 _burnCts = new CancellationTokenSource();
-
-                // Background burner task with cancellation support
                 _ = BurnPermitsAsync(permitsToBurn, _burnCts.Token);
             }
-
-            _targetCapacity = newCapacity;
         }
     }
 
@@ -117,12 +129,13 @@ public class ElasticSemaphore : IDisposable
                 // Acquire a permit...
                 await _semaphore.WaitAsync(ct);
 
-                // ...and NEVER release it. 
-                // It is now lost to the void, effectively reducing capacity.
+                // ...and NEVER release it.
+                // Decrement actual capacity since the permit is successfully burned.
+                Interlocked.Decrement(ref _actualCapacity);
             }
             catch (OperationCanceledException)
             {
-                // Shutdown requested - stop burning permits
+                // Shutdown or capacity change requested - stop burning permits
                 break;
             }
         }
