@@ -44,10 +44,20 @@ public partial class HistoryFilter
     /// </summary>
     [Parameter] public HubConnection? HubConnection { get; set; }
 
+    /// <summary>
+    /// Last filter that the parent page actually loaded.
+    /// </summary>
+    /// <remarks>
+    /// The filter panel is not only driven by its own controls. Other dashboard surfaces, such
+    /// as Top Error Types, can jump the operator directly into a pre-filtered DLQ view. Keeping
+    /// the applied filter visible prevents the UI from lying about what the table currently shows.
+    /// </remarks>
+    [Parameter] public HistoryFilterDto? ActiveFilter { get; set; }
+
     // --- Local State ---
 
-    private DateTime _dateFrom = DateTime.Today; // Default to Today
-    private DateTime _dateTo = DateTime.Today;
+    private DateTime? _dateFrom = DateTime.Today; // Default to Today for manual history browsing.
+    private DateTime? _dateTo = DateTime.Today;
     private string _searchTerm = "";
     private string _queue = "";
     private string _failureReason = "";
@@ -61,6 +71,7 @@ public partial class HistoryFilter
     private string _bulkConfirmation = "";
     private string? _bulkResultMessage;
     private DlqBulkOperationPreviewDto? _bulkPreview;
+    private HistoryFilterDto? _appliedActiveFilter;
 
     // --- Computed Properties ---
 
@@ -81,6 +92,12 @@ public partial class HistoryFilter
         {
             _selectedPageSize = PageSize;
         }
+
+        if (ActiveFilter is not null && !ActiveFilter.Equals(_appliedActiveFilter))
+        {
+            ApplyActiveFilter(ActiveFilter);
+            _appliedActiveFilter = ActiveFilter;
+        }
     }
 
     /// <summary>
@@ -89,9 +106,10 @@ public partial class HistoryFilter
     private async Task TriggerLoad(int pageNumber = 1)
     {
         var filter = new HistoryFilterDto(
-            FromUtc: _dateFrom.ToUniversalTime(),
-            // End of the selected day (23:59:59)
-            ToUtc: _dateTo.AddDays(1).AddTicks(-1).ToUniversalTime(),
+            FromUtc: ToUtcStartOfDay(_dateFrom),
+            // End of the selected day (23:59:59). Null means "no time bound", which is important
+            // for dashboard click-through because repeated incidents often span deploy windows.
+            ToUtc: ToUtcEndOfDay(_dateTo),
             SearchTerm: _searchTerm,
             Queue: string.IsNullOrWhiteSpace(_queue) ? null : _queue,
             Status: null, // Status is inferred from the Context (Archive/DLQ)
@@ -172,10 +190,36 @@ public partial class HistoryFilter
             Queue: string.IsNullOrWhiteSpace(_queue) ? null : _queue,
             FailureReason: ParseFailureReason(),
             Type: string.IsNullOrWhiteSpace(_jobType) ? null : _jobType,
-            FromUtc: _dateFrom.ToUniversalTime(),
-            ToUtc: _dateTo.AddDays(1).AddTicks(-1).ToUniversalTime(),
+            FromUtc: ToUtcStartOfDay(_dateFrom),
+            ToUtc: ToUtcEndOfDay(_dateTo),
             SearchTerm: string.IsNullOrWhiteSpace(_searchTerm) ? null : _searchTerm,
             MaxJobs: maxJobs);
+    }
+
+    private void ApplyActiveFilter(HistoryFilterDto filter)
+    {
+        _dateFrom = filter.FromUtc?.ToLocalTime().Date;
+        _dateTo = filter.ToUtc?.ToLocalTime().Date;
+        _searchTerm = filter.SearchTerm ?? "";
+        _queue = filter.Queue ?? "";
+        _failureReason = Context == JobSource.DLQ
+            ? filter.FailureReason?.ToString() ?? ""
+            : "";
+        _jobType = "";
+        _sortBy = string.IsNullOrWhiteSpace(filter.SortBy) ? "Date" : filter.SortBy;
+        _sortDesc = filter.SortDescending;
+
+        if (new[] { 100, 500, 1000 }.Contains(filter.PageSize))
+        {
+            _selectedPageSize = filter.PageSize;
+        }
+
+        // A changed filter invalidates any old bulk preview. Preview counts are promises about
+        // a specific predicate; keeping them after a click-through would be operationally unsafe.
+        _bulkPreview = null;
+        _bulkOperation = null;
+        _bulkConfirmation = "";
+        _bulkResultMessage = null;
     }
 
     // --- Event Handlers ---
@@ -226,4 +270,9 @@ public partial class HistoryFilter
             ? reason
             : null;
     }
+
+    private static DateTime? ToUtcStartOfDay(DateTime? date) => date?.Date.ToUniversalTime();
+
+    private static DateTime? ToUtcEndOfDay(DateTime? date) =>
+        date?.Date.AddDays(1).AddTicks(-1).ToUniversalTime();
 }

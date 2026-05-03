@@ -19,5 +19,17 @@ public class JobViewModel
 
     public string Payload { get; set; } = "{}";
     public string? ErrorDetails { get; set; }
+
+    /// <summary>
+    /// Normalized, short failure family shown directly in the DLQ grid.
+    /// </summary>
+    /// <remarks>
+    /// Operators need the taxonomy badge for routing ("timeout", "fatal", "throttled"),
+    /// but they also need the repeated error family to decide whether many rows are the same
+    /// incident. The full stack trace stays in ErrorDetails and the inspector; this value is
+    /// deliberately compact so the table remains scannable under production volume.
+    /// </remarks>
+    public string? ErrorFamily { get; set; }
+
     public FailureReason? FailureReason { get; set; }
 }

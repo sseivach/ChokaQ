@@ -738,6 +738,48 @@ public class SqlJobStorageIntegrationTests
         result.Items.Should().NotContain(j => j.Id == transientId);
     }
 
+    [Fact]
+    public async Task GetDLQPagedAsync_WithSearchTerm_ShouldMatchErrorDetails()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+
+        var matchingId = NewId();
+        await _storage.EnqueueAsync(matchingId, "default", "BillingJob", "{}");
+        await _storage.FetchNextBatchAsync("worker1", 1);
+        await _storage.ArchiveFailedAsync(
+            matchingId,
+            "payment-provider duplicate invoice key",
+            failureReason: FailureReason.FatalError);
+
+        var otherId = NewId();
+        await _storage.EnqueueAsync(otherId, "default", "BillingJob", "{}");
+        await _storage.FetchNextBatchAsync("worker1", 1);
+        await _storage.ArchiveFailedAsync(
+            otherId,
+            "smtp gateway timeout",
+            failureReason: FailureReason.Transient);
+
+        // Act
+        var filter = new HistoryFilterDto(
+            null,
+            null,
+            "duplicate invoice",
+            null,
+            null,
+            1,
+            10,
+            FailureReason: FailureReason.FatalError);
+        var result = await _storage.GetDLQPagedAsync(filter);
+
+        // Assert
+        // SQL mode must behave like the in-memory control path here. Top Errors click-through
+        // passes an error-family prefix into SearchTerm, so the paged DLQ query has to include
+        // ErrorDetails while still using the typed FailureReason predicate for taxonomy.
+        result.Items.Should().ContainSingle(j => j.Id == matchingId);
+        result.Items.Should().NotContain(j => j.Id == otherId);
+    }
+
     #endregion
 
     #region Queue Management (Tests 31-33)

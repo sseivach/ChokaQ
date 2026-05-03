@@ -741,6 +741,9 @@ input[type="checkbox"]:checked::after {
 }
 
 .health__error {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
     display: grid;
     grid-template-columns: 6rem minmax(0, 1fr) 3.25rem 2.25rem;
     align-items: center;
@@ -748,7 +751,18 @@ input[type="checkbox"]:checked::after {
     padding: 0.25rem 0.35rem;
     border: 1px solid var(--sector-border-subtle);
     background: rgba(0, 0, 0, 0.16);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
     min-width: 0;
+}
+
+.health__error:hover,
+.health__error:focus-visible {
+    border-color: var(--sector-border-highlight);
+    background: rgba(69, 137, 255, 0.12);
+    outline: none;
 }
 
 .health__reason {
@@ -1014,6 +1028,13 @@ input[type="checkbox"]:checked::after {
     text-align: left;
 }
 
+.job-row__status-line {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
 .job-row__status {
     display: inline-block;
     padding: 0.15rem 0.4rem;
@@ -1052,7 +1073,6 @@ input[type="checkbox"]:checked::after {
 
 .job-row__failure {
     display: inline-block;
-    margin-left: 0.35rem;
     padding: 0.12rem 0.35rem;
     border: 1px solid var(--sector-border-color);
     font-size: 0.65rem;
@@ -1060,6 +1080,17 @@ input[type="checkbox"]:checked::after {
     text-transform: uppercase;
     white-space: nowrap;
     vertical-align: middle;
+}
+
+.job-row__error-family {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--deck-muted);
+    font-family: monospace;
+    font-size: 0.68rem;
+    line-height: 1;
 }
 
 .job-row__failure--throttled {
@@ -1574,17 +1605,17 @@ input[type="checkbox"]:checked::after {
 }
 
 .matrix__th--id {
-    width: 20%;
+    width: 17%;
     text-align: left;
 }
 
 .matrix__th--queue {
-    width: 15%;
+    width: 12%;
     text-align: left;
 }
 
 .matrix__th--type {
-    width: 15%;
+    width: 14%;
     text-align: left;
 }
 
@@ -1599,12 +1630,12 @@ input[type="checkbox"]:checked::after {
 }
 
 .matrix__th--status {
-    width: 7%;
+    width: 16%;
     text-align: left;
 }
 
 .matrix__th--progress {
-    width: 10%;
+    width: 8%;
     text-align: left;
 }
 

@@ -63,7 +63,8 @@
         </section>
 
         <section class="deck__row deck__row--health">
-            <Health HealthSnapshot="_systemHealth" />
+            <Health HealthSnapshot="_systemHealth"
+                    OnTopErrorSelected="HandleTopErrorSelected" />
         </section>
 
         <section class="deck__row deck__row--circuits">
@@ -78,6 +79,7 @@
                       TotalItems="_historyTotalItems"
                       CurrentPage="_historyPageNumber"
                       PageSize="_historyPageSize"
+                      ActiveHistoryFilter="_lastHistoryFilter"
                       OnLoadRequest="HandleHistoryLoadRequest"
                       OnDataChanged="HandleDataRefreshRequest"
                       OnRequeue="HandleRequeueRequested"

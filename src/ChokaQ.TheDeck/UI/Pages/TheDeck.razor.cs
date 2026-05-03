@@ -46,6 +46,7 @@ public partial class TheDeck : IAsyncDisposable
 
     private bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
     private const int MaxLiveCount = 100;
+    private const int ErrorFamilyDisplayLength = 160;
 
     private DateTime _lastStatsUpdate = DateTime.MinValue;
     private static readonly TimeSpan StatsUpdateThrottle = TimeSpan.FromMilliseconds(1000);
@@ -183,6 +184,35 @@ public partial class TheDeck : IAsyncDisposable
         {
             AddLog($"Error loading history: {ex.Message}", "Error");
         }
+    }
+
+    private async Task HandleTopErrorSelected(DlqErrorGroupDto error)
+    {
+        // Top Errors use the same two dimensions that make DLQ triage useful at scale:
+        // a typed FailureReason for routing and a normalized error prefix for grouping.
+        // We deliberately do not add a date range here; incidents often span midnight or
+        // several deploy windows, and an operator click should answer "show me this family"
+        // before asking them to narrow time.
+        _currentContext = JobSource.DLQ;
+        _activeStatusFilter = null;
+        _jobs.Clear();
+        _jobMatrix?.ClearSelection();
+        _opsPanel?.ShowHistoryFilter(force: true);
+
+        var filter = new HistoryFilterDto(
+            FromUtc: null,
+            ToUtc: null,
+            SearchTerm: error.ErrorPrefix,
+            Queue: null,
+            Status: null,
+            PageNumber: 1,
+            PageSize: 100,
+            SortBy: "Date",
+            SortDescending: true,
+            FailureReason: error.FailureReason);
+
+        AddLog($"DLQ filtered by {error.FailureReason}: {TrimForLog(error.ErrorPrefix)}", "Info");
+        await HandleHistoryLoadRequest(filter);
     }
 
     private async Task LoadHistoryPageAsync(HistoryFilterDto filter)
@@ -350,8 +380,38 @@ public partial class TheDeck : IAsyncDisposable
             StartedAtUtc = null,
             Payload = j.Payload ?? "{}",
             ErrorDetails = j.ErrorDetails,
+            ErrorFamily = NormalizeErrorFamily(j.ErrorDetails),
             FailureReason = j.FailureReason
         }).ToList();
+    }
+
+    private static string? NormalizeErrorFamily(string? errorDetails)
+    {
+        if (string.IsNullOrWhiteSpace(errorDetails))
+            return null;
+
+        // This mirrors the storage-side Top Errors normalization for display only. Storage
+        // remains authoritative for grouping; the UI copy exists so each DLQ row teaches the
+        // operator why it belongs to the same repeated failure family.
+        var singleLine = errorDetails
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Trim();
+
+        while (singleLine.Contains("  ", StringComparison.Ordinal))
+        {
+            singleLine = singleLine.Replace("  ", " ", StringComparison.Ordinal);
+        }
+
+        return singleLine.Length <= ErrorFamilyDisplayLength
+            ? singleLine
+            : singleLine[..ErrorFamilyDisplayLength];
+    }
+
+    private static string TrimForLog(string value)
+    {
+        const int maxLength = 96;
+        return value.Length <= maxLength ? value : value[..maxLength] + "...";
     }
 
     private void RegisterHubHandlers()

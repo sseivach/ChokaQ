@@ -16,11 +16,16 @@
         <ol class="health__errors">
             @foreach (var error in TopErrors)
             {
-                <li class="health__error">
-                    <span class="health__reason">@error.FailureReason</span>
-                    <span class="health__prefix" title="@error.ErrorPrefix">@TrimPrefix(error.ErrorPrefix)</span>
-                    <span class="health__count">@error.Count.ToString("N0")</span>
-                    <span class="health__age">@FormatAge(error.LatestFailedAtUtc)</span>
+                <li>
+                    <button type="button"
+                            class="health__error"
+                            title="Filter DLQ by this failure reason and error family"
+                            @onclick="() => HandleTopErrorClicked(error)">
+                        <span class="health__reason">@error.FailureReason</span>
+                        <span class="health__prefix" title="@error.ErrorPrefix">@TrimPrefix(error.ErrorPrefix)</span>
+                        <span class="health__count">@error.Count.ToString("N0")</span>
+                        <span class="health__age">@FormatAge(error.LatestFailedAtUtc)</span>
+                    </button>
                 </li>
             }
         </ol>

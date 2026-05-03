@@ -53,6 +53,17 @@ public partial class JobRow
 
     private string? GetFailureReasonLabel() => Job.FailureReason?.ToString().ToUpperInvariant();
 
+    private bool HasErrorFamily => !string.IsNullOrWhiteSpace(Job.ErrorFamily);
+
+    private string GetErrorFamilyTitle()
+    {
+        // The row shows the normalized family for scanning. The tooltip keeps the full incident
+        // detail nearby so operators can confirm the family without opening the inspector first.
+        return string.IsNullOrWhiteSpace(Job.ErrorDetails)
+            ? Job.ErrorFamily ?? string.Empty
+            : Job.ErrorDetails;
+    }
+
     private string GetFailureReasonModifier() => Job.FailureReason switch
     {
         FailureReason.Throttled => "job-row__failure--throttled",

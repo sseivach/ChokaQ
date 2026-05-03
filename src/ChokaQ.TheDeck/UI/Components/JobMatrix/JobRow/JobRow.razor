@@ -27,14 +27,23 @@
     </td>
     
     <td class="job-row__cell job-row__cell--status">
-        <span class="job-row__status @GetStatusModifier()">@GetStatusLabel()</span>
-        @if (Job.FailureReason.HasValue)
-        {
-            <span class="job-row__failure @GetFailureReasonModifier()"
-                  title="DLQ failure taxonomy">
-                @GetFailureReasonLabel()
-            </span>
-        }
+        <div class="job-row__status-line">
+            <span class="job-row__status @GetStatusModifier()">@GetStatusLabel()</span>
+            @if (Job.FailureReason.HasValue)
+            {
+                <span class="job-row__failure @GetFailureReasonModifier()"
+                      title="DLQ failure taxonomy">
+                    @GetFailureReasonLabel()
+                </span>
+            }
+            @if (HasErrorFamily)
+            {
+                <span class="job-row__error-family"
+                      title="@GetErrorFamilyTitle()">
+                    @Job.ErrorFamily
+                </span>
+            }
+        </div>
     </td>
     
     <td class="job-row__cell job-row__cell--progress">

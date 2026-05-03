@@ -972,7 +972,19 @@ public class SqlJobStorage : IJobStorage
 
         if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
         {
-            sb.Append(" AND ([Id] LIKE @Search OR [Type] LIKE @Search OR [Tags] LIKE @Search)");
+            if (isArchive)
+            {
+                sb.Append(" AND ([Id] LIKE @Search OR [Type] LIKE @Search OR [Tags] LIKE @Search)");
+            }
+            else
+            {
+                // DLQ search is allowed to inspect ErrorDetails because Top Errors click-through
+                // passes the normalized error prefix as SearchTerm. The typed FailureReason filter
+                // remains separate above so taxonomy still narrows the candidate set before the
+                // operator asks for a free-text family match.
+                sb.Append(" AND ([Id] LIKE @Search OR [Type] LIKE @Search OR [Tags] LIKE @Search OR [ErrorDetails] LIKE @Search)");
+            }
+
             p["Search"] = $"%{filter.SearchTerm}%";
         }
 

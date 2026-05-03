@@ -1161,6 +1161,48 @@ public class InMemoryJobStorageTests
         result.Items.Should().NotContain(j => j.Id == transientId);
     }
 
+    [Fact]
+    public async Task GetDLQPagedAsync_WithSearchTerm_ShouldMatchErrorDetails()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+
+        var matchingId = NewId();
+        await storage.EnqueueAsync(matchingId, "default", "BillingJob", "{}");
+        await storage.FetchNextBatchAsync("worker1", 1);
+        await storage.ArchiveFailedAsync(
+            matchingId,
+            "payment-provider duplicate invoice key",
+            failureReason: FailureReason.FatalError);
+
+        var otherId = NewId();
+        await storage.EnqueueAsync(otherId, "default", "BillingJob", "{}");
+        await storage.FetchNextBatchAsync("worker1", 1);
+        await storage.ArchiveFailedAsync(
+            otherId,
+            "smtp gateway timeout",
+            failureReason: FailureReason.Transient);
+
+        // Act
+        var filter = new HistoryFilterDto(
+            null,
+            null,
+            "duplicate invoice",
+            null,
+            null,
+            1,
+            10,
+            FailureReason: FailureReason.FatalError);
+        var result = await storage.GetDLQPagedAsync(filter);
+
+        // Assert
+        // Top Errors click-through sends the normalized error family as SearchTerm. DLQ paging must
+        // therefore search ErrorDetails, not only Id/Type/Tags, or the dashboard would lead an
+        // operator to an empty investigation view.
+        result.Items.Should().ContainSingle(j => j.Id == matchingId);
+        result.Items.Should().NotContain(j => j.Id == otherId);
+    }
+
     #endregion
 
     #region Queue Management (Tests 55-59)

@@ -25,6 +25,7 @@ public partial class OpsPanel
     [Parameter] public int TotalItems { get; set; }
     [Parameter] public int CurrentPage { get; set; } = 1;
     [Parameter] public int PageSize { get; set; } = 100;
+    [Parameter] public HistoryFilterDto? ActiveHistoryFilter { get; set; }
     [Parameter] public HubConnection? HubConnection { get; set; }
 
 
@@ -95,10 +96,13 @@ public partial class OpsPanel
     /// Forces the panel to show the History Filter tab.
     /// Called when the user toggles the mode switch to "History".
     /// </summary>
-    public void ShowHistoryFilter()
+    public void ShowHistoryFilter(bool force = false)
     {
-        if (IsHistoryMode)
+        if (force || IsHistoryMode)
         {
+            // Dashboard click-through can update the parent context before Blazor has pushed the
+            // new IsHistoryMode parameter into this child component. The force flag lets the
+            // parent open the correct operator workflow immediately after a Top Errors click.
             SwitchTab(OpsTab.HistoryFilter);
         }
     }
