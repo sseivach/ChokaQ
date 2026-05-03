@@ -1036,6 +1036,29 @@ public class InMemoryJobStorageTests
     }
 
     [Fact]
+    public async Task GetSystemHealthAsync_ShouldKeepFailureRateAfterDlqRequeue()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+        var id = NewId();
+        await storage.EnqueueAsync(id, "metrics-queue", "FailedThenRequeuedJob", "{}");
+        await storage.FetchNextBatchAsync("worker1", 1, new[] { "metrics-queue" });
+        await storage.ArchiveFailedAsync(id, "Boom: fixed later by operator", failureReason: FailureReason.FatalError);
+
+        await storage.ResurrectAsync(id);
+
+        // Act
+        var health = await storage.GetSystemHealthAsync();
+
+        // Assert
+        // This is the key improvement over the previous bounded Archive/DLQ lookback. Requeue
+        // removes the DLQ row because the job is active again, but the failure event still happened
+        // and should remain in recent throughput/failure-rate windows.
+        health.JobsPerSecondLastMinute.Should().BeGreaterThan(0);
+        health.FailureRateLastMinutePercent.Should().BeApproximately(100, 0.1);
+    }
+
+    [Fact]
     public async Task GetActiveJobsAsync_ShouldReturnProcessingJobs()
     {
         // Arrange

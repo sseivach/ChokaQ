@@ -13,6 +13,9 @@ namespace ChokaQ.Core.Defaults;
 public class InMemoryJobStorage : IJobStorage
 {
     private const int ErrorPrefixLength = 160;
+    private const int MetricOutcomeSucceeded = 0;
+    private const int MetricOutcomeFailed = 1;
+    private const int NoFailureReason = -1;
 
     private readonly int _maxCapacity;
     private readonly object _transitionLock = new();
@@ -25,6 +28,7 @@ public class InMemoryJobStorage : IJobStorage
     // Aggregates & Config
     private readonly ConcurrentDictionary<string, StatsSummaryData> _stats = new();
     private readonly ConcurrentDictionary<string, QueueData> _queues = new();
+    private readonly ConcurrentDictionary<MetricBucketKey, MetricBucketData> _metricBuckets = new();
 
     public InMemoryJobStorage(InMemoryStorageOptions options)
     {
@@ -248,6 +252,7 @@ public class InMemoryJobStorage : IJobStorage
 
             _archiveJobs[job.Id] = archived;
             IncrementStats(job.Queue, succeeded: 1);
+            RecordMetricBucket(job.Queue, failed: false, failureReason: null, durationMs: archived.DurationMs, observedAtUtc: now);
         }
         return new ValueTask<bool>(true);
     }
@@ -723,10 +728,21 @@ public class InMemoryJobStorage : IJobStorage
             .Select(queue => pendingLagByQueue.GetValueOrDefault(queue) ?? new QueueHealthDto(queue, 0, 0, 0))
             .ToList();
 
-        var succeededLastMinute = _archiveJobs.Values.LongCount(j => j.FinishedAtUtc >= oneMinuteCutoff);
-        var failedLastMinute = _dlqJobs.Values.LongCount(j => j.FailedAtUtc >= oneMinuteCutoff);
-        var succeededLastFiveMinutes = _archiveJobs.Values.LongCount(j => j.FinishedAtUtc >= fiveMinuteCutoff);
-        var failedLastFiveMinutes = _dlqJobs.Values.LongCount(j => j.FailedAtUtc >= fiveMinuteCutoff);
+        var metricSnapshots = _metricBuckets
+            .Where(kvp => kvp.Key.BucketStartUtc >= fiveMinuteCutoff)
+            .Select(kvp => kvp.Value.Snapshot(kvp.Key))
+            .ToList();
+
+        var processedLastMinute = metricSnapshots
+            .Where(b => b.Key.BucketStartUtc >= oneMinuteCutoff)
+            .Sum(b => b.CompletedCount);
+        var bucketFailedLastMinute = metricSnapshots
+            .Where(b => b.Key.BucketStartUtc >= oneMinuteCutoff && b.Key.Outcome == MetricOutcomeFailed)
+            .Sum(b => b.CompletedCount);
+        var processedLastFiveMinutes = metricSnapshots.Sum(b => b.CompletedCount);
+        var bucketFailedLastFiveMinutes = metricSnapshots
+            .Where(b => b.Key.Outcome == MetricOutcomeFailed)
+            .Sum(b => b.CompletedCount);
 
         var topErrors = _dlqJobs.Values
             .GroupBy(j => new { j.FailureReason, Prefix = NormalizeErrorPrefix(j.ErrorDetails) })
@@ -743,10 +759,10 @@ public class InMemoryJobStorage : IJobStorage
         var health = new SystemHealthDto(
             GeneratedAtUtc: now,
             Queues: queueHealth,
-            JobsPerSecondLastMinute: CalculateJobsPerSecond(succeededLastMinute + failedLastMinute, 60),
-            JobsPerSecondLastFiveMinutes: CalculateJobsPerSecond(succeededLastFiveMinutes + failedLastFiveMinutes, 300),
-            FailureRateLastMinutePercent: CalculateFailureRatePercent(failedLastMinute, succeededLastMinute + failedLastMinute),
-            FailureRateLastFiveMinutesPercent: CalculateFailureRatePercent(failedLastFiveMinutes, succeededLastFiveMinutes + failedLastFiveMinutes),
+            JobsPerSecondLastMinute: CalculateJobsPerSecond(processedLastMinute, 60),
+            JobsPerSecondLastFiveMinutes: CalculateJobsPerSecond(processedLastFiveMinutes, 300),
+            FailureRateLastMinutePercent: CalculateFailureRatePercent(bucketFailedLastMinute, processedLastMinute),
+            FailureRateLastFiveMinutesPercent: CalculateFailureRatePercent(bucketFailedLastFiveMinutes, processedLastFiveMinutes),
             TopErrors: topErrors);
 
         return new ValueTask<SystemHealthDto>(health);
@@ -997,6 +1013,7 @@ public class InMemoryJobStorage : IJobStorage
 
                         _dlqJobs[removed.Id] = dlqJob;
                         IncrementStats(removed.Queue, failed: 1);
+                        RecordMetricBucket(removed.Queue, failed: true, FailureReason.Zombie, durationMs: null, observedAtUtc: now);
                         count++;
                     }
                 }
@@ -1158,6 +1175,27 @@ public class InMemoryJobStorage : IJobStorage
         !string.IsNullOrEmpty(value)
         && value.Contains(searchTerm, StringComparison.OrdinalIgnoreCase);
 
+    private void RecordMetricBucket(
+        string queue,
+        bool failed,
+        FailureReason? failureReason,
+        double? durationMs,
+        DateTime observedAtUtc)
+    {
+        // Metric buckets are intentionally event-like: they remember that a completion happened
+        // even if the operator later requeues, purges, or repairs the DLQ row. The older/simple
+        // dashboard approach counted Archive/DLQ rows directly, but that let administrative cleanup
+        // rewrite recent failure-rate history. Buckets are the more production-grade boundary.
+        var key = new MetricBucketKey(
+            TruncateToSecond(observedAtUtc),
+            queue,
+            failed ? MetricOutcomeFailed : MetricOutcomeSucceeded,
+            failed ? (int)(failureReason ?? FailureReason.MaxRetriesExceeded) : NoFailureReason);
+
+        var bucket = _metricBuckets.GetOrAdd(key, _ => new MetricBucketData());
+        bucket.Add(durationMs);
+    }
+
     private ValueTask<bool> MoveToDLQ(
         string jobId,
         FailureReason reason,
@@ -1191,6 +1229,7 @@ public class InMemoryJobStorage : IJobStorage
 
             _dlqJobs[job.Id] = dlqJob;
             IncrementStats(job.Queue, failed: 1);
+            RecordMetricBucket(job.Queue, failed: true, reason, durationMs: null, observedAtUtc: now);
         }
         return new ValueTask<bool>(true);
     }
@@ -1208,6 +1247,14 @@ public class InMemoryJobStorage : IJobStorage
 
     private static double CalculateFailureRatePercent(long failed, long processed) =>
         processed == 0 ? 0 : (failed * 100d) / processed;
+
+    private static DateTime TruncateToSecond(DateTime utc)
+    {
+        var normalized = utc.Kind == DateTimeKind.Utc ? utc : utc.ToUniversalTime();
+        return new DateTime(
+            normalized.Ticks - (normalized.Ticks % TimeSpan.TicksPerSecond),
+            DateTimeKind.Utc);
+    }
 
     private static string NormalizeErrorPrefix(string? errorDetails)
     {
@@ -1339,4 +1386,56 @@ public class InMemoryJobStorage : IJobStorage
 
         public StatsSummaryData(string queue) => Queue = queue;
     }
+
+    private readonly record struct MetricBucketKey(
+        DateTime BucketStartUtc,
+        string Queue,
+        int Outcome,
+        int FailureReason);
+
+    private sealed class MetricBucketData
+    {
+        private readonly object _lock = new();
+        private long _completedCount;
+        private long _durationCount;
+        private double _totalDurationMs;
+        private double? _maxDurationMs;
+
+        public void Add(double? durationMs)
+        {
+            lock (_lock)
+            {
+                _completedCount++;
+
+                if (!durationMs.HasValue)
+                    return;
+
+                _durationCount++;
+                _totalDurationMs += durationMs.Value;
+                _maxDurationMs = !_maxDurationMs.HasValue || durationMs.Value > _maxDurationMs.Value
+                    ? durationMs.Value
+                    : _maxDurationMs;
+            }
+        }
+
+        public MetricBucketSnapshot Snapshot(MetricBucketKey key)
+        {
+            lock (_lock)
+            {
+                return new MetricBucketSnapshot(
+                    key,
+                    _completedCount,
+                    _durationCount,
+                    _totalDurationMs,
+                    _maxDurationMs);
+            }
+        }
+    }
+
+    private readonly record struct MetricBucketSnapshot(
+        MetricBucketKey Key,
+        long CompletedCount,
+        long DurationCount,
+        double TotalDurationMs,
+        double? MaxDurationMs);
 }

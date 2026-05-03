@@ -45,7 +45,8 @@ public static class ChokaQSqlServerExtensions
     /// - [schema].[JobsHot]: Active jobs
     /// - [schema].[JobsArchive]: Succeeded jobs history
     /// - [schema].[JobsDLQ]: Failed jobs (dead letter queue)
-    /// - [schema].[StatsSummary]: Pre-aggregated metrics
+    /// - [schema].[StatsSummary]: Lifetime counters
+    /// - [schema].[MetricBuckets]: Rolling throughput and failure-rate aggregates
     /// - [schema].[Queues]: Queue configuration
     /// - [schema].[SchemaMigrations]: Applied ChokaQ schema versions
     /// </remarks>

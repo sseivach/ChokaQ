@@ -291,7 +291,32 @@ public class SqlQueryPerformanceTests
                 [FailedTotal] = @DlqCount,
                 [RetriedTotal] = 0,
                 [LastActivityUtc] = SYSUTCDATETIME()
-            WHERE [Queue] = @Queue;";
+            WHERE [Queue] = @Queue;
+
+            DECLARE @BucketStartUtc datetime2(0) =
+                DATEADD(SECOND,
+                    DATEDIFF(SECOND, CONVERT(datetime2(0), '20000101'), SYSUTCDATETIME()),
+                    CONVERT(datetime2(0), '20000101'));
+
+            IF @ArchiveCount > 0
+            BEGIN
+                INSERT INTO [{_fixture.Schema}].[MetricBuckets]
+                ([BucketStartUtc], [Queue], [Outcome], [FailureReason], [CompletedCount],
+                 [DurationCount], [TotalDurationMs], [MaxDurationMs], [LastUpdatedUtc])
+                VALUES
+                (@BucketStartUtc, @Queue, 0, -1, @ArchiveCount,
+                 @ArchiveCount, @ArchiveCount * 100.0, 250.0, SYSUTCDATETIME());
+            END;
+
+            IF @DlqCount > 0
+            BEGIN
+                INSERT INTO [{_fixture.Schema}].[MetricBuckets]
+                ([BucketStartUtc], [Queue], [Outcome], [FailureReason], [CompletedCount],
+                 [DurationCount], [TotalDurationMs], [MaxDurationMs], [LastUpdatedUtc])
+                VALUES
+                (@BucketStartUtc, @Queue, 1, @FatalReason, @DlqCount,
+                 0, 0, NULL, SYSUTCDATETIME());
+            END;";
 
         cmd.Parameters.AddWithValue("@Queue", queue);
         cmd.Parameters.AddWithValue("@RunId", Guid.NewGuid().ToString("N"));

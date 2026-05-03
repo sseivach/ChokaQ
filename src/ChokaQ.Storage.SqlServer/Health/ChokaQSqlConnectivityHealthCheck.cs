@@ -39,9 +39,9 @@ internal sealed class ChokaQSqlConnectivityHealthCheck : IHealthCheck
                         FROM sys.tables t
                         INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
                         WHERE s.[name] = @SchemaName
-                          AND t.[name] IN ('JobsHot', 'JobsArchive', 'JobsDLQ', 'StatsSummary', 'Queues')
+                          AND t.[name] IN ('JobsHot', 'JobsArchive', 'JobsDLQ', 'StatsSummary', 'MetricBuckets', 'Queues')
                         GROUP BY s.[name]
-                        HAVING COUNT(DISTINCT t.[name]) = 5
+                        HAVING COUNT(DISTINCT t.[name]) = 6
                     )
                     THEN 1 ELSE 0 END;";
 

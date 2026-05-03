@@ -107,6 +107,26 @@ CREATE TABLE [chokaq].[StatsSummary](
 
 Instead of `SELECT COUNT(*) FROM JobsArchive` (expensive scan), the dashboard reads a single pre-computed row.
 
+### Pillar 5: MetricBuckets (The Rolling Speedometer)
+
+`StatsSummary` answers lifetime counters. `MetricBuckets` answers recent-rate
+questions:
+
+- jobs processed per second over rolling dashboard windows;
+- failed vs processed percentage;
+- duration aggregates for future charts;
+- outcome history that does not disappear when a DLQ row is requeued or purged.
+
+This is a deliberate evolution from the earlier bounded-lookback design. Reading
+recent Archive/DLQ rows was simple and useful, but it coupled dashboard rate
+queries to lifecycle history and made operator cleanup rewrite recent failure
+windows. `MetricBuckets` records the completion outcome inside the same
+transaction as Hot -> Archive or Hot -> DLQ, then The Deck reads a tiny recent
+bucket range.
+
+See [Rolling Observability Buckets](/4-the-deck/rolling-observability) for the
+full trade-off discussion.
+
 ## Atomic Transitions: The Safety Net
 
 Every movement between pillars is **atomic** — a single SQL batch that either fully succeeds or fully fails.

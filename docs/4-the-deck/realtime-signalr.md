@@ -48,8 +48,8 @@ Aggregated counters from `StatsSummary` + live `JobsHot` counts:
 | Processing | `COUNT(*) FROM JobsHot WHERE Status=2` | On process start/end |
 | Succeeded | `StatsSummary.SucceededTotal` | On archive (O(1) read) |
 | Failed | `StatsSummary.FailedTotal` | On DLQ move (O(1) read) |
-| Throughput | `GetSystemHealthAsync()` recent Archive/DLQ windows | Dashboard refresh |
-| Failure Rate | `GetSystemHealthAsync()` recent DLQ vs processed windows | Dashboard refresh |
+| Throughput | `MetricBuckets` via `GetSystemHealthAsync()` | Dashboard refresh |
+| Failure Rate | `MetricBuckets` via `GetSystemHealthAsync()` | Dashboard refresh |
 
 ### Operational Health Snapshot
 
@@ -64,8 +64,13 @@ signals that lifetime counters cannot answer:
 
 The SQL Server implementation keeps these reads bounded and index-friendly.
 Queue lag is calculated from Pending hot rows through a dedicated filtered index,
-and top-error grouping is limited to a recent DLQ sample so the dashboard does not
-become an accidental full-history analytics workload during an incident.
+throughput/failure rate come from rolling `MetricBuckets`, and top-error grouping
+is limited to a recent DLQ sample so the dashboard does not become an accidental
+full-history analytics workload during an incident.
+
+See [Rolling Observability Buckets](/4-the-deck/rolling-observability) for the
+architecture lesson behind the upgrade from direct Archive/DLQ lookbacks to
+materialized outcome buckets.
 
 ### Consistency Model
 

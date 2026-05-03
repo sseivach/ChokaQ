@@ -656,6 +656,30 @@ public class SqlJobStorageIntegrationTests
     }
 
     [Fact]
+    public async Task GetSystemHealthAsync_ShouldKeepFailureRateAfterDlqRequeue()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+
+        var id = NewId();
+        await _storage.EnqueueAsync(id, "metrics-sql", "FailedThenRequeuedJob", "{}");
+        await _storage.FetchNextBatchAsync("worker1", 1, new[] { "metrics-sql" });
+        await _storage.ArchiveFailedAsync(id, "Boom: fixed later by operator", failureReason: FailureReason.FatalError);
+
+        await _storage.ResurrectAsync(id);
+
+        // Act
+        var health = await _storage.GetSystemHealthAsync();
+
+        // Assert
+        // SQL MetricBuckets are append-style outcome aggregates. Requeue removes the DLQ row from
+        // the operator queue, but it must not erase the fact that a failure occurred in the recent
+        // processing window.
+        health.JobsPerSecondLastMinute.Should().BeGreaterThan(0);
+        health.FailureRateLastMinutePercent.Should().BeApproximately(100, 0.1);
+    }
+
+    [Fact]
     public async Task GetActiveJobsAsync_ShouldReturnProcessingJobs()
     {
         // Arrange

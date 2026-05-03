@@ -247,6 +247,8 @@ internal sealed class Queries
                     INSERT ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal], [LastActivityUtc])
                     VALUES (source.[Queue], source.SucceededCount, 0, 0, SYSUTCDATETIME());
 
+                {BuildMetricBucketUpsert(schema, "0", "-1", "@DurationMs")}
+
                 DECLARE @MovedCount int = (SELECT COUNT(1) FROM @Moved);
                 COMMIT TRANSACTION;
                 SELECT @MovedCount;
@@ -308,6 +310,8 @@ internal sealed class Queries
                 WHEN NOT MATCHED THEN
                     INSERT ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal], [LastActivityUtc])
                     VALUES (source.[Queue], 0, source.FailedCount, 0, SYSUTCDATETIME());
+
+                {BuildMetricBucketUpsert(schema, "1", "@Reason", "NULL")}
 
                 DECLARE @MovedCount int = (SELECT COUNT(1) FROM @Moved);
                 COMMIT TRANSACTION;
@@ -770,25 +774,19 @@ internal sealed class Queries
             LEFT JOIN LagByQueue l ON l.[Queue] = q.[Name]
             ORDER BY q.[Name]";
 
-        // Recent throughput comes from date-indexed Archive/DLQ windows. A future phase can
-        // materialize rolling counters, but this bounded lookback keeps the production-preview
-        // dashboard useful without adding a new persistence table yet.
+        // Recent throughput now comes from materialized event buckets. The older bounded-lookback
+        // version counted Archive/DLQ rows directly, which was simple but forced the dashboard to
+        // touch lifecycle history and made requeue/purge operations change past failure windows.
+        // Buckets are updated inside the final state-transition transaction, so the dashboard reads
+        // small immutable outcome aggregates instead of asking history tables to double as metrics.
         GetThroughputStats = $@"
             SELECT
-                CAST(
-                    (SELECT COUNT_BIG(1) FROM [{schema}].[JobsArchive] WITH (NOLOCK) WHERE [FinishedAtUtc] >= @OneMinuteCutoff) +
-                    (SELECT COUNT_BIG(1) FROM [{schema}].[JobsDLQ] WITH (NOLOCK) WHERE [FailedAtUtc] >= @OneMinuteCutoff)
-                AS BIGINT) AS [ProcessedLastMinute],
-                CAST(
-                    (SELECT COUNT_BIG(1) FROM [{schema}].[JobsDLQ] WITH (NOLOCK) WHERE [FailedAtUtc] >= @OneMinuteCutoff)
-                AS BIGINT) AS [FailedLastMinute],
-                CAST(
-                    (SELECT COUNT_BIG(1) FROM [{schema}].[JobsArchive] WITH (NOLOCK) WHERE [FinishedAtUtc] >= @FiveMinuteCutoff) +
-                    (SELECT COUNT_BIG(1) FROM [{schema}].[JobsDLQ] WITH (NOLOCK) WHERE [FailedAtUtc] >= @FiveMinuteCutoff)
-                AS BIGINT) AS [ProcessedLastFiveMinutes],
-                CAST(
-                    (SELECT COUNT_BIG(1) FROM [{schema}].[JobsDLQ] WITH (NOLOCK) WHERE [FailedAtUtc] >= @FiveMinuteCutoff)
-                AS BIGINT) AS [FailedLastFiveMinutes]";
+                CAST(ISNULL(SUM(CASE WHEN [BucketStartUtc] >= @OneMinuteCutoff THEN [CompletedCount] ELSE 0 END), 0) AS BIGINT) AS [ProcessedLastMinute],
+                CAST(ISNULL(SUM(CASE WHEN [BucketStartUtc] >= @OneMinuteCutoff AND [Outcome] = 1 THEN [CompletedCount] ELSE 0 END), 0) AS BIGINT) AS [FailedLastMinute],
+                CAST(ISNULL(SUM([CompletedCount]), 0) AS BIGINT) AS [ProcessedLastFiveMinutes],
+                CAST(ISNULL(SUM(CASE WHEN [Outcome] = 1 THEN [CompletedCount] ELSE 0 END), 0) AS BIGINT) AS [FailedLastFiveMinutes]
+            FROM [{schema}].[MetricBuckets] WITH (NOLOCK)
+            WHERE [BucketStartUtc] >= @FiveMinuteCutoff";
 
         // Top-error grouping is intentionally bounded to the most recent DLQ sample. Operator
         // triage cares about what is breaking now, and bounding the sample prevents a large DLQ
@@ -958,6 +956,8 @@ internal sealed class Queries
                     INSERT ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal], [LastActivityUtc])
                     VALUES (source.[Queue], 0, source.ZombieCount, 0, SYSUTCDATETIME());
 
+                {BuildMetricBucketUpsert(schema, "1", "2", "NULL")}
+
                 DECLARE @MovedCount int = (SELECT COUNT(1) FROM @Moved);
                 COMMIT TRANSACTION;
                 SELECT @MovedCount;
@@ -1041,6 +1041,8 @@ internal sealed class Queries
                     INSERT ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal], [LastActivityUtc])
                     VALUES (source.[Queue], 0, source.CancelledCount, 0, SYSUTCDATETIME());
 
+                {BuildMetricBucketUpsert(schema, "1", "1", "NULL")}
+
                 DECLARE @MovedCount int = (SELECT COUNT(1) FROM @Moved);
                 COMMIT TRANSACTION;
                 SELECT @MovedCount;
@@ -1049,5 +1051,60 @@ internal sealed class Queries
                 IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
                 THROW;
             END CATCH;";
+    }
+
+    private static string BuildMetricBucketUpsert(
+        string schema,
+        string outcomeSql,
+        string failureReasonSql,
+        string durationMsSql)
+    {
+        return $@"
+                -- MetricBuckets are the durable rolling observability layer. StatsSummary answers
+                -- lifetime counters; Archive/DLQ answer investigation questions; buckets answer
+                -- recent-rate questions without making the dashboard scan mutable history tables.
+                -- The write is in the same transaction as the final state transition, so the
+                -- outcome event cannot exist without the Archive/DLQ move or vice versa.
+                DECLARE @MetricObservedAtUtc datetime2(7) = SYSUTCDATETIME();
+                DECLARE @MetricBucketStartUtc datetime2(0) =
+                    DATEADD(SECOND,
+                        DATEDIFF(SECOND, CONVERT(datetime2(0), '20000101'), @MetricObservedAtUtc),
+                        CONVERT(datetime2(0), '20000101'));
+
+                MERGE [{schema}].[MetricBuckets] AS target
+                USING (
+                    SELECT
+                        @MetricBucketStartUtc AS [BucketStartUtc],
+                        [Queue],
+                        CAST({outcomeSql} AS tinyint) AS [Outcome],
+                        CAST({failureReasonSql} AS int) AS [FailureReason],
+                        COUNT_BIG(1) AS [CompletedCount],
+                        COUNT_BIG(CASE WHEN {durationMsSql} IS NULL THEN NULL ELSE 1 END) AS [DurationCount],
+                        SUM(CASE WHEN {durationMsSql} IS NULL THEN 0.0 ELSE CAST({durationMsSql} AS float) END) AS [TotalDurationMs],
+                        MAX(CASE WHEN {durationMsSql} IS NULL THEN NULL ELSE CAST({durationMsSql} AS float) END) AS [MaxDurationMs]
+                    FROM @Moved
+                    GROUP BY [Queue]
+                ) AS source
+                ON target.[BucketStartUtc] = source.[BucketStartUtc]
+                   AND target.[Queue] = source.[Queue]
+                   AND target.[Outcome] = source.[Outcome]
+                   AND target.[FailureReason] = source.[FailureReason]
+                WHEN MATCHED THEN
+                    UPDATE SET
+                        [CompletedCount] = target.[CompletedCount] + source.[CompletedCount],
+                        [DurationCount] = target.[DurationCount] + source.[DurationCount],
+                        [TotalDurationMs] = target.[TotalDurationMs] + source.[TotalDurationMs],
+                        [MaxDurationMs] = CASE
+                            WHEN source.[MaxDurationMs] IS NULL THEN target.[MaxDurationMs]
+                            WHEN target.[MaxDurationMs] IS NULL OR source.[MaxDurationMs] > target.[MaxDurationMs] THEN source.[MaxDurationMs]
+                            ELSE target.[MaxDurationMs]
+                        END,
+                        [LastUpdatedUtc] = @MetricObservedAtUtc
+                WHEN NOT MATCHED THEN
+                    INSERT ([BucketStartUtc], [Queue], [Outcome], [FailureReason],
+                            [CompletedCount], [DurationCount], [TotalDurationMs], [MaxDurationMs], [LastUpdatedUtc])
+                    VALUES (source.[BucketStartUtc], source.[Queue], source.[Outcome], source.[FailureReason],
+                            source.[CompletedCount], source.[DurationCount], source.[TotalDurationMs],
+                            source.[MaxDurationMs], @MetricObservedAtUtc);";
     }
 }

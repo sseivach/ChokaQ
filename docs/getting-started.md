@@ -137,7 +137,7 @@ with authorization required unless you explicitly set `AllowAnonymousDeck = true
 for a local demo or public sandbox.
 
 ::: tip 💡 Auto-Provisioning
-With `AutoCreateSqlTable = true`, ChokaQ will automatically create the `chokaq` schema, all runtime tables (JobsHot, JobsArchive, JobsDLQ, StatsSummary, Queues), the SchemaMigrations ledger, and optimized indexes on first startup. Completely idempotent — safe to run on every restart.
+With `AutoCreateSqlTable = true`, ChokaQ will automatically create the `chokaq` schema, all runtime tables (JobsHot, JobsArchive, JobsDLQ, StatsSummary, MetricBuckets, Queues), the SchemaMigrations ledger, and optimized indexes on first startup. Completely idempotent — safe to run on every restart.
 :::
 
 ### 3. Define a Job & Handler

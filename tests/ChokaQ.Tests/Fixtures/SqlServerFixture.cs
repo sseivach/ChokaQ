@@ -56,6 +56,7 @@ public class SqlServerFixture : IAsyncLifetime
             $"[{Schema}].[JobsHot]",
             $"[{Schema}].[JobsArchive]",
             $"[{Schema}].[JobsDLQ]",
+            $"[{Schema}].[MetricBuckets]",
             $"[{Schema}].[StatsSummary]",
             $"[{Schema}].[Queues]"
         };

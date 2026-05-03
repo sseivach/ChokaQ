@@ -52,9 +52,24 @@ Each deep-dive chapter should eventually follow the same structure:
 | Retries And Jitter | Turns transient failure into delayed work without creating retry storms. | [Runtime Configuration](/configuration) |
 | Zombie Recovery | Handles process crashes, abandoned fetches, and expired processing heartbeats. | [Zombie Rescue](/2-lifecycle/zombie-rescue) |
 | Idempotency | Defines what duplicate protection can and cannot promise. | [Getting Started](/getting-started) |
-| Observability | Connects metrics, health checks, structured logs, and dashboard state. | [Runtime Configuration](/configuration) |
+| Observability | Connects metrics, health checks, structured logs, and dashboard state. | [Rolling Observability](/4-the-deck/rolling-observability) |
 | Admin Safety | Treats dashboards as production control planes, not just pretty UI. | [Getting Started](/getting-started) |
 | Release Readiness | Separates code that works locally from software that can be adopted safely. | [Release Strategy](/release-strategy) |
+
+## Evolutionary Lessons
+
+For the future architecture-book version of ChokaQ, key features should be
+documented as design evolution, not only as final polished code:
+
+1. Show the first simple implementation.
+2. Explain why it was reasonable at that stage.
+3. Name the operational or correctness weakness.
+4. Introduce the stronger production version.
+5. Compare the trade-offs directly.
+
+The rolling observability upgrade is the template: ChokaQ first used bounded
+Archive/DLQ lookbacks for throughput and failure rate, then moved to
+transactional `MetricBuckets` once the limits were clear.
 
 ## Interview Framing
 

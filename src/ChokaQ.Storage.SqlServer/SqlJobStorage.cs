@@ -19,7 +19,8 @@ namespace ChokaQ.Storage.SqlServer;
 /// - JobsHot: Active jobs (Pending, Fetched, Processing)
 /// - JobsArchive: Succeeded jobs (History)
 /// - JobsDLQ: Failed/Cancelled/Zombie jobs (Dead Letter Queue)
-/// - StatsSummary: Pre-aggregated counters
+/// - StatsSummary: Lifetime counters
+/// - MetricBuckets: Rolling throughput and failure-rate aggregates
 /// - Queues: Queue configuration
 /// All database calls are wrapped in a resilient transient fault handling policy.
 /// </summary>

@@ -7,7 +7,8 @@
 --   JobsHot      → Active jobs (Hot Data)
 --   JobsArchive  → Succeeded jobs (History)
 --   JobsDLQ      → Failed jobs (Dead Letter Queue)
---   StatsSummary → Pre-aggregated counters
+--   StatsSummary → Lifetime counters
+--   MetricBuckets → Rolling throughput/failure aggregates
 --   Queues       → Queue configuration
 --   SchemaMigrations → Applied ChokaQ SQL schema versions
 -- ============================================================================
@@ -386,7 +387,50 @@ GO
 
 
 -- ============================================================================
--- 5. QUEUES CONFIGURATION (Control Plane)
+-- 5. METRIC BUCKETS (Rolling Observability)
+-- Records immutable completion outcomes in small time buckets. Earlier dashboard
+-- versions counted recent Archive/DLQ rows directly, which was simple but made
+-- lifecycle tables do double duty as metrics storage. Buckets keep throughput
+-- and failure-rate reads bounded even when history retention grows.
+-- ============================================================================
+IF OBJECT_ID(N'[{SCHEMA}].[MetricBuckets]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [{SCHEMA}].[MetricBuckets](
+        [BucketStartUtc] [datetime2](0)   NOT NULL,                              -- UTC second bucket; small enough for 1m windows without per-job event rows.
+        [Queue]          [varchar](255)   NOT NULL,
+        [Outcome]        [tinyint]        NOT NULL,                              -- 0 = Succeeded, 1 = Failed/DLQ
+        [FailureReason]  [int]            NOT NULL,                              -- -1 for success, otherwise FailureReason enum value.
+        [CompletedCount] [bigint]         NOT NULL DEFAULT 0,
+        [DurationCount]  [bigint]         NOT NULL DEFAULT 0,
+        [TotalDurationMs] [float]         NOT NULL DEFAULT 0,
+        [MaxDurationMs]  [float]          NULL,
+        [LastUpdatedUtc] [datetime2](7)   NOT NULL DEFAULT SYSUTCDATETIME(),
+
+        CONSTRAINT [PK_{SCHEMA}_MetricBuckets]
+            PRIMARY KEY CLUSTERED ([BucketStartUtc] ASC, [Queue] ASC, [Outcome] ASC, [FailureReason] ASC),
+        CONSTRAINT [CK_{SCHEMA}_MetricBuckets_Outcome]
+            CHECK ([Outcome] IN (0, 1)),
+        CONSTRAINT [CK_{SCHEMA}_MetricBuckets_Counts]
+            CHECK ([CompletedCount] >= 0 AND [DurationCount] >= 0 AND [TotalDurationMs] >= 0)
+    ) WITH (DATA_COMPRESSION = PAGE);
+END
+GO
+
+-- 5a. Recent Metric Bucket Window
+-- The Deck reads the last few minutes on every refresh. Keeping BucketStartUtc as
+-- the leading key makes that query a tiny range scan instead of a history-table scan.
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_{SCHEMA}_MetricBuckets_Recent' AND object_id = OBJECT_ID('[{SCHEMA}].[MetricBuckets]'))
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_{SCHEMA}_MetricBuckets_Recent]
+    ON [{SCHEMA}].[MetricBuckets] ([BucketStartUtc] DESC)
+    INCLUDE ([Queue], [Outcome], [FailureReason], [CompletedCount], [DurationCount], [TotalDurationMs], [MaxDurationMs])
+    WITH (DATA_COMPRESSION = PAGE);
+END
+GO
+
+
+-- ============================================================================
+-- 6. QUEUES CONFIGURATION (Control Plane)
 -- Runtime circuit breakers and visibility settings.
 -- ============================================================================
 IF OBJECT_ID(N'[{SCHEMA}].[Queues]', N'U') IS NULL 
@@ -413,7 +457,7 @@ END
 GO
 
 -- ============================================================================
--- 6. MIGRATION LEDGER UPDATES
+-- 7. MIGRATION LEDGER UPDATES
 -- ============================================================================
 -- Version 2 records the first explicit query-plan hardening pass. The indexes above are
 -- all idempotent, so re-running startup provisioning can safely repair missing indexes
@@ -425,6 +469,21 @@ BEGIN
         2,
         N'Hot path index hardening',
         N'Adds fetch sort coverage, active-dashboard, recovery, DLQ type, and DLQ created-date indexes.',
+        SYSUTCDATETIME()
+    );
+END
+GO
+
+-- Version 3 adds the rolling observability bucket table. It upgrades throughput
+-- and failure-rate reads from bounded Archive/DLQ lookbacks to materialized
+-- completion-outcome aggregates.
+IF NOT EXISTS (SELECT 1 FROM [{SCHEMA}].[SchemaMigrations] WHERE [Version] = 3)
+BEGIN
+    INSERT INTO [{SCHEMA}].[SchemaMigrations] ([Version], [Name], [Description], [AppliedAtUtc])
+    VALUES (
+        3,
+        N'Rolling metric buckets',
+        N'Adds MetricBuckets for materialized throughput and failure-rate windows.',
         SYSUTCDATETIME()
     );
 END

@@ -33,7 +33,7 @@ public class SqlInitializerTests
         await using var conn = new SqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
 
-        var tables = new[] { "JobsHot", "JobsArchive", "JobsDLQ", "StatsSummary", "Queues", "SchemaMigrations" };
+        var tables = new[] { "JobsHot", "JobsArchive", "JobsDLQ", "StatsSummary", "MetricBuckets", "Queues", "SchemaMigrations" };
         foreach (var table in tables)
         {
             var cmd = new SqlCommand($@"
@@ -72,13 +72,20 @@ public class SqlInitializerTests
             FROM [{testSchema}].[SchemaMigrations]
             WHERE [Version] = 2", conn);
 
+        var version3Cmd = new SqlCommand($@"
+            SELECT [Name]
+            FROM [{testSchema}].[SchemaMigrations]
+            WHERE [Version] = 3", conn);
+
         var version1Name = (string?)(await version1Cmd.ExecuteScalarAsync());
         var version2Name = (string?)(await version2Cmd.ExecuteScalarAsync());
+        var version3Name = (string?)(await version3Cmd.ExecuteScalarAsync());
 
         // The migration ledger is an operational audit tool. During incidents and upgrades,
         // operators need an authoritative database-side answer for the installed schema version.
         version1Name.Should().Be("Initial Three Pillars schema");
         version2Name.Should().Be("Hot path index hardening");
+        version3Name.Should().Be("Rolling metric buckets");
     }
 
     [Fact]
@@ -102,7 +109,8 @@ public class SqlInitializerTests
             $"IX_{testSchema}_JobsHot_FetchedRecovery",
             $"IX_{testSchema}_JobsHot_ProcessingHeartbeat",
             $"IX_{testSchema}_JobsDLQ_Type",
-            $"IX_{testSchema}_JobsDLQ_CreatedAt"
+            $"IX_{testSchema}_JobsDLQ_CreatedAt",
+            $"IX_{testSchema}_MetricBuckets_Recent"
         };
 
         foreach (var indexName in expectedIndexes)
@@ -197,6 +205,6 @@ public class SqlInitializerTests
         cmd.Parameters.AddWithValue("@Schema", testSchema);
 
         var count = (int)(await cmd.ExecuteScalarAsync())!;
-        count.Should().Be(6, "All ChokaQ tables, including SchemaMigrations, should exist after double initialization");
+        count.Should().Be(7, "All ChokaQ tables, including MetricBuckets and SchemaMigrations, should exist after double initialization");
     }
 }

@@ -154,7 +154,7 @@ Why this exists: retention cleanup is operational maintenance, not user work. A 
 
 `SqlServer.MaxTransientRetries` and `SqlServer.TransientRetryBaseDelayMs` configure retries around transient SQL failures such as deadlocks or short network blips. These retries protect storage operations, not user job handlers.
 
-When `AutoCreateSqlTable` is enabled, ChokaQ also creates `[schema].[SchemaMigrations]`. This table records the applied ChokaQ SQL schema version. Version `1` represents the initial Three Pillars schema. Future SQL migrations should append one row after they successfully apply, which gives operators a database-side audit trail during upgrades.
+When `AutoCreateSqlTable` is enabled, ChokaQ also creates `[schema].[SchemaMigrations]`. This table records the applied ChokaQ SQL schema version. Version `1` represents the initial Three Pillars schema, version `2` records hot-path index hardening, and version `3` adds rolling `MetricBuckets` for materialized throughput and failure-rate windows. Future SQL migrations should append one row after they successfully apply, which gives operators a database-side audit trail during upgrades.
 
 ## Metrics
 

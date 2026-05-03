@@ -73,6 +73,7 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: 'Real-time SignalR', link: '/4-the-deck/realtime-signalr' },
+          { text: 'Rolling Observability', link: '/4-the-deck/rolling-observability' },
           { text: 'Edit + Resurrect', link: '/4-the-deck/resurrect-dlq' }
         ]
       }

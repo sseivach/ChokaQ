@@ -193,7 +193,7 @@ Checklist:
 - `SchemaMigrations` is created when auto-provisioning is enabled.
 - Current schema version is recorded exactly once.
 - Startup can run twice against the same database without destructive changes.
-- Hot, Archive, DLQ, StatsSummary, Queues, and SchemaMigrations tables exist.
+- Hot, Archive, DLQ, StatsSummary, MetricBuckets, Queues, and SchemaMigrations tables exist.
 - Fetch, recovery, history, DLQ, and dashboard indexes exist.
 
 Why this exists: background processors accumulate state. Release readiness means
