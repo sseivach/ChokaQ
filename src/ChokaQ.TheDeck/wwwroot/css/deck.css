@@ -93,12 +93,17 @@ body {
 }
 
 .deck__row--settings {
-    height: 16rem;
+    height: 14rem;
+    flex-shrink: 0;
+}
+
+.deck__row--health {
+    height: 10rem;
     flex-shrink: 0;
 }
 
 .deck__row--circuits {
-    height: 7rem;
+    height: 6rem;
     flex-shrink: 0;
 }
 
@@ -117,6 +122,7 @@ body {
 .deck__row--settings,
 .deck__row--stats,
 .deck__row--circuits,
+.deck__row--health,
 .deck__row--matrix,
 .deck__row--ops,
 .deck__row--console {
@@ -405,7 +411,7 @@ input[type="checkbox"]:checked::after {
 /* Block: .stats container */
 .stats {
     display: flex;
-    gap: 1.5rem;
+    gap: 1rem;
     height: 100%;
     width: 100%;
 }
@@ -413,6 +419,7 @@ input[type="checkbox"]:checked::after {
 /* Element: .stats__card (Base State) */
 .stats__card {
     flex: 1;
+    min-width: 0;
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     box-shadow: var(--sector-shadow);
@@ -431,7 +438,11 @@ input[type="checkbox"]:checked::after {
     cursor: pointer;
 }
 
-    .stats:not(.stats--disabled) .stats__card:hover {
+.stats__card--readonly {
+    cursor: default !important;
+}
+
+    .stats:not(.stats--disabled) .stats__card:not(.stats__card--readonly):hover {
         background: var(--glass-bg-hover);
         border-color: var(--glass-border-hover);
         transform: translateY(-2px);
@@ -454,7 +465,7 @@ input[type="checkbox"]:checked::after {
 
 /* Element: .stats__label */
 .stats__label {
-    font-size: 1rem;
+    font-size: 0.85rem;
     font-weight: bold;
     color: var(--deck-text-color);
     opacity: 0.8;
@@ -464,9 +475,17 @@ input[type="checkbox"]:checked::after {
 
 /* Element: .stats__value */
 .stats__value {
-    font-size: 2rem;
+    font-size: 1.65rem;
     font-weight: bold;
     font-family: var(--deck-font-family);
+    line-height: 1.15;
+}
+
+.stats__hint {
+    margin-top: 0.2rem;
+    font-size: 0.75rem;
+    opacity: 0.7;
+    white-space: nowrap;
 }
 
 /* Modifiers: Value Colors */
@@ -488,6 +507,14 @@ input[type="checkbox"]:checked::after {
 
 .stats__value--failed {
     color: var(--deck-danger);
+}
+
+.stats__value--throughput {
+    color: var(--deck-info);
+}
+
+.stats__value--failure-rate {
+    color: var(--deck-warning);
 }
 
 .stats__value--total {
@@ -659,6 +686,104 @@ input[type="checkbox"]:checked::after {
 
 .circuits__status-label {
     opacity: 0.8;
+}
+
+/* ==========================================
+   COMPONENT STYLES: Health
+   ========================================== */
+.health {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.health__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+    flex-shrink: 0;
+}
+
+.health__title {
+    font-size: 0.75rem;
+    font-weight: bold;
+    opacity: 0.85;
+    text-transform: uppercase;
+}
+
+.health__stamp {
+    font-family: monospace;
+    font-size: 0.75rem;
+    opacity: 0.6;
+}
+
+.health__empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.5;
+    font-size: 0.85rem;
+}
+
+.health__errors {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.health__error {
+    display: grid;
+    grid-template-columns: 6rem minmax(0, 1fr) 3.25rem 2.25rem;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.35rem;
+    border: 1px solid var(--sector-border-subtle);
+    background: rgba(0, 0, 0, 0.16);
+    min-width: 0;
+}
+
+.health__reason {
+    color: var(--deck-danger);
+    font-size: 0.7rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.health__prefix {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: monospace;
+    font-size: 0.75rem;
+    opacity: 0.9;
+}
+
+.health__count {
+    color: var(--deck-warning);
+    text-align: right;
+    font-family: monospace;
+    font-weight: bold;
+    font-size: 0.8rem;
+}
+
+.health__age {
+    color: var(--deck-muted);
+    text-align: right;
+    font-family: monospace;
+    font-size: 0.75rem;
 }
 
 /* ==========================================
@@ -923,6 +1048,55 @@ input[type="checkbox"]:checked::after {
 .job-row__status--cancelled {
     color: var(--deck-muted);
     border-color: var(--deck-muted);
+}
+
+.job-row__failure {
+    display: inline-block;
+    margin-left: 0.35rem;
+    padding: 0.12rem 0.35rem;
+    border: 1px solid var(--sector-border-color);
+    font-size: 0.65rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.job-row__failure--throttled {
+    color: var(--deck-warning);
+    border-color: var(--deck-warning);
+    background: rgba(255, 193, 7, 0.12);
+}
+
+.job-row__failure--fatal {
+    color: var(--deck-danger);
+    border-color: var(--deck-danger);
+    background: rgba(220, 53, 69, 0.16);
+}
+
+.job-row__failure--timeout {
+    color: var(--deck-info);
+    border-color: var(--deck-info);
+    background: rgba(69, 137, 255, 0.12);
+}
+
+.job-row__failure--transient {
+    color: var(--deck-muted);
+    border-color: var(--deck-muted);
+}
+
+.job-row__failure--cancelled {
+    color: var(--deck-muted);
+    border-color: var(--deck-muted);
+}
+
+.job-row__failure--zombie {
+    color: var(--deck-danger);
+    border-color: var(--deck-danger);
+}
+
+.job-row__failure--default {
+    color: var(--deck-text-color);
 }
 
 .job-row__progress-bar--processing {
@@ -1214,6 +1388,42 @@ input[type="checkbox"]:checked::after {
     gap: 1rem;
     flex: 1;
     min-width: 0;
+}
+
+.matrix__bulk-actions--confirm {
+    gap: 0.5rem;
+}
+
+.matrix__bulk-confirm-text {
+    min-width: 0;
+    max-width: 18rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--deck-warning);
+    font-size: 0.82rem;
+}
+
+.matrix__bulk-confirm-input {
+    width: 6.5rem;
+    min-width: 6.5rem;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--deck-warning);
+    color: var(--deck-text-color);
+    padding: 0.4rem 0.5rem;
+    font-family: var(--deck-font-family);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    box-sizing: border-box;
+}
+
+.matrix__bulk-confirm-input:focus {
+    outline: none;
+    border-color: var(--deck-info);
+}
+
+.matrix__bulk-confirm-btn {
+    min-width: 8.5rem;
 }
 
 
@@ -1661,6 +1871,11 @@ input[type="checkbox"]:checked::after {
     gap: 0.5rem;
 }
 
+.editor__requeue-btn {
+    border-color: var(--deck-success);
+    background: rgba(40, 167, 69, 0.22);
+}
+
 .editor__content {
     flex: 1;
     overflow-y: auto;
@@ -1801,52 +2016,57 @@ input[type="checkbox"]:checked::after {
 }
 
 .queues__th--name {
-    width: 18%;
+    width: 14%;
 }
 
 .queues__th--stats {
-    width: 8%;
+    width: 7%;
     text-align: left;
 }
 
 .queues__th--status {
-    width: 8%;
+    width: 7%;
     text-align: left;
 }
 
 .queues__th--toggle {
-    width: 8%;
+    width: 7%;
     text-align: left;
 }
 
 .queues__th--timeout {
-    width: 8%;
+    width: 7%;
     text-align: left;
 }
 
 .queues__th--reserv1 {
-    width: 8%;
+    width: 7%;
     text-align: left;
 }
 
 .queues__th--reserv2 {
-    width: 8%;
+    width: 7%;
     text-align: left;
 }
 
 .queues__th--reserv3 {
-    width: 8%;
+    width: 7%;
     text-align: left;
 }
 
 .queues__th--reserv4 {
-    width: 8%;
+    width: 7%;
+    text-align: left;
+}
+
+.queues__th--lag {
+    width: 10%;
     text-align: left;
 }
 
 
 .queues__th--updated {
-    width: 8%;
+    width: 7%;
     text-align: right;
 }
 
@@ -1968,6 +2188,47 @@ input[type="checkbox"]:checked::after {
 
 .queues__stats-pending {
     color: #ffffff;
+}
+
+.queues__lag-cell {
+    text-align: left;
+    font-family: monospace;
+}
+
+.queues__lag {
+    display: inline-block;
+    padding: 0.1rem 0.35rem;
+    border: 1px solid var(--sector-border-color);
+    white-space: nowrap;
+    font-size: 0.85rem;
+}
+
+.queues__lag--healthy {
+    color: var(--deck-success);
+    border-color: rgba(40, 167, 69, 0.45);
+}
+
+.queues__lag--warning {
+    color: var(--deck-warning);
+    border-color: var(--deck-warning);
+    background: rgba(255, 193, 7, 0.12);
+}
+
+.queues__lag--critical {
+    color: var(--deck-danger);
+    border-color: var(--deck-danger);
+    background: rgba(220, 53, 69, 0.16);
+    animation: lag-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes lag-pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 rgba(220, 53, 69, 0);
+    }
+
+    50% {
+        box-shadow: 0 0 10px rgba(220, 53, 69, 0.35);
+    }
 }
 
 .deck-switch {
@@ -2202,6 +2463,76 @@ input[type="checkbox"]:checked::after {
     font-size: 1rem;
     letter-spacing: 1px;
     margin-top: 0.5rem;
+}
+
+.filter__bulk {
+    border: 1px solid var(--sector-border-color);
+    border-radius: 4px;
+    padding: 0.75rem;
+    background: rgba(0, 0, 0, 0.12);
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.filter__bulk-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.filter__bulk-limit {
+    max-width: 96px;
+    text-align: right;
+}
+
+.filter__bulk-btn {
+    flex: 1;
+    padding: 0.55rem 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1.1;
+    min-height: 36px;
+}
+
+.filter__bulk-preview {
+    border: 1px dashed var(--deck-warning);
+    border-radius: 4px;
+    padding: 0.65rem;
+    background: rgba(255, 193, 7, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.filter__bulk-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.filter__bulk-note {
+    color: var(--deck-warning);
+    font-size: 0.75rem;
+}
+
+.filter__bulk-sample {
+    font-size: 0.7rem;
+    line-height: 1.35;
+    color: var(--deck-info);
+    word-break: break-all;
+}
+
+.filter__bulk-confirm {
+    min-width: 92px;
+}
+
+.filter__bulk-result {
+    color: var(--deck-success);
+    font-size: 0.8rem;
+    text-align: center;
 }
 
 .deck-hr {

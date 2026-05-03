@@ -25,11 +25,13 @@ public partial class TheDeck : IAsyncDisposable
     private HubConnection? _hubConnection;
     private List<JobViewModel> _jobs = new();
     private StatsSummaryEntity _counts = new(null, 0, 0, 0, 0, 0, 0, 0, null);
+    private SystemHealthDto? _systemHealth;
     private List<CircuitStatsDto> _circuits = new();
     private List<LogEntry> _logs = new();
     private List<ToastModel> _activeToasts = new();
 
     private Components.OpsPanel.OpsPanel _opsPanel = default!;
+    private Components.JobMatrix.JobMatrix _jobMatrix = default!;
     private System.Timers.Timer? _uiRefreshTimer;
 
 
@@ -75,35 +77,56 @@ public partial class TheDeck : IAsyncDisposable
 
     private async Task LoadDataAsync()
     {
+        await ReconcileCurrentViewAsync(clearSelection: false, refreshHistoryPage: false);
+    }
+
+    private async Task LoadShellStateAsync()
+    {
+        _counts = await JobStorage.GetSummaryStatsAsync();
+        _systemHealth = await JobStorage.GetSystemHealthAsync();
+        _circuits = CircuitBreaker.GetCircuitStats().ToList();
+    }
+
+    private async Task ReconcileCurrentViewAsync(bool clearSelection, bool refreshHistoryPage = true)
+    {
         try
         {
-            _counts = await JobStorage.GetSummaryStatsAsync();
-            _circuits = CircuitBreaker.GetCircuitStats().ToList();
+            await LoadShellStateAsync();
 
-            if (_currentContext != JobSource.Hot)
+            if (IsHistoryMode && refreshHistoryPage && _lastHistoryFilter != null)
             {
-                await InvokeAsync(StateHasChanged);
-                return;
+                await LoadHistoryPageAsync(_lastHistoryFilter);
+            }
+            else if (!IsHistoryMode)
+            {
+                var hotJobs = await JobStorage.GetActiveJobsAsync(MaxLiveCount, statusFilter: _activeStatusFilter);
+                _jobs = MapHotJobs(hotJobs);
             }
 
-            var hotJobs = await JobStorage.GetActiveJobsAsync(MaxLiveCount, statusFilter: _activeStatusFilter);
-            var viewModels = MapHotJobs(hotJobs);
-
-            await InvokeAsync(() =>
+            if (clearSelection)
             {
-                _jobs = viewModels;
-                StateHasChanged();
-            });
+                _jobMatrix?.ClearSelection();
+            }
+
+            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
-
             await InvokeAsync(() =>
             {
                 AddLog($"Data sync failed. Showing stale data. Reason: {ex.Message}", "Error");
                 StateHasChanged();
             });
         }
+    }
+
+    private async Task ReconcileAfterMutationAsync(bool clearSelection = true)
+    {
+        // Destructive commands can be filtered by ownership guards, admin scope, and concurrent
+        // worker progress. The dashboard therefore never patches counters locally after a mutation:
+        // it waits for the command path to settle and then reloads the canonical state from storage.
+        await Task.Delay(100);
+        await ReconcileCurrentViewAsync(clearSelection);
     }
 
     private async Task HandleSourceChanged(JobSource source)
@@ -113,6 +136,7 @@ public partial class TheDeck : IAsyncDisposable
         _currentContext = source;
         _jobs.Clear();
         _activeStatusFilter = null;
+        _lastHistoryFilter = null;
 
         _opsPanel.ClearPanel();
 
@@ -123,13 +147,13 @@ public partial class TheDeck : IAsyncDisposable
         else
         {
             _opsPanel.ShowHistoryFilter();
-            await LoadInitialHistory(source);
+            await LoadInitialHistory();
         }
 
         StateHasChanged();
     }
 
-    private async Task LoadInitialHistory(JobSource source)
+    private async Task LoadInitialHistory()
     {
         var filter = new HistoryFilterDto(
             FromUtc: null,
@@ -148,33 +172,12 @@ public partial class TheDeck : IAsyncDisposable
 
     private async Task HandleHistoryLoadRequest(HistoryFilterDto filter)
     {
-        _lastHistoryFilter = filter;
-
         try
         {
-            List<JobViewModel> viewModels;
+            await LoadShellStateAsync();
+            await LoadHistoryPageAsync(filter);
 
-            if (_currentContext == JobSource.Archive)
-            {
-                var result = await JobStorage.GetArchivePagedAsync(filter);
-                _historyTotalItems = result.TotalCount;
-                viewModels = MapArchiveJobs(result.Items);
-            }
-            else
-            {
-                var result = await JobStorage.GetDLQPagedAsync(filter);
-                _historyTotalItems = result.TotalCount;
-                viewModels = MapDLQJobs(result.Items);
-            }
-
-            _historyPageNumber = filter.PageNumber;
-            _historyPageSize = filter.PageSize;
-
-            await InvokeAsync(() =>
-            {
-                _jobs = viewModels;
-                StateHasChanged();
-            });
+            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
@@ -182,17 +185,43 @@ public partial class TheDeck : IAsyncDisposable
         }
     }
 
+    private async Task LoadHistoryPageAsync(HistoryFilterDto filter)
+    {
+        var normalizedFilter = DashboardHistoryPaging.Normalize(filter);
+        var page = await QueryHistoryPageAsync(normalizedFilter);
+
+        var clampedFilter = DashboardHistoryPaging.ClampToAvailablePage(normalizedFilter, page.TotalCount);
+        if (clampedFilter.PageNumber != normalizedFilter.PageNumber)
+        {
+            // Bulk purge/requeue can remove the last row from the page the operator is viewing.
+            // Instead of showing an empty page with stale pagination, clamp to the new last page
+            // and read that page from storage as the canonical post-mutation view.
+            normalizedFilter = clampedFilter;
+            page = await QueryHistoryPageAsync(normalizedFilter);
+        }
+
+        _lastHistoryFilter = normalizedFilter;
+        _historyTotalItems = page.TotalCount;
+        _historyPageNumber = normalizedFilter.PageNumber;
+        _historyPageSize = normalizedFilter.PageSize;
+        _jobs = page.ViewModels;
+    }
+
+    private async Task<(int TotalCount, List<JobViewModel> ViewModels)> QueryHistoryPageAsync(HistoryFilterDto filter)
+    {
+        if (_currentContext == JobSource.Archive)
+        {
+            var result = await JobStorage.GetArchivePagedAsync(filter);
+            return (result.TotalCount, MapArchiveJobs(result.Items));
+        }
+
+        var dlqResult = await JobStorage.GetDLQPagedAsync(filter);
+        return (dlqResult.TotalCount, MapDLQJobs(dlqResult.Items));
+    }
+
     private async Task HandleDataRefreshRequest()
     {
-        if (IsHistoryMode && _lastHistoryFilter != null)
-        {
-            await Task.Delay(100);
-            await HandleHistoryLoadRequest(_lastHistoryFilter);
-        }
-        else if (!IsHistoryMode)
-        {
-            await LoadDataAsync();
-        }
+        await ReconcileCurrentViewAsync(clearSelection: false);
     }
 
     private async Task HandleStatusSelected(JobStatus? status)
@@ -214,13 +243,8 @@ public partial class TheDeck : IAsyncDisposable
         if (_hubConnection != null) await _hubConnection.InvokeAsync("ResurrectJob", jobId, null, null);
         AddLog($"Resurrect request sent for {jobId}", "Success");
 
-        if (_counts != null && _counts.FailedTotal > 0)
-        {
-            _counts = _counts with { FailedTotal = _counts.FailedTotal - 1 };
-        }
-
         _opsPanel.ClearPanel();
-        await HandleDataRefreshRequest();
+        await ReconcileAfterMutationAsync();
     }
 
     private async Task HandleDeleteRequested(string jobId)
@@ -229,7 +253,7 @@ public partial class TheDeck : IAsyncDisposable
         _opsPanel.ClearPanel();
         AddLog($"Delete request sent for {jobId}", "Warning");
 
-        await HandleDataRefreshRequest();
+        await ReconcileAfterMutationAsync();
     }
 
     private async Task HandleSingleCancel(string jobId)
@@ -237,7 +261,7 @@ public partial class TheDeck : IAsyncDisposable
         if (_hubConnection is null) return;
         await _hubConnection.InvokeAsync("CancelJob", jobId);
         AddLog($"Cancel request sent for {jobId}", "Warning");
-        await HandleDataRefreshRequest();
+        await ReconcileAfterMutationAsync();
     }
 
     private async Task HandleSingleRestart(string jobId)
@@ -245,7 +269,7 @@ public partial class TheDeck : IAsyncDisposable
         if (_hubConnection is null) return;
         await _hubConnection.InvokeAsync("RestartJob", jobId);
         AddLog($"Restart request sent for {jobId}", "Success");
-        await HandleDataRefreshRequest();
+        await ReconcileAfterMutationAsync();
     }
 
     private async Task HandleBulkCancel(HashSet<string> jobIds)
@@ -253,7 +277,7 @@ public partial class TheDeck : IAsyncDisposable
         if (_hubConnection is null || jobIds.Count == 0) return;
         await _hubConnection.InvokeAsync("CancelJobs", jobIds.ToArray());
         AddLog($"Bulk cancel: {jobIds.Count} jobs", "Warning");
-        await HandleDataRefreshRequest();
+        await ReconcileAfterMutationAsync();
     }
 
     private async Task HandleBulkRetry(HashSet<string> jobIds)
@@ -262,13 +286,7 @@ public partial class TheDeck : IAsyncDisposable
         await _hubConnection.InvokeAsync("RestartJobs", jobIds.ToArray());
         AddLog($"Bulk retry: {jobIds.Count} jobs", "Success");
 
-        if (_currentContext == JobSource.DLQ && _counts.FailedTotal > 0)
-        {
-            var decrease = Math.Min(jobIds.Count, (int)_counts.FailedTotal);
-            _counts = _counts with { FailedTotal = _counts.FailedTotal - decrease };
-        }
-
-        await HandleDataRefreshRequest();
+        await ReconcileAfterMutationAsync();
     }
 
     private async Task HandleBulkPurge(HashSet<string> jobIds)
@@ -277,13 +295,7 @@ public partial class TheDeck : IAsyncDisposable
         await _hubConnection.InvokeAsync("PurgeDLQ", jobIds.ToArray());
         AddLog($"Bulk purge: {jobIds.Count} jobs permanently deleted", "Error");
 
-        if (_counts.FailedTotal > 0)
-        {
-            var decrease = Math.Min(jobIds.Count, (int)_counts.FailedTotal);
-            _counts = _counts with { FailedTotal = _counts.FailedTotal - decrease };
-        }
-
-        await HandleDataRefreshRequest();
+        await ReconcileAfterMutationAsync();
     }
 
     private List<JobViewModel> MapHotJobs(IEnumerable<JobHotEntity> entities)
@@ -337,7 +349,8 @@ public partial class TheDeck : IAsyncDisposable
             CreatedBy = j.CreatedBy,
             StartedAtUtc = null,
             Payload = j.Payload ?? "{}",
-            ErrorDetails = j.ErrorDetails
+            ErrorDetails = j.ErrorDetails,
+            FailureReason = j.FailureReason
         }).ToList();
     }
 
@@ -351,6 +364,16 @@ public partial class TheDeck : IAsyncDisposable
 
             InvokeAsync(() =>
             {
+                if (_activeStatusFilter.HasValue && dto.Status != _activeStatusFilter.Value)
+                {
+                    // Live SignalR updates arrive independently from the active status filter.
+                    // If a job moves out of the selected status, remove it from the local slice and
+                    // let the next storage reconciliation fill the window with the correct rows.
+                    _jobs.RemoveAll(j => j.Id == dto.JobId);
+                    ThrottledRender();
+                    return;
+                }
+
                 var existing = _jobs.FirstOrDefault(j => j.Id == dto.JobId);
                 if (existing != null)
                 {
@@ -389,7 +412,7 @@ public partial class TheDeck : IAsyncDisposable
 
             InvokeAsync(async () =>
             {
-                _counts = await JobStorage.GetSummaryStatsAsync();
+                await LoadShellStateAsync();
                 ThrottledRender();
             });
         });

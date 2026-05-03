@@ -21,7 +21,7 @@ Without intervention, this job would sit in `Processing` status **indefinitely**
 
 ## The ZombieRescueService
 
-A `BackgroundService` that runs every 60 seconds with two recovery phases:
+A `BackgroundService` that runs on `ChokaQOptions.Recovery.ScanInterval` with two recovery phases:
 
 ```csharp
 // From: ChokaQ.Core/Resilience/ZombieRescueService.cs
@@ -34,11 +34,11 @@ protected override async Task ExecuteAsync(CancellationToken ct)
         {
             // Phase 1: Recover abandoned jobs (Fetched but never processed)
             var recovered = await _storage.RecoverAbandonedAsync(
-                _options.ZombieTimeoutSeconds, ct);
+                options.FetchedJobTimeoutSeconds, ct);
 
             // Phase 2: Archive true zombies (Processing with expired heartbeat)
             var archived = await _storage.ArchiveZombiesAsync(
-                _options.ZombieTimeoutSeconds, ct);
+                options.ZombieTimeoutSeconds, ct);
 
             if (recovered > 0 || archived > 0)
             {
@@ -55,7 +55,7 @@ protected override async Task ExecuteAsync(CancellationToken ct)
             _logger.LogError(ex, "ZombieRescue sweep failed");
         }
 
-        await Task.Delay(TimeSpan.FromSeconds(60), ct);
+        await Task.Delay(options.Recovery.ScanInterval, ct);
     }
 }
 ```
@@ -77,6 +77,17 @@ WHERE [Status] = 1           -- Fetched
 ```
 
 These jobs return to the queue as if nothing happened — the next fetch cycle picks them up.
+
+`Recovery.FetchedJobTimeout` is intentionally separate from `Recovery.ProcessingZombieTimeout`.
+Fetched jobs are only reserved in a worker's prefetch buffer; user code has not
+run yet, so recovery is a safe retry. Processing jobs are different: they may
+already have side effects, so their timeout is heartbeat-based and leads to DLQ.
+Keeping the two timeouts independent prevents a short processing heartbeat policy
+from reclaiming healthy jobs that are merely waiting for an execution slot.
+
+The old `FetchedJobTimeoutSeconds` and `ZombieTimeoutSeconds` properties still
+exist as compatibility aliases. New hosts should prefer the nested `Recovery`
+section because it maps cleanly to `appsettings.json`.
 
 ## Phase 2: Archive True Zombies
 
@@ -122,11 +133,12 @@ Heartbeat:       ↑    ↑    ↑    ↑    ↑    ↑    ↑ (every ~10 second
 ```
 
 **The formula:**
-- `HeartbeatInterval` = how often the worker pings (~10s)
-- `ZombieTimeoutSeconds` = how long before a job is declared dead (~600s)
-- `ZombieTimeoutSeconds` must be **significantly larger** than `HeartbeatInterval`
+- `Execution.HeartbeatIntervalMin/Max` = jittered heartbeat window used by the worker (~8-12s by default)
+- `Recovery.FetchedJobTimeout` = how long a Fetched-but-not-started reservation may sit before it is returned to Pending
+- `Recovery.ProcessingZombieTimeout` = how long a Processing job may miss heartbeats before it is declared dead (~600s)
+- `Recovery.ProcessingZombieTimeout` must be **significantly larger** than the heartbeat interval
 
-If `HeartbeatUtc` hasn't been updated in `ZombieTimeoutSeconds`, the job is either:
+If `HeartbeatUtc` hasn't been updated in `Recovery.ProcessingZombieTimeout`, the job is either:
 - Genuinely stuck (infinite loop, deadlock)
 - The worker process died
 

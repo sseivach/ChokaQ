@@ -45,6 +45,14 @@ public partial class OpsPanel
     /// </summary>
     [Parameter] public EventCallback<HistoryFilterDto> OnLoadRequest { get; set; }
 
+    /// <summary>
+    /// Fired after an editor command changes storage state.
+    /// The side panel can reload the inspector on its own, but the page shell owns counters,
+    /// health indicators, and the current table. Bubbling this event keeps those surfaces
+    /// reconciled from storage instead of letting the editor create a local UI-only truth.
+    /// </summary>
+    [Parameter] public EventCallback OnDataChanged { get; set; }
+
 
 
     private OpsTab _activeTab = OpsTab.None;
@@ -136,7 +144,7 @@ public partial class OpsPanel
     private async Task HandleJobSaved(string jobId)
     {
         ShowJobInspector(jobId);
-        await Task.CompletedTask;
+        await OnDataChanged.InvokeAsync();
     }
 
     /// <summary>

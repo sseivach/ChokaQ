@@ -1,0 +1,28 @@
+@using ChokaQ.Abstractions.DTOs
+@namespace ChokaQ.TheDeck.UI.Components.Health
+
+<section class="health">
+    <div class="health__header">
+        <span class="health__title">TOP ERROR TYPES</span>
+        <span class="health__stamp">@(HealthSnapshot is null ? "--" : HealthSnapshot.GeneratedAtUtc.ToLocalTime().ToString("HH:mm:ss"))</span>
+    </div>
+
+    @if (TopErrors.Count == 0)
+    {
+        <div class="health__empty">No DLQ errors</div>
+    }
+    else
+    {
+        <ol class="health__errors">
+            @foreach (var error in TopErrors)
+            {
+                <li class="health__error">
+                    <span class="health__reason">@error.FailureReason</span>
+                    <span class="health__prefix" title="@error.ErrorPrefix">@TrimPrefix(error.ErrorPrefix)</span>
+                    <span class="health__count">@error.Count.ToString("N0")</span>
+                    <span class="health__age">@FormatAge(error.LatestFailedAtUtc)</span>
+                </li>
+            }
+        </ol>
+    }
+</section>

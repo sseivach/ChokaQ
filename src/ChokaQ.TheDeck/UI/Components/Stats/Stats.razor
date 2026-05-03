@@ -39,6 +39,20 @@
         <div class="stats__value stats__value--failed">@Counts.FailedTotal.ToString("N0")</div>
     </article>
 
+    @* Throughput *@
+    <article class="stats__card stats__card--readonly">
+        <div class="stats__label">THROUGHPUT</div>
+        <div class="stats__value stats__value--throughput">@FormatThroughput(Health?.JobsPerSecondLastMinute)</div>
+        <div class="stats__hint">5m @FormatThroughput(Health?.JobsPerSecondLastFiveMinutes)</div>
+    </article>
+
+    @* Failure Rate *@
+    <article class="stats__card stats__card--readonly">
+        <div class="stats__label">FAIL RATE</div>
+        <div class="stats__value stats__value--failure-rate">@FormatPercent(Health?.FailureRateLastMinutePercent)</div>
+        <div class="stats__hint">5m @FormatPercent(Health?.FailureRateLastFiveMinutesPercent)</div>
+    </article>
+
     @* Total *@
     <article class="stats__card @(SelectedStatus == null ? "stats__card--active" : "")"
              @onclick="() => HandleClick(null)">

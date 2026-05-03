@@ -52,6 +52,42 @@ public class SqlConcurrencyTests
         allJobs.Should().HaveCountGreaterOrEqualTo(9); // Most jobs should be fetched
     }
 
+    [Fact]
+    public async Task FetchNextBatchAsync_WithConcurrentWorkers_ShouldNotReturnDuplicateJobs()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+        for (int i = 0; i < 50; i++)
+        {
+            await _storage.EnqueueAsync(NewId(), "default", $"Job{i}", "{}");
+        }
+
+        // Act
+        var fetchTasks = Enumerable.Range(1, 10)
+            .Select(workerNumber =>
+            {
+                var workerId = $"worker-{workerNumber}";
+                return Task.Run(async () => (await _storage.FetchNextBatchAsync(workerId, 10)).ToList());
+            })
+            .ToArray();
+
+        var batches = await Task.WhenAll(fetchTasks);
+        var fetchedJobs = batches.SelectMany(batch => batch).ToList();
+
+        var markTasks = fetchedJobs
+            .Select(job => _storage.MarkAsProcessingAsync(job.Id, workerId: job.WorkerId).AsTask())
+            .ToArray();
+        var marked = await Task.WhenAll(markTasks);
+
+        // Assert
+        // UPDLOCK + READPAST must behave as a multi-instance work-claim protocol:
+        // one persisted row can be claimed by one worker only, even when workers fetch in parallel.
+        // MarkAsProcessing then proves each returned row is still owned by the worker that fetched it.
+        fetchedJobs.Select(job => job.Id).Should().OnlyHaveUniqueItems();
+        fetchedJobs.Should().HaveCountLessOrEqualTo(50);
+        marked.Should().OnlyContain(result => result);
+    }
+
     [Fact(Skip = "SQL Server deadlock under high concurrency - known limitation")]
     public async Task EnqueueAsync_WithSameIdempotencyKey_ShouldReturnSameId()
     {
@@ -99,6 +135,150 @@ public class SqlConcurrencyTests
         // Assert - Stats should be accurate
         var stats = await _storage.GetSummaryStatsAsync();
         stats.SucceededTotal.Should().BeGreaterOrEqualTo(20);
+    }
+
+    [Fact]
+    public async Task ArchiveSucceededAsync_ConcurrentSameJob_ShouldMoveExactlyOnce()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+        var id = NewId();
+        await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
+        await _storage.FetchNextBatchAsync("worker1", 1);
+
+        // Act
+        var tasks = Enumerable.Range(0, 8)
+            .Select(_ => Task.Run(async () => await _storage.ArchiveSucceededAsync(id, 100)))
+            .ToArray();
+
+        await Task.WhenAll(tasks);
+
+        // Assert
+        // Concurrent finalization of the same job should be idempotent at the storage boundary:
+        // one contender moves the row, while later contenders observe that there is nothing left to move.
+        var hotJob = await _storage.GetJobAsync(id);
+        hotJob.Should().BeNull();
+
+        var archiveJob = await _storage.GetArchiveJobAsync(id);
+        archiveJob.Should().NotBeNull();
+
+        var stats = await _storage.GetSummaryStatsAsync();
+        stats.SucceededTotal.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ArchiveFailedAsync_ConcurrentSameJob_ShouldMoveExactlyOnce()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+        var id = NewId();
+        await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
+        await _storage.FetchNextBatchAsync("worker1", 1);
+
+        // Act
+        var tasks = Enumerable.Range(0, 8)
+            .Select(_ => Task.Run(async () => await _storage.ArchiveFailedAsync(id, "boom")))
+            .ToArray();
+
+        await Task.WhenAll(tasks);
+
+        // Assert
+        // Failed finalization uses the same atomic move rule as successful finalization:
+        // a job can be in Hot or DLQ, never both, and the failure counter advances once.
+        var hotJob = await _storage.GetJobAsync(id);
+        hotJob.Should().BeNull();
+
+        var dlqJob = await _storage.GetDLQJobAsync(id);
+        dlqJob.Should().NotBeNull();
+
+        var stats = await _storage.GetSummaryStatsAsync();
+        stats.FailedTotal.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ArchiveSucceededAsync_WithWrongWorkerId_ShouldNotFinalize()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+        var id = NewId();
+        await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
+        await _storage.FetchNextBatchAsync("owner-a", 1);
+
+        // Act
+        var staleMoved = await _storage.ArchiveSucceededAsync(id, 100, workerId: "owner-b");
+        var ownerMoved = await _storage.ArchiveSucceededAsync(id, 100, workerId: "owner-a");
+
+        // Assert
+        // Ownership guards make stale worker finalization a zero-row no-op. The actual owner
+        // can still complete the job, proving the guard is selective rather than blocking all moves.
+        staleMoved.Should().BeFalse();
+        ownerMoved.Should().BeTrue();
+
+        var hotJob = await _storage.GetJobAsync(id);
+        hotJob.Should().BeNull();
+
+        var archiveJob = await _storage.GetArchiveJobAsync(id);
+        archiveJob.Should().NotBeNull();
+
+        var stats = await _storage.GetSummaryStatsAsync();
+        stats.SucceededTotal.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task MarkAsProcessingAsync_AfterRelease_ShouldNotStartBufferedCopy()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+        var id = NewId();
+        await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
+        await _storage.FetchNextBatchAsync("prefetch-worker", 1);
+
+        // Act
+        await _storage.ReleaseJobAsync(id);
+        var marked = await _storage.MarkAsProcessingAsync(id, workerId: "prefetch-worker");
+
+        // Assert
+        // This is the Phase 3.1 production race: a worker may still hold a buffered copy after
+        // shutdown or pause released the database lease. The Processing transition must reject
+        // that stale copy so the job remains available for the next legitimate fetch.
+        marked.Should().BeFalse();
+
+        var hotJob = await _storage.GetJobAsync(id);
+        hotJob.Should().NotBeNull();
+        hotJob!.Status.Should().Be(ChokaQ.Abstractions.Enums.JobStatus.Pending);
+        hotJob.WorkerId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ArchiveSucceededAsync_AfterZombieRescue_ShouldNotOverrideDlqDecision()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+        var id = NewId();
+        await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
+        await _storage.FetchNextBatchAsync("frozen-worker", 1);
+        await _storage.MarkAsProcessingAsync(id);
+        await Task.Delay(2000);
+
+        // Act
+        var rescued = await _storage.ArchiveZombiesAsync(1);
+        var staleMoved = await _storage.ArchiveSucceededAsync(id, 100, workerId: "frozen-worker");
+
+        // Assert
+        // This is the production failure mode Phase 2 closes: a frozen worker resumes after
+        // rescue already moved the job to DLQ. Its late success path must not create an Archive row.
+        rescued.Should().BeGreaterOrEqualTo(1);
+        staleMoved.Should().BeFalse();
+
+        var archiveJob = await _storage.GetArchiveJobAsync(id);
+        archiveJob.Should().BeNull();
+
+        var dlqJob = await _storage.GetDLQJobAsync(id);
+        dlqJob.Should().NotBeNull();
+
+        var stats = await _storage.GetSummaryStatsAsync();
+        stats.SucceededTotal.Should().Be(0);
+        stats.FailedTotal.Should().Be(1);
     }
 
     [Fact]

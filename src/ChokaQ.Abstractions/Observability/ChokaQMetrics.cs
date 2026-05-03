@@ -11,6 +11,10 @@ public class ChokaQMetrics : IChokaQMetrics, IDisposable
 {
     public const string MeterName = "ChokaQ";
     private readonly Meter _meter;
+    private readonly MetricTagLimiter _queueTags;
+    private readonly MetricTagLimiter _jobTypeTags;
+    private readonly MetricTagLimiter _errorTags;
+    private readonly MetricTagLimiter _failureReasonTags;
 
     private readonly Counter<long> _enqueuedCounter;
     private readonly Counter<long> _completedCounter;
@@ -24,8 +28,38 @@ public class ChokaQMetrics : IChokaQMetrics, IDisposable
     private readonly UpDownCounter<long> _activeWorkersCounter;
 
     public ChokaQMetrics()
+        : this(new ChokaQMetricsOptions())
     {
-        // 1.0.0 is the version of our instrument
+    }
+
+    public ChokaQMetrics(ChokaQMetricsOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.ValidateOrThrow();
+
+        _queueTags = new MetricTagLimiter(
+            options.MaxQueueTagValues,
+            options.MaxTagValueLength,
+            options.UnknownTagValue,
+            options.OverflowTagValue);
+        _jobTypeTags = new MetricTagLimiter(
+            options.MaxJobTypeTagValues,
+            options.MaxTagValueLength,
+            options.UnknownTagValue,
+            options.OverflowTagValue);
+        _errorTags = new MetricTagLimiter(
+            options.MaxErrorTagValues,
+            options.MaxTagValueLength,
+            options.UnknownTagValue,
+            options.OverflowTagValue);
+        _failureReasonTags = new MetricTagLimiter(
+            options.MaxFailureReasonTagValues,
+            options.MaxTagValueLength,
+            options.UnknownTagValue,
+            options.OverflowTagValue);
+
+        // The meter name is the contract users wire into OpenTelemetry exporters. The version
+        // describes the instrument surface, not the application package version.
         _meter = new Meter(MeterName, "1.0.0");
 
         _enqueuedCounter = _meter.CreateCounter<long>(
@@ -70,16 +104,16 @@ public class ChokaQMetrics : IChokaQMetrics, IDisposable
     public void RecordEnqueue(string queue, string jobType)
     {
         _enqueuedCounter.Add(1,
-            new KeyValuePair<string, object?>("queue", queue),
-            new KeyValuePair<string, object?>("type", jobType));
+            new KeyValuePair<string, object?>("queue", _queueTags.GetValue(queue)),
+            new KeyValuePair<string, object?>("type", _jobTypeTags.GetValue(jobType)));
     }
 
     public void RecordSuccess(string queue, string jobType, double durationMs)
     {
         var tags = new ReadOnlySpan<KeyValuePair<string, object?>>(new[]
         {
-            new KeyValuePair<string, object?>("queue", queue),
-            new KeyValuePair<string, object?>("type", jobType)
+            new KeyValuePair<string, object?>("queue", _queueTags.GetValue(queue)),
+            new KeyValuePair<string, object?>("type", _jobTypeTags.GetValue(jobType))
         });
 
         _completedCounter.Add(1, tags);
@@ -89,42 +123,98 @@ public class ChokaQMetrics : IChokaQMetrics, IDisposable
     public void RecordFailure(string queue, string jobType, string errorType)
     {
         _failedCounter.Add(1,
-            new KeyValuePair<string, object?>("queue", queue),
-            new KeyValuePair<string, object?>("type", jobType),
-            new KeyValuePair<string, object?>("error", errorType));
+            new KeyValuePair<string, object?>("queue", _queueTags.GetValue(queue)),
+            new KeyValuePair<string, object?>("type", _jobTypeTags.GetValue(jobType)),
+            new KeyValuePair<string, object?>("error", _errorTags.GetValue(errorType)));
     }
 
     public void RecordQueueLag(string queue, string jobType, double lagMs)
     {
         _queueLagHistogram.Record(lagMs,
-            new KeyValuePair<string, object?>("queue", queue),
-            new KeyValuePair<string, object?>("type", jobType));
+            new KeyValuePair<string, object?>("queue", _queueTags.GetValue(queue)),
+            new KeyValuePair<string, object?>("type", _jobTypeTags.GetValue(jobType)));
     }
 
     public void RecordDlq(string queue, string jobType, string reason)
     {
         _dlqCounter.Add(1,
-            new KeyValuePair<string, object?>("queue", queue),
-            new KeyValuePair<string, object?>("type", jobType),
-            new KeyValuePair<string, object?>("reason", reason));
+            new KeyValuePair<string, object?>("queue", _queueTags.GetValue(queue)),
+            new KeyValuePair<string, object?>("type", _jobTypeTags.GetValue(jobType)),
+            new KeyValuePair<string, object?>("reason", _failureReasonTags.GetValue(reason)));
     }
 
     public void RecordRetry(string queue, string jobType, int attempt)
     {
         _retryCounter.Add(1,
-            new KeyValuePair<string, object?>("queue", queue),
-            new KeyValuePair<string, object?>("type", jobType),
+            new KeyValuePair<string, object?>("queue", _queueTags.GetValue(queue)),
+            new KeyValuePair<string, object?>("type", _jobTypeTags.GetValue(jobType)),
             new KeyValuePair<string, object?>("attempt", attempt));
     }
 
     public void RecordActiveWorkerDelta(string queue, int delta)
     {
         _activeWorkersCounter.Add(delta,
-            new KeyValuePair<string, object?>("queue", queue));
+            new KeyValuePair<string, object?>("queue", _queueTags.GetValue(queue)));
     }
 
     public void Dispose()
     {
         _meter.Dispose();
+    }
+
+    private sealed class MetricTagLimiter
+    {
+        private readonly int _maxDistinctValues;
+        private readonly int _maxTagValueLength;
+        private readonly string _unknownTagValue;
+        private readonly string _overflowTagValue;
+        private readonly HashSet<string> _seenValues = new(StringComparer.Ordinal);
+        private readonly object _gate = new();
+
+        public MetricTagLimiter(
+            int maxDistinctValues,
+            int maxTagValueLength,
+            string unknownTagValue,
+            string overflowTagValue)
+        {
+            _maxDistinctValues = maxDistinctValues;
+            _maxTagValueLength = maxTagValueLength;
+            _unknownTagValue = unknownTagValue.Trim();
+            _overflowTagValue = overflowTagValue.Trim();
+        }
+
+        public string GetValue(string? value)
+        {
+            var normalized = Normalize(value);
+
+            // The HashSet is intentionally process-local. Exporters aggregate across processes,
+            // while ChokaQ only needs to prevent one host from minting unlimited time series.
+            lock (_gate)
+            {
+                if (_seenValues.Contains(normalized))
+                {
+                    return normalized;
+                }
+
+                if (_seenValues.Count >= _maxDistinctValues)
+                {
+                    return _overflowTagValue;
+                }
+
+                _seenValues.Add(normalized);
+                return normalized;
+            }
+        }
+
+        private string Normalize(string? value)
+        {
+            var normalized = string.IsNullOrWhiteSpace(value)
+                ? _unknownTagValue
+                : value.Trim();
+
+            return normalized.Length <= _maxTagValueLength
+                ? normalized
+                : normalized[.._maxTagValueLength];
+        }
     }
 }

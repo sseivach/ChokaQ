@@ -67,6 +67,28 @@ public class SqlJobStorageIntegrationTests
     }
 
     [Fact]
+    public async Task EnqueueAsync_WithIdempotencyKey_AfterArchive_ShouldCreateNewHotJob()
+    {
+        // Arrange
+        var firstId = NewId();
+        var secondId = NewId();
+        var key = "idempotency-hot-scope";
+
+        await _storage.EnqueueAsync(firstId, "default", "TestJob", "{}", idempotencyKey: key);
+        await _storage.ArchiveSucceededAsync(firstId, 10);
+
+        // Act
+        var result = await _storage.EnqueueAsync(secondId, "default", "TestJob", "{}", idempotencyKey: key);
+
+        // Assert
+        // The unique idempotency index lives on JobsHot only. This documents the intended scope:
+        // active duplicate work is suppressed, but completed history does not block future work.
+        result.Should().Be(secondId);
+        var hotJob = await _storage.GetJobAsync(secondId);
+        hotJob.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task FetchNextBatchAsync_ShouldAtomicallyLockJobs()
     {
         // Arrange
@@ -83,6 +105,34 @@ public class SqlJobStorageIntegrationTests
         jobs[0].Priority.Should().Be(10); // Higher priority first
         jobs[0].Status.Should().Be(JobStatus.Fetched);
         jobs[0].WorkerId.Should().Be("worker1");
+        // Fetching is only a reservation. AttemptCount advances when the job actually
+        // enters Processing, so release/recovery churn does not consume retry budget.
+        jobs[0].AttemptCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task FetchNextBatchAsync_WithMaxWorkers_ShouldLimitWithinSingleBatch()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+        await _storage.SetQueueMaxWorkersAsync("default", 2);
+
+        for (int i = 0; i < 5; i++)
+        {
+            await _storage.EnqueueAsync(NewId(), "default", $"Job{i}", "{}");
+        }
+
+        // Act
+        var jobs = (await _storage.FetchNextBatchAsync("worker1", 10)).ToList();
+
+        // Assert
+        // SQL must apply the queue bulkhead inside the same fetch statement. Checking only
+        // pre-existing active jobs would allow this one batch to claim all five rows.
+        jobs.Should().HaveCount(2);
+        jobs.Should().OnlyContain(j => j.Status == JobStatus.Fetched);
+
+        var secondFetch = (await _storage.FetchNextBatchAsync("worker2", 10)).ToList();
+        secondFetch.Should().BeEmpty();
     }
 
     [Fact]
@@ -122,16 +172,19 @@ public class SqlJobStorageIntegrationTests
     public async Task MarkAsProcessingAsync_ShouldUpdateStatusAndTimestamps()
     {
         // Arrange
+        await _fixture.CleanTablesAsync();
         var id = NewId();
         await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
         await _storage.FetchNextBatchAsync("worker1", 10);
 
         // Act
-        await _storage.MarkAsProcessingAsync(id);
+        var marked = await _storage.MarkAsProcessingAsync(id, workerId: "worker1");
 
         // Assert
+        marked.Should().BeTrue();
         var job = await _storage.GetJobAsync(id);
         job!.Status.Should().Be(JobStatus.Processing);
+        job.AttemptCount.Should().Be(1);
         job.StartedAtUtc.Should().NotBeNull();
         job.HeartbeatUtc.Should().NotBeNull();
     }
@@ -140,10 +193,12 @@ public class SqlJobStorageIntegrationTests
     public async Task KeepAliveAsync_ShouldUpdateHeartbeat()
     {
         // Arrange
+        await _fixture.CleanTablesAsync();
         var id = NewId();
         await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
         await _storage.FetchNextBatchAsync("worker1", 10);
-        await _storage.MarkAsProcessingAsync(id);
+        var marked = await _storage.MarkAsProcessingAsync(id, workerId: "worker1");
+        marked.Should().BeTrue();
         var job1 = await _storage.GetJobAsync(id);
         var initialHeartbeat = job1!.HeartbeatUtc!.Value;
 
@@ -227,6 +282,26 @@ public class SqlJobStorageIntegrationTests
     }
 
     [Fact]
+    public async Task ArchiveFailedAsync_WithFailureReason_ShouldPersistTaxonomy()
+    {
+        // Arrange
+        var id = NewId();
+        await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
+        await _storage.FetchNextBatchAsync("worker1", 10);
+
+        // Act
+        await _storage.ArchiveFailedAsync(id, "fatal poison payload", failureReason: FailureReason.FatalError);
+
+        // Assert
+        // SQL is the durable source of truth for operator triage. The taxonomy must survive
+        // the atomic Hot -> DLQ move exactly like the payload and exception details do.
+        var dlqJob = await _storage.GetDLQJobAsync(id);
+        dlqJob.Should().NotBeNull();
+        dlqJob!.FailureReason.Should().Be(FailureReason.FatalError);
+        dlqJob.ErrorDetails.Should().Be("fatal poison payload");
+    }
+
+    [Fact]
     public async Task ArchiveCancelledAsync_ShouldMoveToDLQ()
     {
         // Arrange
@@ -303,6 +378,45 @@ public class SqlJobStorageIntegrationTests
         job.Priority.Should().Be(15);
     }
 
+    [Fact]
+    public async Task RepairAndRequeueDLQAsync_ShouldApplyChanges_AndReturnTrue()
+    {
+        // Arrange
+        var id = NewId();
+        await _storage.EnqueueAsync(id, "default", "TestJob", "{\"old\":\"data\"}", priority: 5);
+        await _storage.ArchiveFailedAsync(id, "poison payload", failureReason: FailureReason.FatalError);
+
+        var updates = new JobDataUpdateDto("{\"fixed\":\"data\"}", "fixed", 42);
+
+        // Act
+        var moved = await _storage.RepairAndRequeueDLQAsync(id, updates, "ops@example.com");
+
+        // Assert
+        moved.Should().BeTrue();
+        var job = await _storage.GetJobAsync(id);
+        job.Should().NotBeNull();
+        job!.Payload.Should().Be("{\"fixed\":\"data\"}");
+        job.Tags.Should().Be("fixed");
+        job.Priority.Should().Be(42);
+        job.LastModifiedBy.Should().Be("ops@example.com");
+
+        var dlqJob = await _storage.GetDLQJobAsync(id);
+        dlqJob.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task RepairAndRequeueDLQAsync_WhenMissing_ShouldReturnFalse()
+    {
+        // Act
+        var moved = await _storage.RepairAndRequeueDLQAsync(
+            NewId(),
+            new JobDataUpdateDto("{}", null, 10),
+            "ops@example.com");
+
+        // Assert
+        moved.Should().BeFalse();
+    }
+
     #endregion
 
     #region Batch Operations (Tests 16-18)
@@ -354,15 +468,16 @@ public class SqlJobStorageIntegrationTests
         var id = NewId();
         await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
         await _storage.FetchNextBatchAsync("worker1", 10);
+        await _storage.MarkAsProcessingAsync(id, workerId: "worker1");
 
         // Act
         var scheduledAt = DateTime.UtcNow.AddMinutes(5);
-        await _storage.RescheduleForRetryAsync(id, scheduledAt, 2, "Previous error");
+        await _storage.RescheduleForRetryAsync(id, scheduledAt, 1, "Previous error", workerId: "worker1");
 
         // Assert
         var job = await _storage.GetJobAsync(id);
         job!.Status.Should().Be(JobStatus.Pending);
-        job.AttemptCount.Should().Be(2);
+        job.AttemptCount.Should().Be(1);
         job.ScheduledAtUtc.Should().BeCloseTo(scheduledAt, TimeSpan.FromSeconds(1));
     }
 
@@ -504,6 +619,42 @@ public class SqlJobStorageIntegrationTests
     }
 
     [Fact]
+    public async Task GetSystemHealthAsync_ShouldReturnQueueLagAndRecentProcessingSignals()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+        await _storage.EnqueueAsync(NewId(), "health-sql", "LagJob1", "{}");
+        await _storage.EnqueueAsync(NewId(), "health-sql", "LagJob2", "{}");
+
+        var successId = NewId();
+        await _storage.EnqueueAsync(successId, "metrics-sql", "SuccessJob", "{}");
+        await _storage.FetchNextBatchAsync("worker1", 1, new[] { "metrics-sql" });
+        await _storage.ArchiveSucceededAsync(successId, 15);
+
+        var failedId = NewId();
+        await _storage.EnqueueAsync(failedId, "metrics-sql", "FailedJob", "{}");
+        await _storage.FetchNextBatchAsync("worker1", 1, new[] { "metrics-sql" });
+        await _storage.ArchiveFailedAsync(failedId, "SqlException: timeout while opening connection");
+
+        // Act
+        var health = await _storage.GetSystemHealthAsync();
+
+        // Assert
+        // The SQL implementation should answer the same control-plane questions as memory
+        // storage while using bounded, indexed dashboard queries instead of broad table scans.
+        health.Queues.Should().Contain(q =>
+            q.Queue == "health-sql" &&
+            q.Pending == 2 &&
+            q.MaxLagSeconds >= q.AverageLagSeconds);
+        health.JobsPerSecondLastMinute.Should().BeGreaterThan(0);
+        health.FailureRateLastMinutePercent.Should().BeApproximately(50, 0.1);
+        health.TopErrors.Should().Contain(e =>
+            e.FailureReason == FailureReason.MaxRetriesExceeded &&
+            e.ErrorPrefix.StartsWith("SqlException: timeout", StringComparison.Ordinal) &&
+            e.Count == 1);
+    }
+
+    [Fact]
     public async Task GetActiveJobsAsync_ShouldReturnProcessingJobs()
     {
         // Arrange
@@ -559,6 +710,31 @@ public class SqlJobStorageIntegrationTests
         // Assert
         result.Items.Should().HaveCount(2);
         result.TotalCount.Should().BeGreaterOrEqualTo(5);
+    }
+
+    [Fact]
+    public async Task GetDLQPagedAsync_WithFailureReason_ShouldFilterDlqTaxonomy()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+
+        var fatalId = NewId();
+        await _storage.EnqueueAsync(fatalId, "default", "FatalJob", "{}");
+        await _storage.FetchNextBatchAsync("worker1", 1);
+        await _storage.ArchiveFailedAsync(fatalId, "fatal", failureReason: FailureReason.FatalError);
+
+        var transientId = NewId();
+        await _storage.EnqueueAsync(transientId, "default", "TransientJob", "{}");
+        await _storage.FetchNextBatchAsync("worker1", 1);
+        await _storage.ArchiveFailedAsync(transientId, "transient", failureReason: FailureReason.Transient);
+
+        // Act
+        var filter = new HistoryFilterDto(null, null, null, null, null, 1, 10, FailureReason: FailureReason.FatalError);
+        var result = await _storage.GetDLQPagedAsync(filter);
+
+        // Assert
+        result.Items.Should().ContainSingle(j => j.Id == fatalId);
+        result.Items.Should().NotContain(j => j.Id == transientId);
     }
 
     #endregion

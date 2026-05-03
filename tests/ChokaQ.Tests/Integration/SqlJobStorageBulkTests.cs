@@ -1,3 +1,4 @@
+using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Observability;
 using ChokaQ.Storage.SqlServer;
@@ -20,12 +21,18 @@ public class SqlJobStorageBulkTests
     public SqlJobStorageBulkTests(SqlServerFixture fixture)
     {
         _fixture = fixture;
+        _storage = CreateStorage();
+    }
+
+    private SqlJobStorage CreateStorage(int cleanupBatchSize = 1000)
+    {
         var options = Options.Create(new SqlJobStorageOptions
         {
             ConnectionString = _fixture.ConnectionString,
-            SchemaName = _fixture.Schema
+            SchemaName = _fixture.Schema,
+            CleanupBatchSize = cleanupBatchSize
         });
-        _storage = new SqlJobStorage(options, Substitute.For<IChokaQMetrics>());
+        return new SqlJobStorage(options, Substitute.For<IChokaQMetrics>());
     }
 
     private static string NewId() => Guid.NewGuid().ToString("N");
@@ -134,5 +141,168 @@ public class SqlJobStorageBulkTests
         // Stats should recalculate via COUNT on DLQ
         var postStats = (await _storage.GetQueueStatsAsync()).First(q => q.Queue == _testQueue);
         postStats.FailedTotal.Should().Be(15);
+    }
+
+    [Fact]
+    public async Task PurgeDLQAsync_ShouldDeleteSelectedJobsAcrossConfiguredBatches()
+    {
+        // Arrange: use a tiny cleanup batch to force the production retention loop to run
+        // multiple short transactions. The behavior should stay identical to one operator action:
+        // selected rows disappear, unselected rows remain, and counters reflect actual deletes.
+        await _fixture.CleanTablesAsync();
+        var storage = CreateStorage(cleanupBatchSize: 2);
+        var jobIds = new List<string>();
+
+        for (int i = 0; i < 7; i++)
+        {
+            var id = NewId();
+            jobIds.Add(id);
+            await storage.EnqueueAsync(id, _testQueue, "TestJob", "{}", 10);
+        }
+
+        await storage.ArchiveCancelledBatchAsync(jobIds.ToArray());
+
+        // Act: five selected IDs require three SQL delete batches with CleanupBatchSize=2.
+        await storage.PurgeDLQAsync(jobIds.Take(5).ToArray());
+
+        // Assert
+        var remaining = (await storage.GetDLQJobsAsync(100, queueFilter: _testQueue)).ToList();
+        remaining.Should().HaveCount(2);
+        remaining.Select(j => j.Id).Should().BeEquivalentTo(jobIds.Skip(5));
+
+        var stats = (await storage.GetQueueStatsAsync()).First(q => q.Queue == _testQueue);
+        stats.FailedTotal.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task PurgeArchiveAsync_ShouldDeleteOldHistoryAcrossConfiguredBatches()
+    {
+        // Arrange: archive cleanup uses the same batch philosophy as DLQ purge. This test keeps
+        // the batch size tiny so we prove the public method loops until the retention window is
+        // clean and still returns the total number of rows actually deleted.
+        await _fixture.CleanTablesAsync();
+        var storage = CreateStorage(cleanupBatchSize: 2);
+        var jobIds = new List<string>();
+
+        for (int i = 0; i < 5; i++)
+        {
+            var id = NewId();
+            jobIds.Add(id);
+            await storage.EnqueueAsync(id, _testQueue, "TestJob", "{}", 10);
+        }
+
+        await storage.FetchNextBatchAsync("archive-cleanup-worker", 10);
+
+        foreach (var id in jobIds)
+        {
+            await storage.ArchiveSucceededAsync(id, durationMs: 10);
+        }
+
+        // Act: all five rows are older than a future cutoff and require three SQL batches.
+        var deleted = await storage.PurgeArchiveAsync(DateTime.UtcNow.AddDays(1));
+
+        // Assert
+        deleted.Should().Be(5);
+        var archived = await storage.GetArchiveJobsAsync(100, queueFilter: _testQueue);
+        archived.Should().BeEmpty();
+
+        var stats = (await storage.GetQueueStatsAsync()).First(q => q.Queue == _testQueue);
+        stats.SucceededTotal.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PreviewDLQBulkOperationAsync_ShouldReturnMatchedCountAndSample()
+    {
+        // Arrange: create a mixed DLQ so the preview proves the filter is typed, not textual.
+        await _fixture.CleanTablesAsync();
+        var fatalEmail = NewId();
+        var transientEmail = NewId();
+        var fatalBilling = NewId();
+
+        await _storage.EnqueueAsync(fatalEmail, _testQueue, "EmailJob", "{}", 10);
+        await _storage.EnqueueAsync(transientEmail, _testQueue, "EmailJob", "{}", 10);
+        await _storage.EnqueueAsync(fatalBilling, _testQueue, "BillingJob", "{}", 10);
+        await _storage.ArchiveFailedAsync(fatalEmail, "bad template", failureReason: FailureReason.FatalError);
+        await _storage.ArchiveFailedAsync(transientEmail, "gateway blip", failureReason: FailureReason.Transient);
+        await _storage.ArchiveFailedAsync(fatalBilling, "bad invoice", failureReason: FailureReason.FatalError);
+
+        var filter = new DlqBulkOperationFilterDto(
+            Queue: _testQueue,
+            FailureReason: FailureReason.FatalError,
+            Type: "EmailJob",
+            MaxJobs: 10);
+
+        // Act
+        var preview = await _storage.PreviewDLQBulkOperationAsync(filter);
+
+        // Assert
+        preview.MatchedCount.Should().Be(1);
+        preview.WillAffectCount.Should().Be(1);
+        preview.SampleJobIds.Should().ContainSingle().Which.Should().Be(fatalEmail);
+    }
+
+    [Fact]
+    public async Task PurgeDLQByFilterAsync_ShouldDeleteOnlyMatchingSubset()
+    {
+        // Arrange: three matching failures, capped to two affected rows.
+        await _fixture.CleanTablesAsync();
+        var ids = new[] { NewId(), NewId(), NewId() };
+
+        foreach (var id in ids)
+        {
+            await _storage.EnqueueAsync(id, _testQueue, "EmailJob", "{}", 10);
+            await _storage.ArchiveFailedAsync(id, "fatal", failureReason: FailureReason.FatalError);
+        }
+
+        var filter = new DlqBulkOperationFilterDto(
+            Queue: _testQueue,
+            FailureReason: FailureReason.FatalError,
+            Type: "EmailJob",
+            MaxJobs: 2);
+
+        // Act
+        var purged = await _storage.PurgeDLQByFilterAsync(filter);
+
+        // Assert
+        purged.Should().Be(2);
+        var remaining = (await _storage.GetDLQJobsAsync(10, queueFilter: _testQueue)).ToList();
+        remaining.Should().HaveCount(1);
+
+        var stats = (await _storage.GetQueueStatsAsync()).First(q => q.Queue == _testQueue);
+        stats.FailedTotal.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ResurrectDLQByFilterAsync_ShouldMoveMatchesBackToHot()
+    {
+        // Arrange: only throttled webhook failures should be requeued.
+        await _fixture.CleanTablesAsync();
+        var throttledId = NewId();
+        var fatalId = NewId();
+
+        await _storage.EnqueueAsync(throttledId, _testQueue, "WebhookJob", "{}", 10);
+        await _storage.EnqueueAsync(fatalId, _testQueue, "WebhookJob", "{}", 10);
+        await _storage.ArchiveFailedAsync(throttledId, "429", failureReason: FailureReason.Throttled);
+        await _storage.ArchiveFailedAsync(fatalId, "bad payload", failureReason: FailureReason.FatalError);
+
+        var filter = new DlqBulkOperationFilterDto(
+            Queue: _testQueue,
+            FailureReason: FailureReason.Throttled,
+            Type: "WebhookJob",
+            MaxJobs: 100);
+
+        // Act
+        var resurrected = await _storage.ResurrectDLQByFilterAsync(filter, "ops@example.com");
+
+        // Assert
+        resurrected.Should().Be(1);
+
+        var hotJob = await _storage.GetJobAsync(throttledId);
+        hotJob.Should().NotBeNull();
+        hotJob!.Status.Should().Be(JobStatus.Pending);
+        hotJob.LastModifiedBy.Should().Be("ops@example.com");
+
+        var dlq = (await _storage.GetDLQJobsAsync(10, queueFilter: _testQueue)).ToList();
+        dlq.Should().ContainSingle(j => j.Id == fatalId);
     }
 }

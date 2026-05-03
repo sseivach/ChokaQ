@@ -40,13 +40,14 @@ The high-concurrency workhorse. Only contains jobs that are **actively in play**
 
 ```sql
 CREATE NONCLUSTERED INDEX [IX_JobsHot_Fetch]
-ON [chokaq].[JobsHot] ([Queue], [Priority] DESC, [ScheduledAtUtc])
+ON [chokaq].[JobsHot] ([Queue], [Priority] DESC, [ScheduledAtUtc], [CreatedAtUtc])
 INCLUDE ([Id], [Type])
 WHERE [Status] = 0                    -- 👈 Only Pending jobs in the index
 WITH (DATA_COMPRESSION = PAGE, FILLFACTOR = 80);
 ```
 
 This means the index is always **tiny** — even if thousands of jobs are processing, the fetch index only tracks pending ones.
+`CreatedAtUtc` is part of the key because delayed jobs and immediate jobs share the same fetch path; the engine orders by effective schedule time and uses creation time as the stable tie-breaker.
 
 ### Pillar 2: JobsArchive (The Success Vault) 🟢
 
@@ -77,7 +78,11 @@ public enum FailureReason
     Cancelled = 1,           // Admin cancelled via The Deck
     Zombie = 2,              // Heartbeat expired — worker crashed
     CircuitBreakerOpen = 3,  // Too many failures for this job type
-    Rejected = 4             // Validation failure on enqueue
+    Rejected = 4,            // Validation failure on enqueue
+    Throttled = 5,           // Downstream rate limit or overload signal
+    FatalError = 6,          // Poison-pill failure that should not retry
+    Timeout = 7,             // Handler exceeded its execution timeout
+    Transient = 8            // Retryable failure family after exhaustion
 }
 ```
 
@@ -132,7 +137,7 @@ WHEN NOT MATCHED THEN
 ```
 
 ::: danger 🔑 Critical Design Decision
-We use `DELETE...OUTPUT INTO` instead of `BEGIN TRAN / INSERT / DELETE / COMMIT`. The `OUTPUT` clause guarantees that the row is **simultaneously** deleted from source and inserted into target within the same atomic operation. There is no window where the job exists in neither table or in both.
+The important pattern is not "copy in application code, then delete later." ChokaQ performs the move inside one SQL transaction and uses `OUTPUT` to capture the exact row being moved. That keeps the state transition atomic and gives worker-ownership guards a single place to decide whether the move is still valid.
 :::
 
 ### Failure Path: Hot → DLQ

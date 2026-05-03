@@ -14,8 +14,10 @@ using ChokaQ.Core.Processing;
 using ChokaQ.Core.Resilience;
 using ChokaQ.Core.State;
 using ChokaQ.Core.Workers;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace ChokaQ.Core.Extensions;
@@ -61,6 +63,63 @@ public static class ChokaQCoreExtensions
         var options = new ChokaQOptions();
         configure?.Invoke(options);
 
+        return AddChokaQ(services, options);
+    }
+
+    /// <summary>
+    /// Registers ChokaQ and binds runtime configuration from IConfiguration.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configuration">
+    /// Either the root configuration containing a "ChokaQ" section, or the ChokaQ section itself.
+    /// </param>
+    /// <param name="configure">
+    /// Optional code callback applied after configuration binding. Code wins over appsettings so
+    /// package consumers can keep environment defaults in JSON and override rare values in tests.
+    /// </param>
+    /// <returns>The service collection for chaining.</returns>
+    /// <remarks>
+    /// Recommended NuGet usage:
+    /// <code>
+    /// services.AddChokaQ(
+    ///     configuration.GetSection("ChokaQ"),
+    ///     options => options.AddProfile&lt;MailingProfile&gt;());
+    /// </code>
+    /// </remarks>
+    public static IServiceCollection AddChokaQ(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        Action<ChokaQOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        var options = new ChokaQOptions();
+        var chokaQSection = configuration.GetSection(ChokaQOptions.SectionName);
+
+        // The overload accepts both builder.Configuration and builder.Configuration.GetSection("ChokaQ").
+        // This small convenience matters for NuGet ergonomics: every host has a slightly different
+        // configuration style, but the library should still bind to one canonical options model.
+        if (chokaQSection.GetChildren().Any() || chokaQSection.Value is not null)
+        {
+            chokaQSection.Bind(options);
+        }
+        else
+        {
+            configuration.Bind(options);
+        }
+
+        configure?.Invoke(options);
+
+        return AddChokaQ(services, options);
+    }
+
+    private static IServiceCollection AddChokaQ(IServiceCollection services, ChokaQOptions options)
+    {
+        // Validate after both appsettings binding and code overrides. This catches unsafe
+        // operational values before the host starts workers and accepts real production jobs.
+        options.ValidateOrThrow();
+        services.TryAdd(ServiceDescriptor.Singleton(options));
+
         // Register core infrastructure (storage, queues, processors)
         AddInfrastructure(services, options);
 
@@ -92,7 +151,7 @@ public static class ChokaQCoreExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IDeduplicator, InMemoryDeduplicator>();
         services.TryAddSingleton<ICircuitBreaker, InMemoryCircuitBreaker>();
-        services.TryAddSingleton<IChokaQMetrics, ChokaQMetrics>();
+        services.TryAddSingleton<IChokaQMetrics>(_ => new ChokaQMetrics(options.Metrics));
 
         // Register InMemoryJobStorage with the configured options (Three Pillars)
         services.TryAddSingleton<IJobStorage>(sp => new InMemoryJobStorage(options.InMemoryOptions));
@@ -115,7 +174,7 @@ public static class ChokaQCoreExtensions
         services.TryAddSingleton<JobWorker>();
         services.TryAddSingleton<IWorkerManager>(sp => sp.GetRequiredService<JobWorker>());
 
-        services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, JobWorkerHostedService>());
 
         // Register the Zombie Rescue Service with configured options
         services.AddHostedService(sp => new ZombieRescueService(

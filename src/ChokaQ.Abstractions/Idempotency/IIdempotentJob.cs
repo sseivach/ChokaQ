@@ -1,7 +1,11 @@
 namespace ChokaQ.Abstractions.Idempotency;
 
 /// <summary>
-/// Marker interface that opts a job into Result-Based Idempotency.
+/// Marker interface that gives a job a deterministic idempotency key.
+///
+/// The same key participates in two different guarantees:
+/// - Level 1 enqueue deduplication: ChokaQ prevents duplicate active Hot jobs with the same key.
+/// - Level 2 result idempotency: when the optional middleware is enabled, completed results can be cached.
 ///
 /// [USAGE EXAMPLE]:
 /// <code>
@@ -25,9 +29,10 @@ namespace ChokaQ.Abstractions.Idempotency;
 /// </code>
 ///
 /// [DESIGN NOTE]:
-/// This is an explicit opt-in, not magic. The developer consciously decides 
-/// which jobs are critical enough to warrant result caching, avoiding the
-/// storage overhead for the 80% of jobs that don't need it.
+/// This is an explicit opt-in, not magic. The developer consciously decides
+/// which jobs have a stable business key. Enqueue dedupe is scoped to active
+/// Hot jobs only; the result-cache middleware is the layer that can remember
+/// completed work after the job has left Hot.
 /// </summary>
 public interface IIdempotentJob
 {

@@ -28,6 +28,13 @@
     
     <td class="job-row__cell job-row__cell--status">
         <span class="job-row__status @GetStatusModifier()">@GetStatusLabel()</span>
+        @if (Job.FailureReason.HasValue)
+        {
+            <span class="job-row__failure @GetFailureReasonModifier()"
+                  title="DLQ failure taxonomy">
+                @GetFailureReasonLabel()
+            </span>
+        }
     </td>
     
     <td class="job-row__cell job-row__cell--progress">

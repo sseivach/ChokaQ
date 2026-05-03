@@ -1,6 +1,9 @@
 using ChokaQ.Abstractions.Observability;
 using ChokaQ.Abstractions.Resilience;
 using ChokaQ.Abstractions.Storage;
+using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Exceptions;
+using ChokaQ.Core;
 using ChokaQ.Core.Execution;
 using ChokaQ.Core.Processing;
 using ChokaQ.Core.State;
@@ -28,6 +31,16 @@ public class JobProcessorTests
         _breaker = Substitute.For<ICircuitBreaker>();
         _dispatcher = Substitute.For<IJobDispatcher>();
         _stateManager = Substitute.For<IJobStateManager>();
+        _stateManager.MarkAsProcessingAsync(
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<int>(),
+                Arg.Any<int>(),
+                Arg.Any<string?>(),
+                Arg.Any<CancellationToken>(),
+                Arg.Any<string?>())
+            .Returns(Task.FromResult(true));
 
         _processor = new JobProcessor(
             _storage,
@@ -48,11 +61,11 @@ public class JobProcessorTests
             .Returns(Task.CompletedTask);
 
         // Act
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         await _stateManager.Received(1).ArchiveSucceededAsync(
-            "job1", "TestJob", "default", Arg.Any<double>(), Arg.Any<CancellationToken>());
+            "job1", "TestJob", "default", Arg.Any<double>(), Arg.Any<CancellationToken>(), "worker1");
     }
 
     [Fact]
@@ -65,7 +78,7 @@ public class JobProcessorTests
             .Returns(Task.CompletedTask);
 
         // Act
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         _breaker.Received(1).ReportSuccess("TestJob");
@@ -82,12 +95,12 @@ public class JobProcessorTests
             .Throws(new Exception("Test error"));
 
         // Act
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         await _stateManager.Received(1).RescheduleForRetryAsync(
             "job1", "TestJob", "default", 10,
-            Arg.Any<DateTime>(), 2, "Test error", Arg.Any<CancellationToken>());
+            Arg.Any<DateTime>(), 1, "Test error", Arg.Any<CancellationToken>(), "worker1");
     }
 
     [Fact]
@@ -100,12 +113,70 @@ public class JobProcessorTests
         _dispatcher.DispatchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Throws(new Exception("Test error"));
 
-        // Act - Attempt 3 (last retry)
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 3, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+        // Act - Two attempts already started; this execution is attempt 3 (last retry)
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 2, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         await _stateManager.Received(1).ArchiveFailedAsync(
-            "job1", "TestJob", "default", Arg.Is<string>(s => s.Contains("Test error")), Arg.Any<CancellationToken>());
+            "job1",
+            "TestJob",
+            "default",
+            Arg.Is<string>(s => s.Contains("Test error")),
+            Arg.Any<CancellationToken>(),
+            "worker1",
+            FailureReason.Transient);
+    }
+
+    [Fact]
+    public async Task ProcessJobAsync_FatalFailure_ShouldArchiveWithFatalReason()
+    {
+        // Arrange
+        _processor.MaxRetries = 3;
+        _breaker.IsExecutionPermitted("TestJob").Returns(true);
+        _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
+        _dispatcher.DispatchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Throws(new ChokaQFatalException("poison payload"));
+
+        // Act
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+
+        // Assert
+        // Fatal errors are poison pills. Persisting FatalError lets operators fix payload/code
+        // instead of wasting time treating it like a retryable infrastructure blip.
+        await _stateManager.Received(1).ArchiveFailedAsync(
+            "job1",
+            "TestJob",
+            "default",
+            Arg.Is<string>(s => s.Contains("FATAL") && s.Contains("poison payload")),
+            Arg.Any<CancellationToken>(),
+            "worker1",
+            FailureReason.FatalError);
+    }
+
+    [Fact]
+    public async Task ProcessJobAsync_ThrottledFailure_AtMaxRetries_ShouldArchiveWithThrottledReason()
+    {
+        // Arrange
+        _processor.MaxRetries = 3;
+        _breaker.IsExecutionPermitted("TestJob").Returns(true);
+        _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
+        _dispatcher.DispatchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Throws(new TestThrottledException());
+
+        // Act
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 2, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+
+        // Assert
+        // Throttling is a capacity/contract signal, not a generic exception. Operators need
+        // the DLQ reason to point them toward quotas and queue concurrency, not handler bugs.
+        await _stateManager.Received(1).ArchiveFailedAsync(
+            "job1",
+            "TestJob",
+            "default",
+            Arg.Is<string>(s => s.Contains(nameof(TestThrottledException))),
+            Arg.Any<CancellationToken>(),
+            "worker1",
+            FailureReason.Throttled);
     }
 
     [Fact]
@@ -118,7 +189,7 @@ public class JobProcessorTests
             .Throws(new Exception("Test error"));
 
         // Act
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         _breaker.Received(1).ReportFailure("TestJob");
@@ -134,11 +205,11 @@ public class JobProcessorTests
             .Throws(new OperationCanceledException());
 
         // Act
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         await _stateManager.Received(1).ArchiveCancelledAsync(
-            "job1", "TestJob", "default", ChokaQ.Abstractions.Enums.JobCancellationReason.Timeout, "Execution Timeout or Admin Cancellation", Arg.Any<CancellationToken>());
+            "job1", "TestJob", "default", ChokaQ.Abstractions.Enums.JobCancellationReason.Timeout, "Execution Timeout or Admin Cancellation", Arg.Any<CancellationToken>(), "worker1");
     }
 
     [Fact]
@@ -150,17 +221,67 @@ public class JobProcessorTests
         _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
 
         // Act
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         await _stateManager.Received(1).RescheduleForRetryAsync(
             "job1", "TestJob", "default", 10,
             Arg.Is<DateTime>(dt => dt > DateTime.UtcNow.AddSeconds(4)),
-            1, "Circuit Breaker Open", Arg.Any<CancellationToken>());
+            0, "Circuit Breaker Open", Arg.Any<CancellationToken>(), "worker1");
 
         // Should NOT execute the job
         await _dispatcher.DidNotReceive().DispatchAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ProcessJobAsync_ShouldUsePerQueueExecutionTimeout()
+    {
+        // Arrange
+        var options = new ChokaQOptions
+        {
+            Execution = { DefaultTimeout = TimeSpan.FromSeconds(10) },
+            Queues =
+            {
+                ["slow-reports"] = new ChokaQQueueRuntimeOptions
+                {
+                    ExecutionTimeout = TimeSpan.FromMilliseconds(50)
+                }
+            }
+        };
+
+        var processor = new JobProcessor(
+            _storage,
+            NullLogger<JobProcessor>.Instance,
+            _breaker,
+            _dispatcher,
+            _stateManager,
+            Substitute.For<IChokaQMetrics>(),
+            options);
+
+        _breaker.IsExecutionPermitted("TestJob").Returns(true);
+        _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("slow-reports", 10));
+        _dispatcher.DispatchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(async callInfo =>
+            {
+                var ct = callInfo.Arg<CancellationToken>();
+                await Task.Delay(TimeSpan.FromSeconds(5), ct);
+            });
+
+        // Act
+        await processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+
+        // Assert
+        // The timeout is resolved from the queue, not from the global default. This lets a
+        // production host isolate long-running queues instead of raising the timeout for every job.
+        await _stateManager.Received(1).ArchiveCancelledAsync(
+            "job1",
+            "TestJob",
+            "slow-reports",
+            JobCancellationReason.Timeout,
+            "Execution Timeout or Admin Cancellation",
+            Arg.Any<CancellationToken>(),
+            "worker1");
     }
 
     [Fact]
@@ -179,12 +300,41 @@ public class JobProcessorTests
             });
 
         // Act
-        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, "user1", DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, "user1", DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
 
         // Assert
         await _stateManager.Received(1).MarkAsProcessingAsync(
-            "job1", "TestJob", "default", 10, 1, "user1", Arg.Any<CancellationToken>());
+            "job1", "TestJob", "default", 10, 1, "user1", Arg.Any<CancellationToken>(), "worker1");
         executionStarted.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ProcessJobAsync_WhenProcessingLeaseIsLost_ShouldNotDispatch()
+    {
+        // Arrange
+        _breaker.IsExecutionPermitted("TestJob").Returns(true);
+        _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
+        _stateManager.MarkAsProcessingAsync(
+                "job1",
+                "TestJob",
+                "default",
+                10,
+                1,
+                null,
+                Arg.Any<CancellationToken>(),
+                "worker1")
+            .Returns(Task.FromResult(false));
+
+        // Act
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+
+        // Assert
+        // This is the buffered-job safety contract: if persisted ownership disappeared after
+        // fetch, user code must never run from a stale in-memory copy.
+        await _dispatcher.DidNotReceive().DispatchAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _stateManager.DidNotReceive().ArchiveSucceededAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double?>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
     }
 
     [Fact]
@@ -211,7 +361,7 @@ public class JobProcessorTests
             });
 
         // Act
-        var processTask = _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+        var processTask = _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
         await Task.Delay(50); // Give it time to start
         _processor.CancelJob("job1");
 
@@ -255,7 +405,12 @@ public class JobProcessorTests
 
         var backoff = (int)method!.Invoke(_processor, new object[] { 20 })!;
 
-        // Assert - Should cap at 1 hour (3600 seconds = 3600000ms)
-        backoff.Should().BeLessOrEqualTo(3601000); // 1 hour + jitter
+        // Assert - MaxDelay is a true cap. Jitter is clipped instead of being added past it.
+        backoff.Should().Be(3600000);
+    }
+
+    private sealed class TestThrottledException : Exception, IChokaQThrottledException
+    {
+        public TimeSpan? RetryAfter => TimeSpan.FromSeconds(30);
     }
 }

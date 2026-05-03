@@ -14,7 +14,7 @@ ChokaQ sits in the middle: **SQL Server-backed reliability with in-process simpl
 | Capability | ChokaQ |
 |---------|--------|
 | **Storage** | SQL Server (raw ADO.NET) — atomic, transactional |
-| **Third-Party Dependencies** | **Zero** — only BCL packages |
+| **Dependency Footprint** | Core uses Microsoft abstractions; SQL uses official `Microsoft.Data.SqlClient`; no EF/Dapper/Polly |
 | **Dashboard** | **The Deck** (Blazor Server + SignalR) — built-in |
 | **ORM** | **Custom SqlMapper** — 172 lines, zero deps |
 | **DLQ Management** | **Edit + Resurrect** — fix payloads in-browser |
@@ -42,11 +42,12 @@ ChokaQ's **Three Pillars** architecture solves this by physically separating dat
 | **JobsArchive** | Only Succeeded | Read-heavy analytics, PAGE compression |
 | **JobsDLQ** | Only Failed/Cancelled/Zombie | Manual review, resurrection |
 
-The Hot table stays **tiny** — only active work. Fetch queries are always fast.
+The Hot table stays focused on active work. Fetch queries remain much more
+predictable than designs that mix pending and historical rows in one table.
 
-## Zero-Dependency Philosophy
+## Minimal Dependency Philosophy
 
-ChokaQ's core depends on **nothing except Microsoft BCL packages**:
+ChokaQ keeps dependencies intentionally small:
 
 ```
 ChokaQ.Core
@@ -71,10 +72,10 @@ ChokaQ.Storage.SqlServer
 Even lightweight ORMs are dependencies. They bring `System.Data` extension methods that may conflict with other versions. ChokaQ's SqlMapper is 172 lines of code that does exactly what we need, nothing more.
 :::
 
-## What Makes It Enterprise-Grade?
+## Production Patterns Already Implemented
 
 ### 1. Atomic State Transitions
-Every move between pillars uses `INSERT...SELECT + DELETE` in a single SQL batch. No distributed transactions. No two-phase commit. If the server crashes mid-operation, the job stays in the source table.
+Moves between pillars use transaction-scoped SQL state transitions with ownership guards. No distributed transactions. No two-phase commit. If a transition is not applied, the worker observes that result instead of emitting a false success notification.
 
 ### 2. Self-Healing (ZombieRescueService)
 A `BackgroundService` runs every 60 seconds:
@@ -93,8 +94,14 @@ chokaq.jobs.enqueued    (Counter)
 chokaq.jobs.completed   (Counter)
 chokaq.jobs.failed      (Counter)
 chokaq.jobs.processing_duration (Histogram)
+chokaq.jobs.queue_lag   (Histogram)
+chokaq.jobs.dlq         (Counter)
+chokaq.jobs.retried     (Counter)
+chokaq.workers.active   (UpDownCounter)
 ```
-No extra packages needed. Just listen to the `"ChokaQ"` meter.
+No ChokaQ-specific exporter is required. Hosts listen to the `"ChokaQ"` meter through their normal OpenTelemetry setup. Metric tag cardinality is capped by `ChokaQ:Metrics`, so dynamic queue names, job types, errors, or failure reasons collapse into `other` after the configured budget.
+
+Lifecycle logs use stable `EventId` values as well. Operators can query `JobRetriesExhaustedDlq` or `ZombieJobsArchived` directly instead of scraping text from log messages.
 
 ## When to Choose ChokaQ
 
@@ -111,6 +118,23 @@ No extra packages needed. Just listen to the `"ChokaQ"` meter.
 - PostgreSQL or Redis storage (SQL Server only, by design)
 - Recurring/scheduled jobs (not yet supported)
 - Multi-region distributed coordination
+
+## Learning Value
+
+ChokaQ is also meant to be read as an architecture study project. The docs use
+the working codebase to explain patterns that appear in senior/staff interviews
+and real production systems:
+
+- at-least-once processing and idempotency;
+- SQL competing consumers;
+- worker ownership and lease checks;
+- backpressure and bounded buffers;
+- bulkhead isolation;
+- circuit breakers;
+- retry with exponential backoff and jitter;
+- DLQ taxonomy and repair workflows;
+- observability, health checks, and metric cardinality;
+- secure administrative control planes.
 
 <br>
 

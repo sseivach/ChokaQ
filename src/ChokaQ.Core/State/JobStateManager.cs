@@ -2,6 +2,7 @@ using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Storage;
+using ChokaQ.Core.Observability;
 using Microsoft.Extensions.Logging;
 
 namespace ChokaQ.Core.State;
@@ -44,10 +45,22 @@ public class JobStateManager : IJobStateManager
         string jobType,
         string queue,
         double? durationMs = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? workerId = null)
     {
         // 1. Archive: Hot → Archive
-        await _storage.ArchiveSucceededAsync(jobId, durationMs, ct);
+        var moved = await _storage.ArchiveSucceededAsync(jobId, durationMs, ct, workerId);
+        if (!moved)
+        {
+            // A zero-row transition is a correctness signal, not a success. It usually means
+            // this worker lost ownership to zombie rescue or another administrative action.
+            // Suppressing notifications prevents the dashboard from showing a false archive.
+            _logger.LogWarning(
+                ChokaQLogEvents.StateTransitionNotApplied,
+                "Skipped success notification for job {JobId}: no row was archived. WorkerId: {WorkerId}",
+                jobId, workerId ?? "<admin>");
+            return;
+        }
 
         // 2. Notify dashboard
         await SafeNotifyAsync(() => _notifier.NotifyJobArchivedAsync(jobId, queue));
@@ -64,13 +77,23 @@ public class JobStateManager : IJobStateManager
         string jobType,
         string queue,
         string errorDetails,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? workerId = null,
+        FailureReason failureReason = FailureReason.MaxRetriesExceeded)
     {
         // 1. Archive: Hot → DLQ
-        await _storage.ArchiveFailedAsync(jobId, errorDetails, ct);
+        var moved = await _storage.ArchiveFailedAsync(jobId, errorDetails, ct, workerId, failureReason);
+        if (!moved)
+        {
+            _logger.LogWarning(
+                ChokaQLogEvents.StateTransitionNotApplied,
+                "Skipped failure notification for job {JobId}: no row was moved to DLQ. WorkerId: {WorkerId}",
+                jobId, workerId ?? "<admin>");
+            return;
+        }
 
         // 2. Notify dashboard
-        await SafeNotifyAsync(() => _notifier.NotifyJobFailedAsync(jobId, queue, "MaxRetriesExceeded"));
+        await SafeNotifyAsync(() => _notifier.NotifyJobFailedAsync(jobId, queue, failureReason.ToString()));
         await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync());
     }
 
@@ -80,14 +103,38 @@ public class JobStateManager : IJobStateManager
         string queue,
         ChokaQ.Abstractions.Enums.JobCancellationReason reason,
         string? details = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? workerId = null)
     {
         // 1. Archive: Hot → DLQ
         var cancelledBy = details == null ? reason.ToString() : $"{reason}: {details}";
-        await _storage.ArchiveCancelledAsync(jobId, cancelledBy, ct);
+        ValueTask<bool> moveTask;
+
+        if (reason == JobCancellationReason.Timeout)
+        {
+            // Timeout is not an operator cancellation. It usually means the execution budget,
+            // heartbeat, or downstream dependency behavior needs tuning, so it deserves its
+            // own DLQ taxonomy label instead of being hidden under "Cancelled".
+            moveTask = _storage.ArchiveFailedAsync(jobId, cancelledBy, ct, workerId, FailureReason.Timeout);
+        }
+        else
+        {
+            moveTask = _storage.ArchiveCancelledAsync(jobId, cancelledBy, ct, workerId);
+        }
+
+        var moved = await moveTask;
+        if (!moved)
+        {
+            _logger.LogWarning(
+                ChokaQLogEvents.StateTransitionNotApplied,
+                "Skipped cancellation notification for job {JobId}: no row was moved to DLQ. WorkerId: {WorkerId}",
+                jobId, workerId ?? "<admin>");
+            return;
+        }
 
         // 2. Notify dashboard
-        await SafeNotifyAsync(() => _notifier.NotifyJobFailedAsync(jobId, queue, "Cancelled"));
+        var failureReason = reason == JobCancellationReason.Timeout ? FailureReason.Timeout : FailureReason.Cancelled;
+        await SafeNotifyAsync(() => _notifier.NotifyJobFailedAsync(jobId, queue, failureReason.ToString()));
         await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync());
     }
 
@@ -99,10 +146,19 @@ public class JobStateManager : IJobStateManager
         DateTime scheduledAtUtc,
         int newAttemptCount,
         string lastError,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? workerId = null)
     {
         // 1. Reschedule in Hot table
-        await _storage.RescheduleForRetryAsync(jobId, scheduledAtUtc, newAttemptCount, lastError, ct);
+        var moved = await _storage.RescheduleForRetryAsync(jobId, scheduledAtUtc, newAttemptCount, lastError, ct, workerId);
+        if (!moved)
+        {
+            _logger.LogWarning(
+                ChokaQLogEvents.StateTransitionNotApplied,
+                "Skipped retry notification for job {JobId}: no row was rescheduled. WorkerId: {WorkerId}",
+                jobId, workerId ?? "<admin>");
+            return;
+        }
 
         // 2. Notify dashboard
         var update = new JobUpdateDto(
@@ -120,17 +176,29 @@ public class JobStateManager : IJobStateManager
         await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync());
     }
 
-    public async Task MarkAsProcessingAsync(
+    public async Task<bool> MarkAsProcessingAsync(
         string jobId,
         string jobType,
         string queue,
         int priority,
         int attemptCount,
         string? createdBy,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? workerId = null)
     {
         // 1. Update status in Hot table
-        await _storage.MarkAsProcessingAsync(jobId, ct);
+        var moved = await _storage.MarkAsProcessingAsync(jobId, ct, workerId);
+        if (!moved)
+        {
+            // MarkAsProcessing is the last persisted lease check before user code runs.
+            // A false result means a buffered copy is stale: the job was released, reclaimed,
+            // or reassigned after fetch. We suppress the UI update because no execution began.
+            _logger.LogWarning(
+                ChokaQLogEvents.StateTransitionNotApplied,
+                "Skipped processing notification for job {JobId}: no row was marked as Processing. WorkerId: {WorkerId}",
+                jobId, workerId ?? "<admin>");
+            return false;
+        }
 
         // 2. Notify dashboard
         var now = DateTime.UtcNow;
@@ -146,6 +214,7 @@ public class JobStateManager : IJobStateManager
             StartedAtUtc: now
         );
         await SafeNotifyAsync(() => _notifier.NotifyJobUpdatedAsync(update));
+        return true;
     }
 
     /// <summary>
@@ -170,7 +239,11 @@ public class JobStateManager : IJobStateManager
                 if (attempt == maxRetries)
                 {
                     // Log only on final failure to avoid log spam during network blips
-                    _logger.LogWarning("Failed to send UI notification after {Retries} attempts: {Message}", maxRetries, ex.Message);
+                    _logger.LogWarning(
+                        ChokaQLogEvents.NotificationFailed,
+                        "Failed to send UI notification after {Retries} attempts: {Message}",
+                        maxRetries,
+                        ex.Message);
                 }
                 else
                 {

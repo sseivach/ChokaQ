@@ -1,0 +1,37 @@
+name: chokaq-sample
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: chokaq-sql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${CHOKAQ_SQL_SA_PASSWORD:-ChokaQ_dev_only_ChangeMe_2026!}
+    ports:
+      - "14333:1433"
+    volumes:
+      - chokaq-sql-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/1433'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+
+  chokaq-sample:
+    build:
+      context: .
+      dockerfile: samples/ChokaQ.Sample.Bus/Dockerfile
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      CHOKAQ_SAMPLE_SQL: "Server=sqlserver,1433;Database=ChokaQSample;User Id=sa;Password=${CHOKAQ_SQL_SA_PASSWORD:-ChokaQ_dev_only_ChangeMe_2026!};Encrypt=True;TrustServerCertificate=True;"
+    ports:
+      - "5299:8080"
+
+volumes:
+  chokaq-sql-data:

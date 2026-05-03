@@ -31,14 +31,19 @@ public InMemoryJobStorage(InMemoryStorageOptions options)
 
 public ValueTask<string> EnqueueAsync(...)
 {
-    if (_hotJobs.Count >= _maxCapacity)
-        throw new InvalidOperationException(
-            $"In-memory storage capacity exceeded ({_maxCapacity})");
-    // ...
+    EnforceCapacity();
+    _hotJobs[id] = job;
 }
 ```
 
-Without a capacity limit, a runaway producer could fill the heap and crash the process with `OutOfMemoryException`.
+`MaxCapacity` is a soft retention cap for the in-process Three Pillars store.
+When the cap is reached, ChokaQ evicts old Archive rows first and old DLQ rows
+second. Hot rows are preserved because they are accepted work that the worker
+still needs to process.
+
+Without a capacity policy, a runaway producer could fill the heap with old
+history. For production workloads where the backlog must survive process
+restarts, use SQL Server mode and let `JobsHot` be the durable pressure boundary.
 
 ### Fetch: LINQ O(N) vs SQL Index
 
@@ -128,50 +133,65 @@ t=15s:  10 more processed, fetcher unblocks, pushes remaining 30
 
 The system self-regulates. The SQL polling rate automatically adapts to processing capacity.
 
-## InMemoryQueue: Channel-Based Notifications
+## InMemoryQueue: Bounded Producer Channel
 
-For the In-Memory mode, `InMemoryQueue` uses an unbounded channel to notify the worker about new jobs:
+For the in-memory mode, `InMemoryQueue` uses a bounded channel of job objects.
+This channel is both the worker notification mechanism and the producer-side
+backpressure boundary:
 
 ```csharp
 public class InMemoryQueue : IChokaQQueue
 {
-    private readonly Channel<string> _signal = Channel.CreateUnbounded<string>();
+    private readonly Channel<IChokaQJob> _queue =
+        Channel.CreateBounded<IChokaQJob>(new BoundedChannelOptions(100_000)
+        {
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleReader = false,
+            SingleWriter = false
+        });
 
-    public async ValueTask<string> EnqueueAsync(IChokaQJob job, ...)
+    public async Task EnqueueAsync<TJob>(TJob job, ...)
     {
         var id = await _storage.EnqueueAsync(...);
-        // Signal the worker that a new job is available
-        await _signal.Writer.WriteAsync(id);
-        return id;
+        await _queue.Writer.WriteAsync(job, ct);
     }
 }
 ```
 
-The `JobWorker` reads from this signal channel instead of polling:
+The `JobWorker` reads from this channel instead of polling:
 
 ```csharp
-// No polling needed — the channel IS the notification mechanism
-await foreach (var jobId in _signal.Reader.ReadAllAsync(ct))
+// No polling needed; the channel is the notification mechanism.
+while (await _queue.Reader.WaitToReadAsync(ct))
 {
-    var job = await _storage.GetJobAsync(jobId, ct);
-    if (job != null)
-        await _processor.ProcessAsync(job, ct);
+    while (_queue.Reader.TryRead(out var job))
+    {
+        var storageJob = await _storage.GetJobAsync(job.Id, ct);
+        if (storageJob != null)
+            await _processor.ProcessJobAsync(...);
+    }
 }
 ```
 
-This is **event-driven** — zero CPU usage when idle, instant processing when a job arrives.
+This is event-driven: zero CPU usage when idle, instant processing when a job
+arrives, and bounded producer memory when a burst exceeds worker throughput.
 
 ## Memory Safety Summary
 
 | Protection | Mechanism | Limit |
 |-----------|-----------|-------|
-| Hot table size | `MaxCapacity` check in `EnqueueAsync` | 100,000 default |
+| In-process history | `InMemory.MaxCapacity` evicts old Archive/DLQ rows | 100,000 default |
+| Producer channel | `BoundedChannel<IChokaQJob>` with `Wait` mode | 100,000 jobs |
 | Prefetch buffer | `BoundedChannel` with `Wait` mode | 100 jobs |
 | Processing concurrency | `DynamicConcurrencyLimiter` | Configurable |
-| Archive/DLQ growth | In-memory: unlimited (dev only) | N/A |
+| Archive/DLQ growth | Evicted before Hot rows when capacity is reached | Soft cap |
 
-::: tip 💡 Architecture Insight
-OutOfMemory exceptions are prevented through three layers: `MaxCapacity` caps total jobs, `BoundedChannel` caps the fetch buffer with backpressure, and `DynamicConcurrencyLimiter` caps concurrent processing. Each layer independently prevents resource exhaustion.
+::: tip Architecture Insight
+In-memory mode protects the process through layered pressure controls:
+`InMemory.MaxCapacity` limits retained history, the bounded producer channel slows
+callers when workers fall behind, and `DynamicConcurrencyLimiter` caps active
+execution. SQL Server mode moves the backlog out of process and uses the
+database as the durable pressure boundary.
 :::
 
-> *Next: Explore [The Deck Dashboard](/4-the-deck/realtime-signalr) — real-time monitoring with SignalR.*
+> Next: Read the [Backpressure Policy](/3-deep-dives/backpressure-policy) or explore [The Deck Dashboard](/4-the-deck/realtime-signalr).

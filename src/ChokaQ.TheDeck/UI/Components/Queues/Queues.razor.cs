@@ -1,3 +1,4 @@
+using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Entities;
 using ChokaQ.Abstractions.Storage;
 using Microsoft.AspNetCore.Components;
@@ -9,9 +10,11 @@ public partial class Queues : IDisposable
 {
     [Parameter] public HubConnection? HubConnection { get; set; }
     [Inject] private IJobStorage Storage { get; set; } = default!;
+    [Inject] private ChokaQTheDeckOptions Options { get; set; } = default!;
 
     private List<QueueEntity> _queues = new();
     private Dictionary<string, StatsSummaryEntity> _queueStats = new();
+    private Dictionary<string, QueueHealthDto> _queueHealth = new();
 
 
     private bool _showInactive = false;
@@ -49,6 +52,8 @@ public partial class Queues : IDisposable
             _queues = (await Storage.GetQueuesAsync()).ToList();
             var stats = await Storage.GetQueueStatsAsync();
             _queueStats = stats.ToDictionary(s => s.Queue ?? "", s => s);
+            var health = await Storage.GetSystemHealthAsync();
+            _queueHealth = health.Queues.ToDictionary(q => q.Queue, q => q);
 
             _isLoading = false;
             await InvokeAsync(StateHasChanged);
@@ -149,6 +154,33 @@ public partial class Queues : IDisposable
     }
 
     private StatsSummaryEntity? GetQueueStats(string queueName) => _queueStats.GetValueOrDefault(queueName);
+
+    private QueueHealthDto? GetQueueHealth(string queueName) => _queueHealth.GetValueOrDefault(queueName);
+
+    private string GetLagModifier(QueueHealthDto? health)
+    {
+        if (health is null || health.Pending == 0)
+            return "queues__lag--healthy";
+
+        if (health.MaxLagSeconds >= Options.QueueLagCriticalThresholdSeconds)
+            return "queues__lag--critical";
+
+        if (health.MaxLagSeconds >= Options.QueueLagWarningThresholdSeconds)
+            return "queues__lag--warning";
+
+        return "queues__lag--healthy";
+    }
+
+    private static string FormatLag(double seconds)
+    {
+        if (seconds < 1)
+            return $"{seconds * 1000:0}ms";
+
+        if (seconds < 60)
+            return $"{seconds:0.0}s";
+
+        return $"{TimeSpan.FromSeconds(seconds):mm\\:ss}";
+    }
 
     public void Dispose() => _timer?.Dispose();
 }

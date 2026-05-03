@@ -25,6 +25,11 @@ public interface IJobStorage
     /// <summary>
     /// Creates a new job in the Hot table with Pending status.
     /// </summary>
+    /// <remarks>
+    /// <paramref name="idempotencyKey"/> is a Hot-pillar deduplication guard. Implementations return
+    /// the existing Hot job ID when the key is already active. They do not scan Archive or DLQ,
+    /// because completed/failed history is not admission control for future logical attempts.
+    /// </remarks>
     /// <returns>The job ID.</returns>
     ValueTask<string> EnqueueAsync(
         string id,
@@ -52,7 +57,16 @@ public interface IJobStorage
     /// Transitions a job from Fetched to Processing status.
     /// Sets StartedAtUtc and HeartbeatUtc.
     /// </summary>
-    ValueTask MarkAsProcessingAsync(string jobId, CancellationToken ct = default);
+    /// <remarks>
+    /// This is the execution gate for prefetched jobs. A worker may hold an in-memory copy
+    /// after the persisted lease was released or reclaimed; returning false tells the caller
+    /// that the job must not be dispatched because ownership is no longer valid.
+    /// </remarks>
+    /// <returns>True when the job was marked as Processing; false when it is missing, not fetched, or owned by another worker.</returns>
+    ValueTask<bool> MarkAsProcessingAsync(
+        string jobId,
+        CancellationToken ct = default,
+        string? workerId = null);
 
     /// <summary>
     /// Updates the heartbeat timestamp for an active job.
@@ -74,10 +88,12 @@ public interface IJobStorage
     /// Uses OUTPUT clause for data integrity.
     /// Increments StatsSummary.SucceededTotal.
     /// </summary>
-    ValueTask ArchiveSucceededAsync(
+    /// <returns>True when a row was moved; false when the job no longer exists or is owned by another worker.</returns>
+    ValueTask<bool> ArchiveSucceededAsync(
         string jobId,
         double? durationMs = null,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? workerId = null);
 
     /// <summary>
     /// Atomically moves a failed job to DLQ: Hot → DLQ.
@@ -86,27 +102,35 @@ public interface IJobStorage
     /// </summary>
     /// <param name="jobId">The job ID.</param>
     /// <param name="errorDetails">Exception details or failure reason.</param>
-    ValueTask ArchiveFailedAsync(
+    /// <param name="failureReason">Machine-readable failure class for DLQ filtering and dashboards.</param>
+    /// <returns>True when a row was moved; false when the job no longer exists or is owned by another worker.</returns>
+    ValueTask<bool> ArchiveFailedAsync(
         string jobId,
         string errorDetails,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? workerId = null,
+        FailureReason failureReason = FailureReason.MaxRetriesExceeded);
 
     /// <summary>
     /// Atomically moves a cancelled job to DLQ: Hot → DLQ.
     /// Uses OUTPUT clause for data integrity.
     /// </summary>
-    ValueTask ArchiveCancelledAsync(
+    /// <returns>True when a row was moved; false when the job no longer exists or is owned by another worker.</returns>
+    ValueTask<bool> ArchiveCancelledAsync(
         string jobId,
         string? cancelledBy = null,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? workerId = null);
 
     /// <summary>
     /// Atomically moves a zombie job to DLQ: Hot → DLQ.
     /// Called by ZombieRescueService.
     /// </summary>
-    ValueTask ArchiveZombieAsync(
+    /// <returns>True when a row was moved; false when the job no longer exists or is owned by another worker.</returns>
+    ValueTask<bool> ArchiveZombieAsync(
         string jobId,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? workerId = null);
 
     /// <summary>
     /// Atomically resurrects a job from DLQ: DLQ → Hot.
@@ -120,6 +144,21 @@ public interface IJobStorage
     ValueTask ResurrectAsync(
         string jobId,
         JobDataUpdateDto? updates = null,
+        string? resurrectedBy = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Atomically repairs a DLQ job and moves it back to Hot in one operator action.
+    /// </summary>
+    /// <remarks>
+    /// This exists for the common poison-pill workflow: an operator fixes malformed JSON or tags,
+    /// then immediately requeues the job. Combining edit and resurrection prevents a half-repaired
+    /// DLQ row from being left behind if the operator closes the browser between two separate clicks.
+    /// </remarks>
+    /// <returns>True when the DLQ row was moved back to Hot; false when the job was already gone.</returns>
+    ValueTask<bool> RepairAndRequeueDLQAsync(
+        string jobId,
+        JobDataUpdateDto updates,
         string? resurrectedBy = null,
         CancellationToken ct = default);
 
@@ -157,15 +196,21 @@ public interface IJobStorage
 
     /// <summary>
     /// Reschedules a failed job for retry within the Hot table.
-    /// Increments AttemptCount, sets ScheduledAtUtc, Status = Pending.
+    /// Preserves the count of attempts that actually started, sets ScheduledAtUtc, Status = Pending.
     /// Increments StatsSummary.RetriedTotal.
     /// </summary>
-    ValueTask RescheduleForRetryAsync(
+    /// <remarks>
+    /// workerId is optional on purpose: normal workers pass their ID to prevent stale finalization,
+    /// while explicit administrative or recovery paths may pass null to bypass ownership.
+    /// </remarks>
+    /// <returns>True when the row was rescheduled; false when the job no longer exists or is owned by another worker.</returns>
+    ValueTask<bool> RescheduleForRetryAsync(
         string jobId,
         DateTime scheduledAtUtc,
         int newAttemptCount,
         string lastError,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? workerId = null);
 
     // ========================================================================
     // DIVINE MODE (Admin Operations)
@@ -186,8 +231,41 @@ public interface IJobStorage
     /// Permanently deletes jobs from DLQ.
     /// Use with caution - data is unrecoverable.
     /// </summary>
+    /// <remarks>
+    /// Durable implementations may split this into multiple short transactions. The API is one
+    /// operator action, but storage should protect the database from large lock windows and
+    /// transaction-log spikes when many rows are selected.
+    /// </remarks>
     ValueTask PurgeDLQAsync(
         string[] jobIds,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Previews a filtered DLQ bulk operation without mutating data.
+    /// </summary>
+    /// <remarks>
+    /// Operator workflows should never require guessing. Preview returns both the total match
+    /// count and a bounded sample so the UI can show the blast radius before purge or requeue.
+    /// </remarks>
+    ValueTask<DlqBulkOperationPreviewDto> PreviewDLQBulkOperationAsync(
+        DlqBulkOperationFilterDto filter,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Permanently deletes a bounded subset of DLQ jobs selected by filter.
+    /// </summary>
+    /// <returns>Number of jobs actually purged.</returns>
+    ValueTask<int> PurgeDLQByFilterAsync(
+        DlqBulkOperationFilterDto filter,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Requeues a bounded subset of DLQ jobs selected by filter.
+    /// </summary>
+    /// <returns>Number of jobs actually moved from DLQ back to Hot.</returns>
+    ValueTask<int> ResurrectDLQByFilterAsync(
+        DlqBulkOperationFilterDto filter,
+        string? resurrectedBy = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -195,6 +273,11 @@ public interface IJobStorage
     /// </summary>
     /// <param name="olderThan">Delete jobs finished before this date.</param>
     /// <returns>Number of jobs deleted.</returns>
+    /// <remarks>
+    /// Retention cleanup is maintenance traffic. Implementations should prefer bounded batches
+    /// over a single large delete so workers and dashboard queries keep making progress while
+    /// history is being trimmed.
+    /// </remarks>
     ValueTask<int> PurgeArchiveAsync(
         DateTime olderThan,
         CancellationToken ct = default);
@@ -225,6 +308,17 @@ public interface IJobStorage
     /// Returns stats for each queue separately (Queue field is not null).
     /// </summary>
     ValueTask<IEnumerable<StatsSummaryEntity>> GetQueueStatsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets a cohesive operational health snapshot for dashboard and alerting surfaces.
+    /// </summary>
+    /// <remarks>
+    /// This is intentionally separate from lifetime counters. Operators need saturation
+    /// signals (lag), recent processing rate, recent failure rate, and repeated error families
+    /// in one call. Implementations should keep this query bounded and index-friendly because
+    /// dashboards poll frequently under exactly the same load conditions they are observing.
+    /// </remarks>
+    ValueTask<SystemHealthDto> GetSystemHealthAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Retrieves active jobs from Hot table for dashboard.
@@ -336,6 +430,11 @@ public interface IJobStorage
     /// Recovers abandoned jobs (stuck in Fetched state) by reverting them to Pending.
     /// This happens when a worker crashes after fetching but before processing.
     /// </summary>
+    /// <remarks>
+    /// The timeout for Fetched jobs should be configured separately from Processing zombie
+    /// timeout. Fetched jobs are still safe to retry because user code has not run yet, but
+    /// healthy workers may legitimately keep them buffered before an execution slot opens.
+    /// </remarks>
     /// <returns>Number of recovered jobs.</returns>
     ValueTask<int> RecoverAbandonedAsync(int timeoutSeconds, CancellationToken ct = default);
 

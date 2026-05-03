@@ -5,6 +5,25 @@
 - **.NET 10 SDK**
 - **SQL Server** (for persistent mode) — or use In-Memory for development
 
+## Try The SQL Sample With Docker
+
+The repository includes a Docker Compose sample that starts SQL Server and the
+Bus sample app together:
+
+```powershell
+docker compose up --build
+```
+
+Then open:
+
+```text
+http://localhost:5299
+http://localhost:5299/chokaq
+http://localhost:5299/health
+```
+
+The full walkthrough is in [Docker Compose Sample](/samples/docker-compose).
+
 ## Project References
 
 Since ChokaQ is currently in active development, integrate it by referencing the source projects:
@@ -24,40 +43,104 @@ Since ChokaQ is currently in active development, integrate it by referencing the
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Add ChokaQ Core with Profiles
-builder.Services.AddChokaQ(options =>
-{
-    options.AddProfile<MailingProfile>();
-    options.MaxRetries = 3;
-    options.RetryDelaySeconds = 3;
-    options.ZombieTimeoutSeconds = 600;
-});
+// 1. Add ChokaQ Core with Profiles.
+// Runtime policy is bound from appsettings; code owns compile-time registrations.
+builder.Services.AddChokaQ(
+    builder.Configuration.GetSection("ChokaQ"),
+    options =>
+    {
+        options.AddProfile<MailingProfile>();
+    });
 
 // 2. Add SQL Server Storage (Three Pillars)
-builder.Services.UseSqlServer(options =>
-{
-    options.ConnectionString = builder.Configuration
-        .GetConnectionString("DefaultConnection");
-    options.SchemaName = "chokaq";
-    options.AutoCreateSqlTable = true; // Auto-provisions on first start
-});
+builder.Services.UseSqlServer(
+    builder.Configuration.GetSection("ChokaQ:SqlServer"));
 
 // 3. Add Dashboard
+builder.Services.AddAuthentication(/* your scheme */);
+builder.Services.AddAuthorization();
 builder.Services.AddChokaQTheDeck();
+
+// 4. Add standard ASP.NET Core health checks.
+builder.Services.AddHealthChecks()
+    .AddChokaQSqlServerHealthChecks(builder.Configuration.GetSection("ChokaQ:Health"));
 
 var app = builder.Build();
 
-// 4. Map Dashboard Endpoint
+// 5. Map Dashboard and health endpoints.
 app.MapChokaQTheDeck(); // Available at /chokaq
+app.MapHealthChecks("/health");
 
 app.Run();
 ```
 
+### 2. Configure `appsettings.json`
+
+```json
+{
+  "ChokaQ": {
+    "Execution": {
+      "DefaultTimeout": "00:15:00"
+    },
+    "Retry": {
+      "MaxAttempts": 3,
+      "BaseDelay": "00:00:03",
+      "MaxDelay": "01:00:00",
+      "BackoffMultiplier": 2.0,
+      "JitterMaxDelay": "00:00:01"
+    },
+    "Recovery": {
+      "FetchedJobTimeout": "00:10:00",
+      "ProcessingZombieTimeout": "00:10:00",
+      "ScanInterval": "00:01:00"
+    },
+    "Health": {
+      "WorkerHeartbeatTimeout": "00:00:30",
+      "QueueLagDegradedThreshold": "00:00:05",
+      "QueueLagUnhealthyThreshold": "00:00:10"
+    },
+    "Metrics": {
+      "MaxQueueTagValues": 100,
+      "MaxJobTypeTagValues": 500,
+      "MaxErrorTagValues": 100,
+      "MaxFailureReasonTagValues": 50,
+      "MaxTagValueLength": 128,
+      "UnknownTagValue": "unknown",
+      "OverflowTagValue": "other"
+    },
+    "Queues": {
+      "reports": {
+        "ExecutionTimeout": "01:00:00"
+      }
+    },
+    "SqlServer": {
+      "ConnectionString": "Server=localhost;Database=ChokaQ;Trusted_Connection=True;TrustServerCertificate=True;",
+      "SchemaName": "chokaq",
+      "AutoCreateSqlTable": true,
+      "PollingInterval": "00:00:01",
+      "NoQueuesSleepInterval": "00:00:05",
+      "CommandTimeoutSeconds": 30,
+      "CleanupBatchSize": 1000
+    }
+  }
+}
+```
+
+The full configuration reference is in [Runtime Configuration](/configuration). ChokaQ validates unsafe values at startup, so bad timeouts, empty SQL connection strings, or non-positive cleanup batch sizes fail before workers can claim production jobs.
+
+`/health` is a normal ASP.NET Core health-check endpoint. In SQL Server mode it reports SQL schema reachability, worker liveness, and queue saturation. Keep the endpoint protected or network-scoped in production if your health payloads are visible outside trusted infrastructure.
+
+OpenTelemetry metrics use the `ChokaQ` meter. `ChokaQ:Metrics` caps tag cardinality so accidental dynamic queue names, job types, errors, or DLQ reasons collapse into `other` instead of creating unbounded monitoring time series.
+
+The Deck is secure by default. `AddChokaQTheDeck()` maps the UI and SignalR Hub
+with authorization required unless you explicitly set `AllowAnonymousDeck = true`
+for a local demo or public sandbox.
+
 ::: tip 💡 Auto-Provisioning
-With `AutoCreateSqlTable = true`, ChokaQ will automatically create the `chokaq` schema and all five tables (JobsHot, JobsArchive, JobsDLQ, StatsSummary, Queues) with optimized indexes on first startup. Completely idempotent — safe to run on every restart.
+With `AutoCreateSqlTable = true`, ChokaQ will automatically create the `chokaq` schema, all runtime tables (JobsHot, JobsArchive, JobsDLQ, StatsSummary, Queues), the SchemaMigrations ledger, and optimized indexes on first startup. Completely idempotent — safe to run on every restart.
 :::
 
-### 2. Define a Job & Handler
+### 3. Define a Job & Handler
 
 ```csharp
 // Job DTO (the contract)
@@ -78,7 +161,7 @@ public class EmailHandler : IChokaQJobHandler<SendEmailJob>
 }
 ```
 
-### 3. Register in a Profile
+### 4. Register in a Profile
 
 Profiles group related jobs together. The `typeKey` is the string identifier stored in the database — it decouples your CLR type name from persistence.
 
@@ -92,7 +175,7 @@ public class MailingProfile : ChokaQJobProfile
 }
 ```
 
-### 4. Enqueue a Job
+### 5. Enqueue a Job
 
 ```csharp
 // Inject IChokaQQueue into your controller or service
@@ -186,6 +269,7 @@ public class LoggingMiddleware : IChokaQMiddleware
 | Topic | What You'll Learn |
 |-------|-------------------|
 | [Why ChokaQ?](/why-chokaq) | The core philosophy and architectural benefits |
+| [Architecture Learning Track](/learning-track) | The study map for production patterns and interview framing |
 | [Three Pillars](/1-architecture/three-pillars) | Why we physically separate Hot, Archive, and DLQ |
 | [State Machine](/2-lifecycle/state-machine) | The full lifecycle of a job from Pending to Archive |
 | [The Deck](/4-the-deck/realtime-signalr) | Real-time admin dashboard with SignalR |

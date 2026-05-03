@@ -50,6 +50,29 @@ public class InMemoryJobStorageTests
     }
 
     [Fact]
+    public async Task EnqueueAsync_WithIdempotencyKey_AfterArchive_ShouldCreateNewHotJob()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+        var key = "payment:archive-scope";
+        var firstId = NewId();
+        var secondId = NewId();
+
+        await storage.EnqueueAsync(firstId, "default", "PaymentJob", "{}", idempotencyKey: key);
+        await storage.ArchiveSucceededAsync(firstId, 10);
+
+        // Act
+        var result = await storage.EnqueueAsync(secondId, "default", "PaymentJob", "{}", idempotencyKey: key);
+
+        // Assert
+        // Enqueue dedupe is scoped to JobsHot. Archive is immutable history, so a later business
+        // event with the same key is admitted as new active work instead of scanning old records.
+        result.Should().Be(secondId);
+        var hotJob = await storage.GetJobAsync(secondId);
+        hotJob.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task EnqueueAsync_WithDelay_ShouldSetScheduledAtUtc()
     {
         // Arrange
@@ -164,7 +187,7 @@ public class InMemoryJobStorageTests
     }
 
     [Fact]
-    public async Task FetchNextBatchAsync_ShouldIncrementAttemptCount()
+    public async Task FetchNextBatchAsync_ShouldNotIncrementAttemptCount()
     {
         // Arrange
         var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
@@ -175,8 +198,10 @@ public class InMemoryJobStorageTests
         await storage.FetchNextBatchAsync("worker1", 10);
 
         // Assert
+        // Fetch only moves the row into a worker buffer. It must not burn retry budget until
+        // MarkAsProcessing proves that user code is actually about to run.
         var job = await storage.GetJobAsync(id);
-        job!.AttemptCount.Should().Be(1);
+        job!.AttemptCount.Should().Be(0);
     }
 
     [Fact]
@@ -212,6 +237,29 @@ public class InMemoryJobStorageTests
         jobs.Should().HaveCount(3);
     }
 
+    [Fact]
+    public async Task FetchNextBatchAsync_WithMaxWorkers_ShouldLimitWithinSingleBatch()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+        await storage.SetQueueMaxWorkersAsync("default", 2);
+
+        for (int i = 0; i < 5; i++)
+        {
+            await storage.EnqueueAsync(NewId(), "default", $"Job{i}", "{}");
+        }
+
+        // Act
+        var jobs = (await storage.FetchNextBatchAsync("worker1", 10)).ToList();
+
+        // Assert
+        // MaxWorkers is a bulkhead, not just a dashboard hint. A single large batch must
+        // consume only the remaining queue capacity, otherwise one fetch can overload the
+        // downstream dependency the queue was meant to protect.
+        jobs.Should().HaveCount(2);
+        jobs.Should().OnlyContain(j => j.Status == JobStatus.Fetched);
+    }
+
     #endregion
 
     #region State Transitions (Tests 13-16)
@@ -231,7 +279,30 @@ public class InMemoryJobStorageTests
         // Assert
         var job = await storage.GetJobAsync(id);
         job!.Status.Should().Be(JobStatus.Processing);
+        job.AttemptCount.Should().Be(1);
         job.StartedAtUtc.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task MarkAsProcessingAsync_WithReleasedLease_ShouldReturnFalse()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+        var id = NewId();
+        await storage.EnqueueAsync(id, "default", "TestJob", "{}");
+        await storage.FetchNextBatchAsync("worker1", 10);
+        await storage.ReleaseJobAsync(id);
+
+        // Act
+        var marked = await storage.MarkAsProcessingAsync(id, workerId: "worker1");
+
+        // Assert
+        // A released lease represents a deliberate scheduling decision: shutdown, pause, or
+        // recovery returned the job to Pending. The old worker's buffered copy must not start it.
+        marked.Should().BeFalse();
+        var job = await storage.GetJobAsync(id);
+        job!.Status.Should().Be(JobStatus.Pending);
+        job.WorkerId.Should().BeNull();
     }
 
     [Fact]
@@ -366,6 +437,28 @@ public class InMemoryJobStorageTests
     }
 
     [Fact]
+    public async Task ArchiveFailedAsync_WithFailureReason_ShouldPersistTaxonomy()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+        var id = NewId();
+        await storage.EnqueueAsync(id, "default", "TestJob", "{}");
+        await storage.FetchNextBatchAsync("worker1", 10);
+
+        // Act
+        await storage.ArchiveFailedAsync(id, "fatal poison payload", failureReason: FailureReason.FatalError);
+
+        // Assert
+        // ErrorDetails explain the incident; FailureReason classifies it for filtering,
+        // dashboards, and runbook routing. Both pieces of data need to survive the move.
+        var dlq = (await storage.GetDLQJobsAsync()).ToList();
+        dlq.Should().ContainSingle(j =>
+            j.Id == id &&
+            j.FailureReason == FailureReason.FatalError &&
+            j.ErrorDetails == "fatal poison payload");
+    }
+
+    [Fact]
     public async Task ArchiveCancelledAsync_ShouldMoveToDLQ()
     {
         // Arrange
@@ -456,6 +549,49 @@ public class InMemoryJobStorageTests
     }
 
     [Fact]
+    public async Task RepairAndRequeueDLQAsync_ShouldApplyPayloadAndReturnTrue()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+        var id = NewId();
+        await storage.EnqueueAsync(id, "default", "TestJob", "{\"old\":\"data\"}");
+        await storage.ArchiveFailedAsync(id, "poison payload", failureReason: FailureReason.FatalError);
+
+        var updates = new JobDataUpdateDto("{\"fixed\":\"data\"}", "fixed", 42);
+
+        // Act
+        var moved = await storage.RepairAndRequeueDLQAsync(id, updates, "ops@example.com");
+
+        // Assert
+        moved.Should().BeTrue();
+        var hotJob = await storage.GetJobAsync(id);
+        hotJob.Should().NotBeNull();
+        hotJob!.Payload.Should().Be("{\"fixed\":\"data\"}");
+        hotJob.Tags.Should().Be("fixed");
+        hotJob.Priority.Should().Be(42);
+        hotJob.LastModifiedBy.Should().Be("ops@example.com");
+
+        var dlqJob = await storage.GetDLQJobAsync(id);
+        dlqJob.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task RepairAndRequeueDLQAsync_WhenJobMissing_ShouldReturnFalse()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+
+        // Act
+        var moved = await storage.RepairAndRequeueDLQAsync(
+            "missing",
+            new JobDataUpdateDto("{}", null, 10),
+            "ops@example.com");
+
+        // Assert
+        moved.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task ResurrectAsync_ShouldDecrementFailedStats()
     {
         // Arrange
@@ -540,16 +676,17 @@ public class InMemoryJobStorageTests
         var id = NewId();
         await storage.EnqueueAsync(id, "default", "TestJob", "{}");
         await storage.FetchNextBatchAsync("worker1", 10);
+        await storage.MarkAsProcessingAsync(id, workerId: "worker1");
 
         // Act
         var scheduledAt = DateTime.UtcNow.AddMinutes(5);
-        await storage.RescheduleForRetryAsync(id, scheduledAt, 2, "Previous error");
+        await storage.RescheduleForRetryAsync(id, scheduledAt, 1, "Previous error", workerId: "worker1");
 
         // Assert
         var job = await storage.GetJobAsync(id);
         job!.Status.Should().Be(JobStatus.Pending);
         job.ScheduledAtUtc.Should().BeCloseTo(scheduledAt, TimeSpan.FromSeconds(1));
-        job.AttemptCount.Should().Be(2);
+        job.AttemptCount.Should().Be(1);
     }
 
     [Fact]
@@ -629,6 +766,101 @@ public class InMemoryJobStorageTests
         // Assert
         var dlq = (await storage.GetDLQJobsAsync()).ToList();
         dlq.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PreviewDLQBulkOperationAsync_ShouldMatchFailureReasonAndType()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+        var fatalEmail = NewId();
+        var transientEmail = NewId();
+        var fatalBilling = NewId();
+
+        await storage.EnqueueAsync(fatalEmail, "ops", "EmailJob", "{}");
+        await storage.EnqueueAsync(transientEmail, "ops", "EmailJob", "{}");
+        await storage.EnqueueAsync(fatalBilling, "ops", "BillingJob", "{}");
+        await storage.ArchiveFailedAsync(fatalEmail, "bad template", failureReason: FailureReason.FatalError);
+        await storage.ArchiveFailedAsync(transientEmail, "gateway blip", failureReason: FailureReason.Transient);
+        await storage.ArchiveFailedAsync(fatalBilling, "bad invoice", failureReason: FailureReason.FatalError);
+
+        var filter = new DlqBulkOperationFilterDto(
+            Queue: "ops",
+            FailureReason: FailureReason.FatalError,
+            Type: "EmailJob",
+            MaxJobs: 10);
+
+        // Act
+        var preview = await storage.PreviewDLQBulkOperationAsync(filter);
+
+        // Assert
+        preview.MatchedCount.Should().Be(1);
+        preview.WillAffectCount.Should().Be(1);
+        preview.SampleJobIds.Should().ContainSingle().Which.Should().Be(fatalEmail);
+    }
+
+    [Fact]
+    public async Task PurgeDLQByFilterAsync_ShouldDeleteOnlyBoundedMatches_AndUpdateStats()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+        var ids = new[] { NewId(), NewId(), NewId() };
+
+        foreach (var id in ids)
+        {
+            await storage.EnqueueAsync(id, "ops", "EmailJob", "{}");
+            await storage.ArchiveFailedAsync(id, "fatal", failureReason: FailureReason.FatalError);
+        }
+
+        var filter = new DlqBulkOperationFilterDto(
+            Queue: "ops",
+            FailureReason: FailureReason.FatalError,
+            Type: "EmailJob",
+            MaxJobs: 2);
+
+        // Act
+        var purged = await storage.PurgeDLQByFilterAsync(filter);
+
+        // Assert
+        purged.Should().Be(2);
+        var remaining = (await storage.GetDLQJobsAsync(10, queueFilter: "ops")).ToList();
+        remaining.Should().HaveCount(1);
+
+        var stats = (await storage.GetQueueStatsAsync()).Single(q => q.Queue == "ops");
+        stats.FailedTotal.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ResurrectDLQByFilterAsync_ShouldRequeueMatchingJobs()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+        var throttledId = NewId();
+        var fatalId = NewId();
+
+        await storage.EnqueueAsync(throttledId, "ops", "WebhookJob", "{}");
+        await storage.EnqueueAsync(fatalId, "ops", "WebhookJob", "{}");
+        await storage.ArchiveFailedAsync(throttledId, "429", failureReason: FailureReason.Throttled);
+        await storage.ArchiveFailedAsync(fatalId, "bad payload", failureReason: FailureReason.FatalError);
+
+        var filter = new DlqBulkOperationFilterDto(
+            Queue: "ops",
+            FailureReason: FailureReason.Throttled,
+            Type: "WebhookJob",
+            MaxJobs: 100);
+
+        // Act
+        var resurrected = await storage.ResurrectDLQByFilterAsync(filter, "ops@example.com");
+
+        // Assert
+        resurrected.Should().Be(1);
+        var hotJob = await storage.GetJobAsync(throttledId);
+        hotJob.Should().NotBeNull();
+        hotJob!.Status.Should().Be(JobStatus.Pending);
+        hotJob.LastModifiedBy.Should().Be("ops@example.com");
+
+        var dlq = (await storage.GetDLQJobsAsync(10, queueFilter: "ops")).ToList();
+        dlq.Should().ContainSingle(j => j.Id == fatalId);
     }
 
     [Fact]
@@ -744,6 +976,65 @@ public class InMemoryJobStorageTests
     }
 
     [Fact]
+    public async Task GetSystemHealthAsync_ShouldReturnLagThroughputAndFailureRate()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+        await storage.EnqueueAsync(NewId(), "health-queue", "LagJob1", "{}");
+        await storage.EnqueueAsync(NewId(), "health-queue", "LagJob2", "{}");
+
+        var successId = NewId();
+        await storage.EnqueueAsync(successId, "metrics-queue", "SuccessJob", "{}");
+        await storage.FetchNextBatchAsync("worker1", 1, new[] { "metrics-queue" });
+        await storage.ArchiveSucceededAsync(successId, 10);
+
+        var failedId = NewId();
+        await storage.EnqueueAsync(failedId, "metrics-queue", "FailedJob", "{}");
+        await storage.FetchNextBatchAsync("worker1", 1, new[] { "metrics-queue" });
+        await storage.ArchiveFailedAsync(failedId, "Boom: downstream returned 500");
+
+        // Act
+        var health = await storage.GetSystemHealthAsync();
+
+        // Assert
+        // Health is intentionally a cross-cutting snapshot: queue lag tells us saturation,
+        // throughput tells us recent processing velocity, and failure rate tells us whether
+        // that velocity is producing useful work or just burning jobs into DLQ.
+        health.Queues.Should().Contain(q =>
+            q.Queue == "health-queue" &&
+            q.Pending == 2 &&
+            q.MaxLagSeconds >= q.AverageLagSeconds);
+        health.JobsPerSecondLastMinute.Should().BeGreaterThan(0);
+        health.FailureRateLastMinutePercent.Should().BeApproximately(50, 0.1);
+    }
+
+    [Fact]
+    public async Task GetSystemHealthAsync_ShouldGroupTopDlqErrorsByReasonAndPrefix()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+
+        for (var i = 0; i < 2; i++)
+        {
+            var id = NewId();
+            await storage.EnqueueAsync(id, "dlq-queue", "FailedJob", "{}");
+            await storage.FetchNextBatchAsync("worker1", 1, new[] { "dlq-queue" });
+            await storage.ArchiveFailedAsync(id, "SqlException: timeout while opening connection\nstack trace changes per run");
+        }
+
+        // Act
+        var health = await storage.GetSystemHealthAsync();
+
+        // Assert
+        // Grouping by normalized prefix catches the repeated failure family without requiring
+        // operators to mentally deduplicate stack traces that differ only by line numbers.
+        health.TopErrors.Should().ContainSingle(e =>
+            e.FailureReason == FailureReason.MaxRetriesExceeded &&
+            e.ErrorPrefix.StartsWith("SqlException: timeout", StringComparison.Ordinal) &&
+            e.Count == 2);
+    }
+
+    [Fact]
     public async Task GetActiveJobsAsync_ShouldReturnProcessingJobs()
     {
         // Arrange
@@ -840,6 +1131,33 @@ public class InMemoryJobStorageTests
         // Assert
         result.Items.Should().HaveCount(2);
         result.TotalCount.Should().Be(5);
+    }
+
+    [Fact]
+    public async Task GetDLQPagedAsync_WithFailureReason_ShouldFilterDlqTaxonomy()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+
+        var fatalId = NewId();
+        await storage.EnqueueAsync(fatalId, "default", "FatalJob", "{}");
+        await storage.FetchNextBatchAsync("worker1", 1);
+        await storage.ArchiveFailedAsync(fatalId, "fatal", failureReason: FailureReason.FatalError);
+
+        var transientId = NewId();
+        await storage.EnqueueAsync(transientId, "default", "TransientJob", "{}");
+        await storage.FetchNextBatchAsync("worker1", 1);
+        await storage.ArchiveFailedAsync(transientId, "transient", failureReason: FailureReason.Transient);
+
+        // Act
+        var filter = new HistoryFilterDto(null, null, null, null, null, 1, 10, FailureReason: FailureReason.FatalError);
+        var result = await storage.GetDLQPagedAsync(filter);
+
+        // Assert
+        // Operators should be able to pull exactly one failure family out of DLQ without
+        // encoding taxonomy into brittle search text.
+        result.Items.Should().ContainSingle(j => j.Id == fatalId);
+        result.Items.Should().NotContain(j => j.Id == transientId);
     }
 
     #endregion

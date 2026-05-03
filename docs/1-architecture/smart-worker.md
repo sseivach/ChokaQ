@@ -62,20 +62,26 @@ When a transient error triggers a retry, the delay is calculated with **exponent
 
 private int CalculateBackoffMs(int attempt)
 {
-    // Base: 3s, 6s, 12s, 24s, 48s, ...
-    var baseDelay = RetryDelaySeconds * Math.Pow(2, attempt - 1);
+    // BaseDelay: 3s, 6s, 12s, 24s, 48s, ...
+    var calculatedDelayMs =
+        options.Retry.BaseDelay.TotalMilliseconds *
+        Math.Pow(options.Retry.BackoffMultiplier, attempt - 1);
 
-    // Cap at 1 hour (3600 seconds)
-    if (baseDelay > 3600) baseDelay = 3600;
+    // MaxDelay is a true cap. Jitter is clipped instead of added past it.
+    var cappedDelayMs = Math.Min(
+        calculatedDelayMs,
+        options.Retry.MaxDelay.TotalMilliseconds);
 
-    // Jitter: random 0–1000ms to prevent thundering herd
-    var jitter = Random.Shared.Next(0, 1000);
+    // Jitter: random 0-1000ms by default to prevent thundering herd.
+    var jitterWindowMs = Math.Min(
+        options.Retry.JitterMaxDelay.TotalMilliseconds,
+        Math.Max(0, options.Retry.MaxDelay.TotalMilliseconds - cappedDelayMs));
 
-    return (int)(baseDelay * 1000) + jitter;
+    return (int)(cappedDelayMs + Random.Shared.NextDouble() * jitterWindowMs);
 }
 ```
 
-**With default `RetryDelaySeconds = 3`:**
+**With default runtime configuration:**
 
 | Attempt | Base Delay | + Jitter | Total |
 |---------|-----------|----------|-------|

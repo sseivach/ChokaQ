@@ -18,5 +18,8 @@ public record HistoryFilterDto(
 
     // Sorting
     string SortBy = "Date", // "Date", "Duration", "Priority", "Type"
-    bool SortDescending = true
+    bool SortDescending = true,
+
+    // DLQ-only filters
+    FailureReason? FailureReason = null
 );

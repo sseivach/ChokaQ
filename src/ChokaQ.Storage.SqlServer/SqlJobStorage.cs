@@ -25,6 +25,10 @@ namespace ChokaQ.Storage.SqlServer;
 /// </summary>
 public class SqlJobStorage : IJobStorage
 {
+    private const int TopErrorLimit = 5;
+    private const int TopErrorSampleSize = 5000;
+    private const int ErrorPrefixLength = 160;
+
     private readonly SqlJobStorageOptions _options;
     private readonly string _schema;
     private readonly Queries _q;
@@ -42,6 +46,13 @@ public class SqlJobStorage : IJobStorage
     {
         var conn = new SqlConnection(_options.ConnectionString);
         await conn.OpenAsync(ct);
+
+        // Command timeout is applied inside SqlMapper because every storage operation creates
+        // its own SqlCommand there. Stamping the open connection keeps timeout policy centralized:
+        // workers, dashboard queries, recovery scans, and admin operations all share the same
+        // fail-fast database boundary unless a future feature deliberately adds per-command tiers.
+        conn.SetCommandTimeout(_options.CommandTimeoutSeconds);
+
         return conn;
     }
 
@@ -50,6 +61,8 @@ public class SqlJobStorage : IJobStorage
 
     private Task<T> ExecuteWithRetryAsync<T>(Func<Task<T>> action, CancellationToken ct) =>
         SqlRetryPolicy.ExecuteAsync(action, _options.MaxTransientRetries, _options.TransientRetryBaseDelayMs, ct);
+
+    private int CleanupBatchSize => Math.Max(1, _options.CleanupBatchSize);
 
     // ========================================================================
     // CORE OPERATIONS (Hot Table)
@@ -67,15 +80,21 @@ public class SqlJobStorage : IJobStorage
         string? idempotencyKey = null,
         CancellationToken ct = default)
     {
+        var normalizedIdempotencyKey = NormalizeIdempotencyKey(idempotencyKey);
+
         return await ExecuteWithRetryAsync(async () =>
         {
             await using var conn = await OpenConnectionAsync(ct);
 
-            if (!string.IsNullOrEmpty(idempotencyKey))
+            if (!string.IsNullOrEmpty(normalizedIdempotencyKey))
             {
+                // Built-in enqueue idempotency is a Hot-table admission guard. It prevents two
+                // active jobs with the same business key, but it deliberately does not scan Archive
+                // or DLQ. Historical tables are for audit and operator recovery, not for rejecting
+                // future logical attempts after the original work has completed or failed.
                 var existingId = await conn.QueryFirstOrDefaultAsync<string>(
                     _q.CheckIdempotency,
-                    new { Key = idempotencyKey }, ct);
+                    new { Key = normalizedIdempotencyKey }, ct);
 
                 if (existingId != null)
                     return existingId;
@@ -90,7 +109,7 @@ public class SqlJobStorage : IJobStorage
                     Type = jobType,
                     Payload = payload,
                     Tags = tags,
-                    IdempotencyKey = idempotencyKey,
+                    IdempotencyKey = normalizedIdempotencyKey,
                     Priority = priority,
                     CreatedBy = createdBy,
                     ScheduledAt = delay.HasValue ? DateTime.UtcNow.Add(delay.Value) : (DateTime?)null
@@ -102,11 +121,11 @@ public class SqlJobStorage : IJobStorage
             }
             catch (SqlException ex) when (ex.Number == 2601 || ex.Number == 2627)
             {
-                if (!string.IsNullOrEmpty(idempotencyKey))
+                if (!string.IsNullOrEmpty(normalizedIdempotencyKey))
                 {
                     var winnerId = await conn.QueryFirstOrDefaultAsync<string>(
                         _q.CheckIdempotency,
-                        new { Key = idempotencyKey }, ct);
+                        new { Key = normalizedIdempotencyKey }, ct);
 
                     if (winnerId != null)
                         return winnerId;
@@ -114,6 +133,18 @@ public class SqlJobStorage : IJobStorage
                 throw;
             }
         }, ct);
+    }
+
+    private static string? NormalizeIdempotencyKey(string? idempotencyKey)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+            return null;
+
+        var normalized = idempotencyKey.Trim();
+        if (normalized.Length > 255)
+            throw new ArgumentException("IdempotencyKey exceeds maximum length of 255 characters.", nameof(idempotencyKey));
+
+        return normalized;
     }
 
     public async ValueTask<IEnumerable<JobHotEntity>> FetchNextBatchAsync(
@@ -139,12 +170,19 @@ public class SqlJobStorage : IJobStorage
         }, ct);
     }
 
-    public async ValueTask MarkAsProcessingAsync(string jobId, CancellationToken ct = default)
+    public async ValueTask<bool> MarkAsProcessingAsync(
+        string jobId,
+        CancellationToken ct = default,
+        string? workerId = null)
     {
-        await ExecuteWithRetryAsync(async () =>
+        return await ExecuteWithRetryAsync(async () =>
         {
             await using var conn = await OpenConnectionAsync(ct);
-            await conn.ExecuteAsync(_q.MarkAsProcessing, new { Id = jobId }, ct);
+            var moved = await conn.ExecuteScalarAsync<int>(
+                _q.MarkAsProcessing,
+                new { Id = jobId, WorkerId = workerId },
+                ct);
+            return moved > 0;
         }, ct);
     }
 
@@ -170,42 +208,72 @@ public class SqlJobStorage : IJobStorage
     // ATOMIC TRANSITIONS (Three Pillars)
     // ========================================================================
 
-    public async ValueTask ArchiveSucceededAsync(string jobId, double? durationMs = null, CancellationToken ct = default)
+    public async ValueTask<bool> ArchiveSucceededAsync(
+        string jobId,
+        double? durationMs = null,
+        CancellationToken ct = default,
+        string? workerId = null)
     {
-        await ExecuteWithRetryAsync(async () =>
+        return await ExecuteWithRetryAsync(async () =>
         {
             await using var conn = await OpenConnectionAsync(ct);
-            await conn.ExecuteAsync(_q.ArchiveSucceeded, new { Id = jobId, DurationMs = durationMs }, ct);
+            var moved = await conn.ExecuteScalarAsync<int>(
+                _q.ArchiveSucceeded,
+                new { Id = jobId, DurationMs = durationMs, WorkerId = workerId },
+                ct);
+            return moved > 0;
         }, ct);
     }
 
-    public async ValueTask ArchiveFailedAsync(string jobId, string errorDetails, CancellationToken ct = default)
+    public async ValueTask<bool> ArchiveFailedAsync(
+        string jobId,
+        string errorDetails,
+        CancellationToken ct = default,
+        string? workerId = null,
+        FailureReason failureReason = FailureReason.MaxRetriesExceeded)
     {
-        await MoveToDLQAsync(jobId, FailureReason.MaxRetriesExceeded, errorDetails, ct);
+        // FailureReason is persisted as data because the DLQ is an operator workflow, not just
+        // an exception dump. Free-form stack traces are for debugging; taxonomy is for routing,
+        // filtering, dashboards, and incident triage.
+        return await MoveToDLQAsync(jobId, failureReason, errorDetails, ct, workerId);
     }
 
-    public async ValueTask ArchiveCancelledAsync(string jobId, string? cancelledBy = null, CancellationToken ct = default)
+    public async ValueTask<bool> ArchiveCancelledAsync(
+        string jobId,
+        string? cancelledBy = null,
+        CancellationToken ct = default,
+        string? workerId = null)
     {
         var error = cancelledBy != null ? $"Cancelled by: {cancelledBy}" : "Cancelled by admin";
-        await MoveToDLQAsync(jobId, FailureReason.Cancelled, error, ct);
+        return await MoveToDLQAsync(jobId, FailureReason.Cancelled, error, ct, workerId);
     }
 
-    public async ValueTask ArchiveZombieAsync(string jobId, CancellationToken ct = default)
+    public async ValueTask<bool> ArchiveZombieAsync(
+        string jobId,
+        CancellationToken ct = default,
+        string? workerId = null)
     {
-        await MoveToDLQAsync(jobId, FailureReason.Zombie, "Zombie: Worker heartbeat expired", ct);
+        return await MoveToDLQAsync(jobId, FailureReason.Zombie, "Zombie: Worker heartbeat expired", ct, workerId);
     }
 
-    private async ValueTask MoveToDLQAsync(string jobId, FailureReason reason, string errorDetails, CancellationToken ct)
+    private async ValueTask<bool> MoveToDLQAsync(
+        string jobId,
+        FailureReason reason,
+        string errorDetails,
+        CancellationToken ct,
+        string? workerId)
     {
-        await ExecuteWithRetryAsync(async () =>
+        return await ExecuteWithRetryAsync(async () =>
         {
             await using var conn = await OpenConnectionAsync(ct);
-            await conn.ExecuteAsync(_q.MoveToDLQ, new
+            var moved = await conn.ExecuteScalarAsync<int>(_q.MoveToDLQ, new
             {
                 Id = jobId,
                 Reason = (int)reason,
-                Error = errorDetails ?? "Unknown error (No details provided)"
+                Error = errorDetails ?? "Unknown error (No details provided)",
+                WorkerId = workerId
             }, ct);
+            return moved > 0;
         }, ct);
     }
 
@@ -215,10 +283,31 @@ public class SqlJobStorage : IJobStorage
         string? resurrectedBy = null,
         CancellationToken ct = default)
     {
-        await ExecuteWithRetryAsync(async () =>
+        _ = await RepairAndRequeueDLQCoreAsync(jobId, updates, resurrectedBy, ct);
+    }
+
+    public async ValueTask<bool> RepairAndRequeueDLQAsync(
+        string jobId,
+        JobDataUpdateDto updates,
+        string? resurrectedBy = null,
+        CancellationToken ct = default)
+    {
+        // The editor uses this return value to avoid pretending a repair succeeded after another
+        // operator already purged or requeued the same DLQ row. The SQL transaction below still
+        // owns the real safety guarantee; the bool is the UI contract on top of it.
+        return await RepairAndRequeueDLQCoreAsync(jobId, updates, resurrectedBy, ct);
+    }
+
+    private async ValueTask<bool> RepairAndRequeueDLQCoreAsync(
+        string jobId,
+        JobDataUpdateDto? updates,
+        string? resurrectedBy,
+        CancellationToken ct)
+    {
+        return await ExecuteWithRetryAsync(async () =>
         {
             await using var conn = await OpenConnectionAsync(ct);
-            await conn.ExecuteAsync(_q.Resurrect, new
+            var moved = await conn.ExecuteScalarAsync<int>(_q.Resurrect, new
             {
                 Id = jobId,
                 NewPayload = updates?.Payload,
@@ -226,6 +315,7 @@ public class SqlJobStorage : IJobStorage
                 NewPriority = updates?.Priority,
                 ResurrectedBy = resurrectedBy
             }, ct);
+            return moved > 0;
         }, ct);
     }
 
@@ -273,22 +363,25 @@ public class SqlJobStorage : IJobStorage
     // RETRY LOGIC (Stays in Hot)
     // ========================================================================
 
-    public async ValueTask RescheduleForRetryAsync(
+    public async ValueTask<bool> RescheduleForRetryAsync(
         string jobId,
         DateTime scheduledAtUtc,
         int newAttemptCount,
         string lastError,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? workerId = null)
     {
-        await ExecuteWithRetryAsync(async () =>
+        return await ExecuteWithRetryAsync(async () =>
         {
             await using var conn = await OpenConnectionAsync(ct);
-            await conn.ExecuteAsync(_q.RescheduleForRetry, new
+            var moved = await conn.ExecuteScalarAsync<int>(_q.RescheduleForRetry, new
             {
                 Id = jobId,
                 Attempt = newAttemptCount,
-                ScheduledAt = scheduledAtUtc
+                ScheduledAt = scheduledAtUtc,
+                WorkerId = workerId
             }, ct);
+            return moved > 0;
         }, ct);
     }
 
@@ -322,22 +415,128 @@ public class SqlJobStorage : IJobStorage
 
     public async ValueTask PurgeDLQAsync(string[] jobIds, CancellationToken ct = default)
     {
-        await ExecuteWithRetryAsync(async () =>
+        if (jobIds.Length == 0) return;
+
+        var jsonIds = JsonSerializer.Serialize(jobIds);
+        var totalDeleted = 0;
+        var batchSize = CleanupBatchSize;
+
+        while (totalDeleted < jobIds.Length)
         {
-            if (jobIds.Length == 0) return;
-            var jsonIds = JsonSerializer.Serialize(jobIds);
+            ct.ThrowIfCancellationRequested();
+
+            // Retention-style deletes are retried one short transaction at a time. Retrying the
+            // whole multi-batch loop after a transient SQL error would hide how much work already
+            // committed; per-batch retry keeps the mutation idempotent and the transaction log calm.
+            var deleted = await ExecuteWithRetryAsync(async () =>
+            {
+                await using var conn = await OpenConnectionAsync(ct);
+                return await conn.ExecuteScalarAsync<int>(
+                    _q.PurgeDLQ,
+                    new { JsonIds = jsonIds, BatchSize = batchSize },
+                    ct);
+            }, ct);
+
+            if (deleted <= 0)
+                break;
+
+            totalDeleted += deleted;
+
+            if (deleted < batchSize)
+                break;
+        }
+    }
+
+    public async ValueTask<DlqBulkOperationPreviewDto> PreviewDLQBulkOperationAsync(
+        DlqBulkOperationFilterDto filter,
+        CancellationToken ct = default)
+    {
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            var limit = NormalizeDlqBulkLimit(filter);
+            var (whereSql, parameters) = BuildDlqBulkFilterSql(filter);
+
             await using var conn = await OpenConnectionAsync(ct);
-            await conn.ExecuteAsync(_q.PurgeDLQ, new { JsonIds = jsonIds }, ct);
+
+            var countSql = _q.GetDLQCount.Replace("{WHERE_CLAUSE}", whereSql);
+            var matchedCount = await conn.ExecuteScalarAsync<int>(countSql, parameters, ct);
+
+            var sampleSql = _q.GetDLQBulkIds.Replace("{WHERE_CLAUSE}", whereSql);
+            var sampleParams = MergeParams(parameters, new { MaxJobs = Math.Min(limit, 10) });
+            var sampleIds = (await conn.QueryAsync<string>(sampleSql, sampleParams, ct)).ToArray();
+
+            return new DlqBulkOperationPreviewDto(matchedCount, limit, sampleIds);
+        }, ct);
+    }
+
+    public async ValueTask<int> PurgeDLQByFilterAsync(
+        DlqBulkOperationFilterDto filter,
+        CancellationToken ct = default)
+    {
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            var limit = NormalizeDlqBulkLimit(filter);
+            var (whereSql, parameters) = BuildDlqBulkFilterSql(filter);
+            var sql = _q.PurgeDLQByFilter.Replace("{WHERE_CLAUSE}", whereSql);
+            var combinedParams = MergeParams(parameters, new { MaxJobs = limit });
+
+            await using var conn = await OpenConnectionAsync(ct);
+            return await conn.ExecuteScalarAsync<int>(sql, combinedParams, ct);
+        }, ct);
+    }
+
+    public async ValueTask<int> ResurrectDLQByFilterAsync(
+        DlqBulkOperationFilterDto filter,
+        string? resurrectedBy = null,
+        CancellationToken ct = default)
+    {
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            var limit = NormalizeDlqBulkLimit(filter);
+            var (whereSql, parameters) = BuildDlqBulkFilterSql(filter);
+            var sql = _q.ResurrectDLQByFilter.Replace("{WHERE_CLAUSE}", whereSql);
+            var combinedParams = MergeParams(parameters, new
+            {
+                MaxJobs = limit,
+                ResurrectedBy = resurrectedBy
+            });
+
+            await using var conn = await OpenConnectionAsync(ct);
+            return await conn.ExecuteScalarAsync<int>(sql, combinedParams, ct);
         }, ct);
     }
 
     public async ValueTask<int> PurgeArchiveAsync(DateTime olderThan, CancellationToken ct = default)
     {
-        return await ExecuteWithRetryAsync(async () =>
+        var totalDeleted = 0;
+        var batchSize = CleanupBatchSize;
+
+        while (true)
         {
-            await using var conn = await OpenConnectionAsync(ct);
-            return await conn.ExecuteAsync(_q.PurgeArchive, new { CutOff = olderThan }, ct);
-        }, ct);
+            ct.ThrowIfCancellationRequested();
+
+            // Archive cleanup may remove months of history. Running it as many small commits is
+            // slower in the happy path, but it is much safer for shared SQL Server instances:
+            // locks are released quickly and transaction-log growth stays bounded.
+            var deleted = await ExecuteWithRetryAsync(async () =>
+            {
+                await using var conn = await OpenConnectionAsync(ct);
+                return await conn.ExecuteScalarAsync<int>(
+                    _q.PurgeArchive,
+                    new { CutOff = olderThan, BatchSize = batchSize },
+                    ct);
+            }, ct);
+
+            if (deleted <= 0)
+                break;
+
+            totalDeleted += deleted;
+
+            if (deleted < batchSize)
+                break;
+        }
+
+        return totalDeleted;
     }
 
     public async ValueTask<bool> UpdateDLQJobDataAsync(
@@ -382,6 +581,47 @@ public class SqlJobStorage : IJobStorage
         {
             await using var conn = await OpenConnectionAsync(ct);
             return await conn.QueryAsync<StatsSummaryEntity>(_q.GetQueueStats, null, ct);
+        }, ct);
+    }
+
+    public async ValueTask<SystemHealthDto> GetSystemHealthAsync(CancellationToken ct = default)
+    {
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            var now = DateTime.UtcNow;
+            var oneMinuteCutoff = now.AddMinutes(-1);
+            var fiveMinuteCutoff = now.AddMinutes(-5);
+
+            await using var conn = await OpenConnectionAsync(ct);
+
+            // Keep the health snapshot composed inside storage. The dashboard should not know
+            // which tables supply saturation, throughput, and DLQ triage data; that knowledge
+            // belongs to the persistence implementation and its indexes.
+            var queueRows = (await conn.QueryAsync<QueueHealthRow>(_q.GetQueueHealth, null, ct)).ToList();
+            var throughput = await conn.QuerySingleAsync<ThroughputHealthRow>(_q.GetThroughputStats, new
+            {
+                OneMinuteCutoff = oneMinuteCutoff,
+                FiveMinuteCutoff = fiveMinuteCutoff
+            }, ct);
+            var topErrorRows = (await conn.QueryAsync<DlqErrorGroupRow>(_q.GetTopDlqErrors, new
+            {
+                TopErrorLimit,
+                TopErrorSampleSize,
+                ErrorPrefixLength
+            }, ct)).ToList();
+
+            return new SystemHealthDto(
+                GeneratedAtUtc: now,
+                Queues: queueRows
+                    .Select(q => new QueueHealthDto(q.Queue, q.Pending, q.AverageLagSeconds, q.MaxLagSeconds))
+                    .ToList(),
+                JobsPerSecondLastMinute: CalculateJobsPerSecond(throughput.ProcessedLastMinute, 60),
+                JobsPerSecondLastFiveMinutes: CalculateJobsPerSecond(throughput.ProcessedLastFiveMinutes, 300),
+                FailureRateLastMinutePercent: CalculateFailureRatePercent(throughput.FailedLastMinute, throughput.ProcessedLastMinute),
+                FailureRateLastFiveMinutesPercent: CalculateFailureRatePercent(throughput.FailedLastFiveMinutes, throughput.ProcessedLastFiveMinutes),
+                TopErrors: topErrorRows
+                    .Select(e => new DlqErrorGroupDto(e.FailureReason, e.ErrorPrefix, e.Count, e.LatestFailedAtUtc))
+                    .ToList());
         }, ct);
     }
 
@@ -643,6 +883,61 @@ public class SqlJobStorage : IJobStorage
 
     // --- Private Helpers ---
 
+    private static int NormalizeDlqBulkLimit(DlqBulkOperationFilterDto filter)
+    {
+        var requested = filter.MaxJobs <= 0
+            ? DlqBulkOperationFilterDto.DefaultMaxJobs
+            : filter.MaxJobs;
+
+        return Math.Clamp(requested, 1, DlqBulkOperationFilterDto.AbsoluteMaxJobs);
+    }
+
+    private (string Sql, Dictionary<string, object?> Params) BuildDlqBulkFilterSql(DlqBulkOperationFilterDto filter)
+    {
+        var sb = new System.Text.StringBuilder("WHERE 1=1");
+        var p = new Dictionary<string, object?>();
+
+        if (!string.IsNullOrWhiteSpace(filter.Queue))
+        {
+            sb.Append(" AND [Queue] = @BulkQueue");
+            p["BulkQueue"] = filter.Queue.Trim();
+        }
+
+        if (filter.FailureReason.HasValue)
+        {
+            sb.Append(" AND [FailureReason] = @BulkFailureReason");
+            p["BulkFailureReason"] = (int)filter.FailureReason.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Type))
+        {
+            sb.Append(" AND [Type] = @BulkType");
+            p["BulkType"] = filter.Type.Trim();
+        }
+
+        if (filter.FromUtc.HasValue)
+        {
+            sb.Append(" AND [CreatedAtUtc] >= @BulkFromUtc");
+            p["BulkFromUtc"] = filter.FromUtc.Value;
+        }
+
+        if (filter.ToUtc.HasValue)
+        {
+            sb.Append(" AND [CreatedAtUtc] <= @BulkToUtc");
+            p["BulkToUtc"] = filter.ToUtc.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
+        {
+            // Search stays parameterized even though it supports wildcards. That keeps the operator
+            // experience flexible without turning a dashboard text box into raw SQL surface area.
+            sb.Append(" AND ([Id] LIKE @BulkSearch OR [Type] LIKE @BulkSearch OR [Tags] LIKE @BulkSearch OR [ErrorDetails] LIKE @BulkSearch)");
+            p["BulkSearch"] = $"%{filter.SearchTerm.Trim()}%";
+        }
+
+        return (sb.ToString(), p);
+    }
+
     private (string Sql, Dictionary<string, object?> Params) BuildFilterSql(HistoryFilterDto filter, bool isArchive)
     {
         var sb = new System.Text.StringBuilder("WHERE 1=1");
@@ -667,6 +962,14 @@ public class SqlJobStorage : IJobStorage
             p["Queue"] = filter.Queue;
         }
 
+        if (!isArchive && filter.FailureReason.HasValue)
+        {
+            // DLQ filtering must stay typed. Matching reason by enum value avoids fragile
+            // string searches across stack traces and keeps the query on the FailureReason index.
+            sb.Append(" AND [FailureReason] = @FailureReason");
+            p["FailureReason"] = (int)filter.FailureReason.Value;
+        }
+
         if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
         {
             sb.Append(" AND ([Id] LIKE @Search OR [Type] LIKE @Search OR [Tags] LIKE @Search)");
@@ -684,5 +987,35 @@ public class SqlJobStorage : IJobStorage
             result[prop.Name] = prop.GetValue(second);
         }
         return result;
+    }
+
+    private static double CalculateJobsPerSecond(long processed, int windowSeconds) =>
+        windowSeconds <= 0 ? 0 : processed / (double)windowSeconds;
+
+    private static double CalculateFailureRatePercent(long failed, long processed) =>
+        processed == 0 ? 0 : (failed * 100d) / processed;
+
+    private sealed class QueueHealthRow
+    {
+        public string Queue { get; set; } = "";
+        public int Pending { get; set; }
+        public double AverageLagSeconds { get; set; }
+        public double MaxLagSeconds { get; set; }
+    }
+
+    private sealed class ThroughputHealthRow
+    {
+        public long ProcessedLastMinute { get; set; }
+        public long FailedLastMinute { get; set; }
+        public long ProcessedLastFiveMinutes { get; set; }
+        public long FailedLastFiveMinutes { get; set; }
+    }
+
+    private sealed class DlqErrorGroupRow
+    {
+        public FailureReason FailureReason { get; set; }
+        public string ErrorPrefix { get; set; } = "";
+        public long Count { get; set; }
+        public DateTime LatestFailedAtUtc { get; set; }
     }
 }

@@ -8,13 +8,23 @@ The Deck is ChokaQ's built-in admin dashboard — a **Blazor Server** applicatio
 
 ```csharp
 // Program.cs
+builder.Services.AddAuthentication(/* your scheme */);
+builder.Services.AddAuthorization();
 builder.Services.AddChokaQTheDeck();
 
 var app = builder.Build();
 app.MapChokaQTheDeck();  // Dashboard available at /chokaq
 ```
 
-That's it. Two lines.
+By default, The Deck requires the host application's default authorization policy.
+For a local-only demo or an intentionally public sandbox, opt in explicitly:
+
+```csharp
+builder.Services.AddChokaQTheDeck(options =>
+{
+    options.AllowAnonymousDeck = true;
+});
+```
 
 ## Architecture: Blazor Server + SignalR
 
@@ -38,6 +48,49 @@ Aggregated counters from `StatsSummary` + live `JobsHot` counts:
 | Processing | `COUNT(*) FROM JobsHot WHERE Status=2` | On process start/end |
 | Succeeded | `StatsSummary.SucceededTotal` | On archive (O(1) read) |
 | Failed | `StatsSummary.FailedTotal` | On DLQ move (O(1) read) |
+| Throughput | `GetSystemHealthAsync()` recent Archive/DLQ windows | Dashboard refresh |
+| Failure Rate | `GetSystemHealthAsync()` recent DLQ vs processed windows | Dashboard refresh |
+
+### Operational Health Snapshot
+
+The Deck reads `IJobStorage.GetSystemHealthAsync()` for production-oriented
+signals that lifetime counters cannot answer:
+
+- **Queue lag**: average and maximum wait time for eligible Pending jobs per queue.
+- **Throughput**: jobs processed per second over the last 1 minute and 5 minutes.
+- **Failure rate**: failed vs processed percentage over the same windows.
+- **Top errors**: the top 5 recent DLQ error families grouped by `FailureReason`
+  and normalized error prefix.
+
+The SQL Server implementation keeps these reads bounded and index-friendly.
+Queue lag is calculated from Pending hot rows through a dedicated filtered index,
+and top-error grouping is limited to a recent DLQ sample so the dashboard does not
+become an accidental full-history analytics workload during an incident.
+
+### Consistency Model
+
+The Deck treats `IJobStorage` as the canonical source of truth after every
+operator mutation. It does not decrement counters locally after retry, purge,
+cancel, or edit commands, because those commands can be affected by filters,
+ownership guards, concurrent workers, and row-level outcomes. Instead, the page
+waits for the command path to settle and then reloads summary counters, health,
+circuit state, and the current table slice from storage.
+
+This deliberately trades a tiny refresh delay for correctness. The operator sees
+the state the database accepted, not the state the browser guessed. It also keeps
+bulk operations understandable: if a filtered purge removes the last item on a
+history page, The Deck clamps the view to the new last page instead of showing an
+empty page while the global counters still report matching rows.
+
+Lag colors are configurable:
+
+```csharp
+builder.Services.AddChokaQTheDeck(options =>
+{
+    options.QueueLagWarningThresholdSeconds = 5;
+    options.QueueLagCriticalThresholdSeconds = 10;
+});
+```
 
 ### Job Matrix
 Virtualized grid showing active jobs with color-coded status badges:
@@ -49,6 +102,22 @@ Virtualized grid showing active jobs with color-coded status badges:
 | `PROCESSING` | Yellow/Warning | Actively executing |
 | `SUCCEEDED` | Green | Completed (in Archive view) |
 | `FAILED` | Red | Failed (in DLQ view) |
+
+DLQ rows also show a failure-taxonomy badge. The badge is stored as structured
+data, not inferred from exception text:
+
+| Reason | Typical Meaning |
+|--------|-----------------|
+| `FatalError` | Poison pill or non-retryable handler/payload error |
+| `Throttled` | Downstream rate limit or quota pressure |
+| `Timeout` | Execution exceeded runtime budget |
+| `Transient` | Retryable failure exhausted retry budget |
+| `Cancelled` | Explicit operator cancellation |
+| `Zombie` | Worker heartbeat expired |
+
+This split matters operationally: throttling points to concurrency/quotas,
+timeouts point to execution budgets or downstream latency, and fatal errors point
+to payload or code fixes.
 
 ### Queue Management Panel
 Runtime controls for every queue:
@@ -113,12 +182,15 @@ The `IChokaQNotifier` is the bridge between the processing engine and the UI. In
 
 ## Security
 
-The Deck supports ASP.NET Core Authorization Policies:
+The Deck is an administrative control plane: it can cancel, purge, edit, pause,
+deactivate, and resurrect jobs. For production, bind it to a dedicated ASP.NET
+Core authorization policy:
 
 ```csharp
 builder.Services.AddChokaQTheDeck(options =>
 {
     options.AuthorizationPolicy = "ChokaQAdmin";
+    options.DestructiveAuthorizationPolicy = "ChokaQWrite";
 });
 
 // Define the policy
@@ -126,9 +198,19 @@ builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("ChokaQAdmin", policy =>
         policy.RequireRole("Admin"));
+    options.AddPolicy("ChokaQWrite", policy =>
+        policy.RequireRole("JobOperator"));
 });
 ```
 
-If no policy is configured, the dashboard is publicly accessible — convenient for development.
+If no named policy is configured, The Deck still calls `RequireAuthorization()`
+and uses the application's default policy. Public access requires
+`AllowAnonymousDeck = true`, which keeps demos convenient without making
+production exposure the default.
+
+`AuthorizationPolicy` controls read/connect access to the dashboard and SignalR
+Hub. `DestructiveAuthorizationPolicy` is checked inside Hub methods before
+cancel, retry, resurrect, edit, purge, pause, deactivate, or queue-limit changes.
+Leaving it null means destructive commands use the same boundary as the dashboard.
 
 > *Next: See how to [Edit + Resurrect](/4-the-deck/resurrect-dlq) dead jobs directly from the browser.*

@@ -21,9 +21,10 @@ ChokaQ solves this at the **SQL query level** — inside the `FetchNextBatch` CT
 -- From: Queries.cs — FetchNextBatch
 
 WITH ActiveCounts AS (
-    -- Count currently active jobs per queue
+    -- Count committed active jobs per queue. This is part of capacity control,
+    -- so it must not use dirty reads.
     SELECT [Queue], COUNT(1) AS CurrentActive
-    FROM [chokaq].[JobsHot] WITH (NOLOCK)
+    FROM [chokaq].[JobsHot]
     WHERE [Status] IN (1, 2)    -- Fetched + Processing
     GROUP BY [Queue]
 )
@@ -34,7 +35,9 @@ LEFT JOIN ActiveCounts ac ON h.[Queue] = ac.[Queue]
 WHERE h.[Status] = 0
   AND (q.[IsPaused] IS NULL OR q.[IsPaused] = 0)
   AND (q.[IsActive] IS NULL OR q.[IsActive] = 1)
-  -- 👇 THE BULKHEAD: Enforce per-queue concurrency limits
+  -- THE BULKHEAD: simple form shown for readability.
+  -- Production SQL ranks candidates per queue and applies:
+  -- CurrentActive + QueueRank <= MaxWorkers
   AND (q.[MaxWorkers] IS NULL OR ISNULL(ac.CurrentActive, 0) < q.[MaxWorkers])
   AND (h.[ScheduledAtUtc] IS NULL OR h.[ScheduledAtUtc] <= SYSUTCDATETIME())
 ORDER BY h.[Priority] DESC,
@@ -80,7 +83,7 @@ Most frameworks implement bulkhead at the **application level** — separate thr
 | **Database-level** (ChokaQ) | The `COUNT(*)` check runs inside the fetch query. All instances see the same counts. Limit is global |
 
 ::: tip 💡 Architecture Insight
-Enforcing the Bulkhead pattern at the database level solves the multi-instance problem. Application-level semaphores don't coordinate — Instance A doesn't know how many jobs Instance B is processing. But they both read from the same `JobsHot` table, so the `ActiveCounts` CTE gives a **globally consistent** view of concurrency.
+Enforcing the Bulkhead pattern at the database level solves the multi-instance problem. Application-level semaphores do not coordinate between instances. Every worker reads the same `JobsHot` table, so the `ActiveCounts` CTE gives a committed shared view of currently active work. Production SQL also ranks candidates per queue, which prevents one fetch batch from claiming more rows than the queue's remaining capacity.
 :::
 
 ## Runtime Adjustment

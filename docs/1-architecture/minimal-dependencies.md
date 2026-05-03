@@ -1,4 +1,14 @@
-# Zero-Dependency Philosophy
+# Minimal Dependency Philosophy
+
+ChokaQ uses a minimal dependency philosophy, not a misleading claim that SQL
+Server mode can avoid the official SQL Server driver. The practical rule is
+stricter and more useful: ChokaQ should not force host applications to take
+framework-level dependencies such as EF Core, Dapper, Polly, MediatR, or a
+custom telemetry/exporter stack just to run background jobs.
+
+Core stays on Microsoft.Extensions abstractions. SQL Server storage uses
+`Microsoft.Data.SqlClient`, the official ADO.NET driver. Everything else is
+owned by ChokaQ so the behavior is explicit, inspectable, and teachable.
 
 ## The Dependency Tax
 
@@ -29,7 +39,7 @@ ChokaQ.Storage.SqlServer
 └── Microsoft.Data.SqlClient     ← The only "real" dependency
 ```
 
-**Everything else is built from scratch.**
+Everything else is built directly in ChokaQ.
 
 ## What We Built (and Why)
 
@@ -104,7 +114,7 @@ No `OPENJSON`, no temp tables — just clean parameter expansion.
 
 ### Custom SqlRetryPolicy — Replacing Polly
 
-**Zero-dependency** transient fault handling tailored to SQL Server:
+Transient fault handling tailored to SQL Server:
 
 ```csharp
 public static async Task<T> ExecuteAsync<T>(Func<Task<T>> action, int maxRetries = 3)
@@ -171,21 +181,24 @@ Three states per job type:
 The Status field is marked as `volatile` because `IsExecutionPermitted()` is called on the hot path for every single job. Using `volatile` allows **lock-free reads** — we only acquire the lock for state mutations (reporting success/failure), not for the check itself. This is the same high-performance pattern used in `CancellationToken`.
 :::
 
-## The Result: Bulletproof Dependencies
+## The Result: Small, Explicit Dependencies
 
 ```
 dotnet list package --include-transitive
 
 ChokaQ.Core:
-  → 0 third-party packages
-  → 3 Microsoft.Extensions.*.Abstractions (interfaces only)
+  → no non-Microsoft infrastructure packages
+  → Microsoft.Extensions.*.Abstractions only
 
 ChokaQ.Storage.SqlServer:
-  → 1 third-party package (Microsoft.Data.SqlClient)
-  → That's the official ADO.NET driver — can't avoid it
+  → Microsoft.Data.SqlClient
+  → the official SQL Server ADO.NET driver
 ```
 
-**Total third-party dependencies across the entire framework: 1** (the SQL Server driver).
+SQL Server mode therefore has one unavoidable external package: the official SQL
+Server driver. The important architectural constraint is that ChokaQ does not
+outsource its queueing, retry, circuit breaker, SQL mapping, dashboard, health,
+or metrics behavior to opaque infrastructure libraries.
 
 <br>
 

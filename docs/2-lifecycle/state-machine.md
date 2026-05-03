@@ -66,6 +66,13 @@ ON [chokaq].[JobsHot] ([IdempotencyKey])
 WHERE [IdempotencyKey] IS NOT NULL
 ```
 
+Scope note:
+
+- Built-in enqueue idempotency is `JobsHot`-only.
+- It prevents duplicate active work with the same business key.
+- Once the original job moves to Archive or DLQ, the same key can be enqueued again as a new logical attempt.
+- Long-lived "already completed" memory belongs to the optional result-idempotency middleware, not to the Hot queue index.
+
 ## Phase 2: Fetch (Pending → Fetched)
 
 The `SqlJobWorker`'s fetcher loop runs on a polling interval:
@@ -131,7 +138,11 @@ _ = Task.Run(async () =>
 {
     while (!jobCt.IsCancellationRequested)
     {
-        await Task.Delay(HeartbeatInterval, jobCt);
+        await Task.Delay(
+            RandomBetween(
+                options.Execution.HeartbeatIntervalMin,
+                options.Execution.HeartbeatIntervalMax),
+            jobCt);
         await _storage.KeepAliveAsync(jobId, jobCt);
     }
 });
@@ -153,7 +164,7 @@ The job is atomically moved to `JobsArchive` with execution duration recorded.
 ## Phase 4b: Transient Failure (Processing → Pending, retry)
 
 ```csharp
-if (!IsFatalException(ex) && job.AttemptCount < MaxRetries)
+if (!IsFatalException(ex) && job.AttemptCount < options.Retry.MaxAttempts)
 {
     var backoffMs = CalculateBackoffMs(job.AttemptCount + 1);
     var nextRun = DateTime.UtcNow.AddMilliseconds(backoffMs);

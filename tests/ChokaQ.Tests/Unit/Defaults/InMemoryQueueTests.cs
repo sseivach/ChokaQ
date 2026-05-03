@@ -1,5 +1,6 @@
 using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Idempotency;
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Observability;
@@ -26,6 +27,19 @@ public class InMemoryQueueTests
         _notifier = Substitute.For<IChokaQNotifier>();
         _registry = new JobTypeRegistry();
         _queue = new InMemoryQueue(_storage, _notifier, _registry, Substitute.For<IChokaQMetrics>(), NullLogger<InMemoryQueue>.Instance);
+
+        _storage.EnqueueAsync(
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<int>(),
+                Arg.Any<string?>(),
+                Arg.Any<string?>(),
+                Arg.Any<TimeSpan?>(),
+                Arg.Any<string?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(call => new ValueTask<string>((string)call[0]!));
     }
 
     [Fact]
@@ -51,6 +65,112 @@ public class InMemoryQueueTests
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>()
         );
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_ShouldPassIIdempotentJobKeyToStorage()
+    {
+        // Arrange
+        var job = new IdempotentTestJob
+        {
+            Id = "job1",
+            Message = "Hello",
+            BusinessKey = "payment:42"
+        };
+
+        // Act
+        await _queue.EnqueueAsync(job);
+
+        // Assert
+        await _storage.Received(1).EnqueueAsync(
+            "job1",
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<int>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<TimeSpan?>(),
+            "payment:42",
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_ExplicitIdempotencyKey_ShouldOverrideJobKey()
+    {
+        // Arrange
+        var job = new IdempotentTestJob
+        {
+            Id = "job1",
+            BusinessKey = "payment:from-job"
+        };
+
+        // Act
+        await _queue.EnqueueAsync(job, idempotencyKey: "payment:from-call");
+
+        // Assert
+        await _storage.Received(1).EnqueueAsync(
+            "job1",
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<int>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<TimeSpan?>(),
+            "payment:from-call",
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_ShouldPassDelayToStorage()
+    {
+        // Arrange
+        var job = new TestJob { Id = "job1" };
+        var delay = TimeSpan.FromMinutes(5);
+
+        // Act
+        await _queue.EnqueueAsync(job, delay: delay);
+
+        // Assert
+        await _storage.Received(1).EnqueueAsync(
+            "job1",
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<int>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            delay,
+            Arg.Any<string?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_WhenIdempotencyReturnsExistingJob_ShouldNotWriteDuplicateToChannel()
+    {
+        // Arrange
+        _storage.EnqueueAsync(
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<int>(),
+                Arg.Any<string?>(),
+                Arg.Any<string?>(),
+                Arg.Any<TimeSpan?>(),
+                Arg.Any<string?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<string>("existing-job"));
+
+        var job = new IdempotentTestJob { Id = "new-job", BusinessKey = "payment:42" };
+
+        // Act
+        await _queue.EnqueueAsync(job);
+
+        // Assert
+        _queue.Reader.TryRead(out _).Should().BeFalse();
+        await _notifier.DidNotReceive().NotifyJobUpdatedAsync(Arg.Any<JobUpdateDto>());
     }
 
     [Fact]
@@ -149,5 +269,14 @@ public class InMemoryQueueTests
     {
         public string Id { get; set; } = Guid.NewGuid().ToString();
         public string Message { get; set; } = "";
+    }
+
+    public class IdempotentTestJob : IChokaQJob, IIdempotentJob
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        public string Message { get; set; } = "";
+        public string BusinessKey { get; set; } = "";
+        public string IdempotencyKey => BusinessKey;
+        public TimeSpan? ResultTtl => TimeSpan.FromHours(1);
     }
 }

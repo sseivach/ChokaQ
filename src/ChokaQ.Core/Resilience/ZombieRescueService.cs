@@ -1,5 +1,6 @@
 using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Storage;
+using ChokaQ.Core.Observability;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -19,10 +20,9 @@ public class ZombieRescueService : BackgroundService
     private readonly IJobStorage _storage;
     private readonly IChokaQNotifier _notifier;
     private readonly ILogger<ZombieRescueService> _logger;
-    private readonly int _globalZombieTimeoutSeconds;
-
-    // Config: How often to run the cleanup scan
-    private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(1);
+    private readonly int _fetchedJobTimeoutSeconds;
+    private readonly int _processingZombieTimeoutSeconds;
+    private readonly TimeSpan _scanInterval;
 
     public ZombieRescueService(
         IJobStorage storage,
@@ -33,12 +33,16 @@ public class ZombieRescueService : BackgroundService
         _storage = storage;
         _notifier = notifier;
         _logger = logger;
-        _globalZombieTimeoutSeconds = options.ZombieTimeoutSeconds;
+        _fetchedJobTimeoutSeconds = options.FetchedJobTimeoutSeconds;
+        _processingZombieTimeoutSeconds = options.ZombieTimeoutSeconds;
+        _scanInterval = options.Recovery.ScanInterval;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Zombie Rescue Service started. Watching for abandoned and dead jobs...");
+        _logger.LogInformation(
+            ChokaQLogEvents.ZombieRescueStarted,
+            "Zombie Rescue Service started. Watching for abandoned and dead jobs.");
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -47,24 +51,31 @@ public class ZombieRescueService : BackgroundService
                 bool statsChanged = false;
 
                 // --- STEP 1: RECOVER ABANDONED JOBS ---
-                // Jobs that were Fetched but never made it to Processing.
-                // We use the same timeout setting for simplicity. They get returned to Pending (Status 0).
-                int abandonedRecovered = await _storage.RecoverAbandonedAsync(_globalZombieTimeoutSeconds, stoppingToken);
+                // Fetched jobs are only reserved in a worker's local buffer; user code has not run yet.
+                // This timeout is independent from the Processing zombie timeout because prefetch wait
+                // time and execution heartbeat freshness are different operational signals.
+                int abandonedRecovered = await _storage.RecoverAbandonedAsync(_fetchedJobTimeoutSeconds, stoppingToken);
 
                 if (abandonedRecovered > 0)
                 {
-                    _logger.LogWarning("RECOVERY: Found {Count} abandoned jobs (stuck in Fetched state). Returned them to Pending queue.", abandonedRecovered);
+                    _logger.LogWarning(
+                        ChokaQLogEvents.AbandonedJobsRecovered,
+                        "RECOVERY: Found {Count} abandoned jobs (stuck in Fetched state). Returned them to Pending queue.",
+                        abandonedRecovered);
                     statsChanged = true;
                 }
 
                 // --- STEP 2: ARCHIVE TRUE ZOMBIES ---
                 // Jobs that were Processing but stopped sending heartbeats.
                 // They get moved to the DLQ.
-                int zombiesArchived = await _storage.ArchiveZombiesAsync(_globalZombieTimeoutSeconds, stoppingToken);
+                int zombiesArchived = await _storage.ArchiveZombiesAsync(_processingZombieTimeoutSeconds, stoppingToken);
 
                 if (zombiesArchived > 0)
                 {
-                    _logger.LogWarning("ZOMBIE ALERT: Archived {Count} dead jobs to DLQ. They can be resurrected from the Morgue view.", zombiesArchived);
+                    _logger.LogWarning(
+                        ChokaQLogEvents.ZombieJobsArchived,
+                        "ZOMBIE ALERT: Archived {Count} dead jobs to DLQ. They can be resurrected from the Morgue view.",
+                        zombiesArchived);
                     statsChanged = true;
                 }
 
@@ -83,11 +94,17 @@ public class ZombieRescueService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to execute Zombie Rescue cycle.");
+                _logger.LogError(
+                    ChokaQLogEvents.ZombieRescueCycleFailed,
+                    ex,
+                    "Failed to execute Zombie Rescue cycle.");
             }
 
-            // Wait for next cycle
-            await Task.Delay(CheckInterval, stoppingToken);
+            // The scan interval is configurable because recovery is an operational trade-off:
+            // shorter scans reduce time-to-recovery, while longer scans reduce database load
+            // for very large installations. Keeping it in ChokaQOptions makes that trade-off
+            // visible instead of burying it in a magic constant.
+            await Task.Delay(_scanInterval, stoppingToken);
         }
     }
 }

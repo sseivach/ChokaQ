@@ -5,9 +5,13 @@
 ![Blazor](https://img.shields.io/badge/UI-Blazor%20Server-purple)
 ![Status](https://img.shields.io/badge/status-Active%20Development-orange)
 
-**Current Status:** Work in Progress / Proof of Concept
+**Current Status:** Active development / production-preview hardening. ChokaQ is not published as a NuGet package yet; use source references or the Docker Compose sample while the API and The Deck continue to evolve.
 
-**ChokaQ** is an enterprise-grade background job framework designed for high-load environments where reliability and minimal dependency footprint are critical. It bridges the gap between simple in-memory channels and heavy message brokers, offering atomic reliability backed by a robust Three Pillars storage architecture using SQL Server, completely avoiding the overhead of Entity Framework or any other third-party ORM.
+**ChokaQ** is a .NET 10 background job processor for SQL Server-centric systems where reliability, observability, and a minimal dependency footprint matter. It bridges the gap between simple in-memory channels and heavy job frameworks by combining durable SQL storage, atomic state transitions, worker ownership, The Deck dashboard, and detailed architecture documentation.
+
+ChokaQ is also becoming a learning project: the codebase and docs are intended to explain production patterns such as backpressure, circuit breakers, bulkheads, leases, idempotency, zombie recovery, and observability in the context of one working system.
+
+Use the docs site as both product documentation and a study map. The [Architecture Learning Track](docs/learning-track.md) explains how each production pattern should be read, tested, operated, and discussed in senior/staff architecture interviews.
 
 ![ChokaQ Dashboard](scr1.jpg)
 ![ChokaQ Dashboard - Ops Panel](scr2.jpg)
@@ -32,7 +36,7 @@ ChokaQ implements a **2x2 matrix architecture**, allowing developers to choose b
 
 ## Data Architecture: The Three Pillars
 
-To guarantee consistent performance regardless of historical data volume, data is physically separated into three atomic tiers:
+To keep hot-path queries focused on active work, data is physically separated into three atomic tiers:
 
 1.  **JobsHot (Active):**
     * Stores only Pending, Fetched, and Processing jobs.
@@ -54,7 +58,7 @@ To guarantee consistent performance regardless of historical data volume, data i
 ## Technical Capabilities
 
 ### Core Engine
-* **True Zero-Dependency:** The Core library depends only on standard Microsoft.Extensions abstractions. The engine does not rely on third-party libraries (uses native `Microsoft.Data.SqlClient`), avoiding transitive dependency bloat and simplifying long-term maintenance.
+* **Minimal Dependency Footprint:** The Core library uses standard Microsoft.Extensions abstractions. SQL Server storage uses the official `Microsoft.Data.SqlClient` driver. ChokaQ intentionally avoids EF Core, Dapper, Polly, mediator libraries, and other third-party infrastructure dependencies.
 * **Near-Native Execution:** Performance-optimized job dispatching using cached compiled Expression Trees, completely eliminating the overhead of standard reflection.
 * **Atomic State Transitions:** All lifecycle events use SQL transactions with the `OUTPUT` clause to ensure data is never lost during movement between Hot, Archive, and DLQ tables.
 
@@ -62,13 +66,15 @@ To guarantee consistent performance regardless of historical data volume, data i
 * **Dynamic Concurrency:** The number of active workers can be scaled up or down at runtime via the dashboard without restarting the application (implemented via `DynamicConcurrencyLimiter`).
 * **Bulkhead Isolation:** Advanced queue management that prevents the "noisy neighbor" problem. By enforcing concurrency limits at the database level, the system ensures that resource-intensive tasks do not stall high-priority, lightweight operations.
 * **Prefetching:** Workers use an internal bounded channel to buffer jobs from SQL, decoupling database latency from processing throughput.
+* **Backpressure Policy:** SQL mode uses `JobsHot` as the durable backlog and keeps prefetch memory bounded; in-memory mode uses a bounded channel plus `ChokaQ:InMemory:MaxCapacity` to keep process-local pressure explicit.
 
 ### Resilience & Reliability
 * **Smart Worker Logic:** Intelligent failure handling that distinguishes between transient and fatal errors. Non-transient exceptions bypass retry policies and are routed to the DLQ immediately to preserve system resources and provide instant visibility into code defects.
 * **Circuit Breaker:** In-memory protection that tracks failure rates per Job Type. Automatically opens the circuit to block execution of failing job types, preventing cascading system failures.
 * **Zombie Rescue:** Built-in self-healing mechanisms via a background service (`ZombieRescueService`) that monitors heartbeats. Automatically recovers abandoned or "zombie" jobs, ensuring no task is lost due to process crashes or network instability.
 * **Smart Retries:** Configurable exponential backoff strategies with jitter to prevent "thundering herd" effects on external services.
-* **Idempotency:** Built-in support for idempotency keys to prevent duplicate job processing.
+* **Runtime Configuration:** Execution timeouts, retry attempts, backoff, jitter, heartbeat windows, zombie recovery scans, SQL polling, cleanup batch size, transient SQL retry policy, health thresholds, and metric cardinality budgets can be bound from `appsettings.json` through `IConfiguration`.
+* **Idempotency:** Built-in Hot-queue deduplication for active jobs via idempotency keys, plus optional result-idempotency middleware for completed work.
 
 ### "The Deck" (Dashboard)
 A reactive administrative dashboard built with **Blazor Server** and **SignalR**. It features real-time job monitoring, swappable visual themes, and specialized tools for operational management.
@@ -88,15 +94,49 @@ A reactive administrative dashboard built with **Blazor Server** and **SignalR**
 
 ## Observability (OpenTelemetry)
 
-ChokaQ provides native, zero-dependency OpenTelemetry metrics using standard `System.Diagnostics.Metrics`. This means you can easily monitor throughput, failures, and execution latency without installing any heavy, proprietary telemetry packages in the library itself.
+ChokaQ provides native metrics through standard `System.Diagnostics.Metrics`. This lets hosts monitor throughput, failures, and execution latency without ChokaQ owning your telemetry exporter choice.
 
 **Available Metrics (Meter: `ChokaQ`):**
-* `chokaq.jobs.enqueued` (Counter) — Total jobs submitted.
-* `chokaq.jobs.completed` (Counter) — Total jobs executed successfully.
-* `chokaq.jobs.failed` (Counter) — Total jobs that threw an exception.
-* `chokaq.jobs.processing_duration` (Histogram) — Time taken to process a job (in milliseconds).
 
-*All metrics are automatically tagged with `queue` and `type`.*
+| Instrument | Type | Unit | Tags |
+|---|---|---|---|
+| `chokaq.jobs.enqueued` | Counter | none | `queue`, `type` |
+| `chokaq.jobs.completed` | Counter | none | `queue`, `type` |
+| `chokaq.jobs.failed` | Counter | none | `queue`, `type`, `error` |
+| `chokaq.jobs.processing_duration` | Histogram | `ms` | `queue`, `type` |
+| `chokaq.jobs.queue_lag` | Histogram | `ms` | `queue`, `type` |
+| `chokaq.jobs.dlq` | Counter | none | `queue`, `type`, `reason` |
+| `chokaq.jobs.retried` | Counter | none | `queue`, `type`, `attempt` |
+| `chokaq.workers.active` | UpDownCounter | none | `queue` |
+
+Metric tag cardinality is bounded by `ChokaQ:Metrics`. When a process sees more distinct queue, job type, error, or DLQ reason values than the configured budget, new values are emitted as `other` instead of creating unbounded monitoring time series.
+
+### Health Checks
+ChokaQ also contributes standard ASP.NET Core health checks so platform teams can publish the same `/health` endpoint they already use for probes and monitoring.
+
+```csharp
+builder.Services.AddHealthChecks()
+    .AddChokaQSqlServerHealthChecks(builder.Configuration.GetSection("ChokaQ:Health"));
+
+app.MapHealthChecks("/health");
+```
+
+The SQL integration registers three checks: `chokaq_sql` for storage reachability and schema readiness, `chokaq_worker` for hosted-worker liveness, and `chokaq_queue_saturation` for pending queue lag. The queue check maps lag into Healthy/Degraded/Unhealthy using `ChokaQ:Health` thresholds, so operators can tune readiness sensitivity per environment.
+
+### Structured Log Events
+ChokaQ uses stable `EventId` values for lifecycle logs so operators can build SIEM queries, alerts, and runbooks without parsing free-form text.
+
+| Range | Area |
+|---|---|
+| `1000-1099` | Worker service and loop lifecycle |
+| `2000-2099` | Individual job execution lifecycle |
+| `2100-2199` | State transitions and notifications |
+| `3000-3099` | Enqueue producer boundary |
+| `4000-4099` | Zombie rescue and recovery |
+| `5000-5099` | SQL initialization and storage boundary |
+| `6000-6099` | Operator/admin command boundary |
+
+Important examples: `JobSucceededArchived` (`2003`), `JobRetriesExhaustedDlq` (`2023`), `ZombieJobsArchived` (`4002`), and `SqlInitializationFailed` (`5002`).
 
 ### Exporting Metrics to Prometheus / Grafana
 Since ChokaQ uses standard BCL components, simply configure OpenTelemetry in your host `Program.cs` and listen to the **"ChokaQ"** meter:
@@ -180,34 +220,55 @@ app.MapChokaQTheDeck();
 ```
 
 ### Enabling Security
-To secure "The Deck" (Dashboard and SignalR Hub), simply provide the name of your authorization policy in the options.
+The Deck is secure by default. If no named policy is configured, the Dashboard and SignalR Hub use the host application's default authorization policy. For production, provide explicit read/connect and optional destructive-command policies.
 
 ```csharp
-// 1. Define a Policy in your host app (Program.cs)
+// 1. Define policies in your host app (Program.cs)
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("ChokaQAdmin", policy => 
         policy.RequireClaim("Role", "SystemAdministrator"));
 });
 
-// 2. Bind ChokaQ to this policy
+// 2. Bind ChokaQ to these policies
 builder.Services.AddChokaQTheDeck(options =>
 {
     options.RoutePrefix = "/chokaq";
     
-    // If set, ChokaQ will apply [Authorize(Policy = "ChokaQAdmin")] 
-    // to all Dashboard and SignalR endpoints.
-    options.AuthorizationPolicy = "ChokaQAdmin"; 
+    // Read/connect access for the dashboard and SignalR Hub.
+    options.AuthorizationPolicy = "ChokaQAdmin";
+
+    // Optional stronger policy for cancel, purge, edit, pause, retry, and resurrect commands.
+    options.DestructiveAuthorizationPolicy = "ChokaQAdmin";
 });
 ```
 
-If `AuthorizationPolicy` is left `null` (default), no authorization is applied — the dashboard is publicly accessible.
+Public access requires an explicit development/demo opt-in:
+
+```csharp
+builder.Services.AddChokaQTheDeck(options =>
+{
+    options.AllowAnonymousDeck = true;
+});
+```
 
 ---
 
 ## Quick Start (Source Integration)
 
 Since ChokaQ is currently in development, integrate it by referencing the source projects directly.
+
+### Docker Compose Sample
+
+The repository includes a SQL Server + Bus sample compose file:
+
+```powershell
+docker compose up --build
+```
+
+Open `http://localhost:5299` for the launcher, `http://localhost:5299/chokaq`
+for The Deck, and `http://localhost:5299/health` for health checks. See
+`docs/samples/docker-compose.md` for details and reset commands.
 
 ### 1. Project References
 
@@ -227,32 +288,92 @@ Add references to the core libraries in your ASP.NET Core `.csproj` file:
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Add ChokaQ Core & Profiles
-builder.Services.AddChokaQ(options =>
-{
-    // Register Job Profiles (Bus Mode)
-    options.AddProfile<MailingProfile>();
-});
+// 1. Add ChokaQ Core & Profiles.
+// Runtime policy is bound from appsettings; code owns compile-time registrations.
+builder.Services.AddChokaQ(
+    builder.Configuration.GetSection("ChokaQ"),
+    options =>
+    {
+        // Register Job Profiles (Bus Mode)
+        options.AddProfile<MailingProfile>();
+    });
 
 // 2. Add SQL Storage with Auto-Provisioning
 // This will automatically create the 'chokaq' schema and tables on startup.
-builder.Services.UseSqlServer(options =>
-{
-    options.ConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    options.SchemaName = "chokaq"; 
-    options.AutoCreateSqlTable = true;
-});
+builder.Services.UseSqlServer(
+    builder.Configuration.GetSection("ChokaQ:SqlServer"));
 
-// 3. Add Dashboard
+// 3. Add Dashboard and health checks
 builder.Services.AddChokaQTheDeck();
+builder.Services.AddHealthChecks()
+    .AddChokaQSqlServerHealthChecks(builder.Configuration.GetSection("ChokaQ:Health"));
 
 var app = builder.Build();
 
-// 4. Map Dashboard Route
+// 4. Map Dashboard and health routes
 app.MapChokaQTheDeck(); // Default route: /chokaq
+app.MapHealthChecks("/health");
 
 app.Run();
 ```
+
+**appsettings.json**
+```json
+{
+  "ChokaQ": {
+    "Execution": {
+      "DefaultTimeout": "00:15:00"
+    },
+    "Retry": {
+      "MaxAttempts": 3,
+      "BaseDelay": "00:00:03",
+      "MaxDelay": "01:00:00",
+      "BackoffMultiplier": 2.0,
+      "JitterMaxDelay": "00:00:01"
+    },
+    "Recovery": {
+      "FetchedJobTimeout": "00:10:00",
+      "ProcessingZombieTimeout": "00:10:00",
+      "ScanInterval": "00:01:00"
+    },
+    "Health": {
+      "WorkerHeartbeatTimeout": "00:00:30",
+      "QueueLagDegradedThreshold": "00:00:05",
+      "QueueLagUnhealthyThreshold": "00:00:10"
+    },
+    "InMemory": {
+      "MaxCapacity": 100000
+    },
+    "Metrics": {
+      "MaxQueueTagValues": 100,
+      "MaxJobTypeTagValues": 500,
+      "MaxErrorTagValues": 100,
+      "MaxFailureReasonTagValues": 50,
+      "MaxTagValueLength": 128,
+      "UnknownTagValue": "unknown",
+      "OverflowTagValue": "other"
+    },
+    "Queues": {
+      "reports": {
+        "ExecutionTimeout": "01:00:00"
+      }
+    },
+    "SqlServer": {
+      "ConnectionString": "Server=localhost;Database=ChokaQ;Trusted_Connection=True;TrustServerCertificate=True;",
+      "SchemaName": "chokaq",
+      "AutoCreateSqlTable": true,
+      "PollingInterval": "00:00:01",
+      "NoQueuesSleepInterval": "00:00:05",
+      "CommandTimeoutSeconds": 30,
+      "CleanupBatchSize": 1000
+    }
+  }
+}
+```
+
+See `docs/configuration.md` for the full runtime configuration reference.
+
+See `docs/3-deep-dives/backpressure-policy.md` for the SQL and in-memory backpressure model.
 
 ### 3. Define a Job & Handler
 

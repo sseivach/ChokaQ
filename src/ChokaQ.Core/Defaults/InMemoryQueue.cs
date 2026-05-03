@@ -1,9 +1,11 @@
 using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Idempotency;
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Execution;
+using ChokaQ.Core.Observability;
 using Microsoft.Extensions.Logging;
 using ChokaQ.Abstractions.Observability;
 using System.Text.Json;
@@ -76,9 +78,14 @@ public class InMemoryQueue : IChokaQQueue
         string queue = "default",
         string? createdBy = null,
         string? tags = null,
-        CancellationToken ct = default) where TJob : IChokaQJob
+        CancellationToken ct = default,
+        TimeSpan? delay = null,
+        string? idempotencyKey = null) where TJob : IChokaQJob
     {
         // --- FAIL FAST VALIDATION ---
+
+        if (job is null)
+            throw new ArgumentNullException(nameof(job));
 
         if (string.IsNullOrWhiteSpace(queue))
             throw new ArgumentException("Queue name cannot be null or empty.", nameof(queue));
@@ -92,6 +99,8 @@ public class InMemoryQueue : IChokaQQueue
         if (tags != null && tags.Length > 1000)
             throw new ArgumentException("Tags exceed maximum length of 1000 characters.", nameof(tags));
 
+        var resolvedIdempotencyKey = ResolveIdempotencyKey(job, idempotencyKey);
+
         // Resolve Key from Registry first. 
         var jobTypeName = _registry.GetKeyByType(job.GetType()) ?? job.GetType().Name;
 
@@ -104,7 +113,7 @@ public class InMemoryQueue : IChokaQQueue
         var payload = JsonSerializer.Serialize(job, job.GetType());
 
         // 2. Persist to Storage (Hot table, Status: Pending)
-        await _storage.EnqueueAsync(
+        var enqueuedId = await _storage.EnqueueAsync(
              id: job.Id,
              queue: queue,
              jobType: jobTypeName,
@@ -112,8 +121,23 @@ public class InMemoryQueue : IChokaQQueue
              priority: priority,
              createdBy: createdBy,
              tags: tags,
+             delay: delay,
+             idempotencyKey: resolvedIdempotencyKey,
              ct: ct
         );
+
+        if (!string.Equals(enqueuedId, job.Id, StringComparison.Ordinal))
+        {
+            // Enqueue idempotency is a producer-side admission control, not a worker-side filter.
+            // If storage returns an existing Hot job ID, this enqueue request did not create new
+            // work, so we must not notify the dashboard or write a duplicate item into the channel.
+            _logger.LogDebug(
+                ChokaQLogEvents.EnqueueDuplicateSkipped,
+                "Skipped duplicate enqueue for idempotency key {IdempotencyKey}. Existing job: {JobId}",
+                resolvedIdempotencyKey,
+                enqueuedId);
+            return;
+        }
 
         // 3. Real-time Notification
         try
@@ -133,7 +157,10 @@ public class InMemoryQueue : IChokaQQueue
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Failed to notify UI about new job: {Message}", ex.Message);
+            _logger.LogWarning(
+                ChokaQLogEvents.EnqueueNotificationFailed,
+                "Failed to notify UI about new job: {Message}",
+                ex.Message);
         }
 
         _metrics.RecordEnqueue(queue, jobTypeName);
@@ -142,6 +169,27 @@ public class InMemoryQueue : IChokaQQueue
         // If the channel reaches MaxChannelCapacity, this await will block the calling code
         // until the worker frees up space. This provides natural backpressure.
         await _queue.Writer.WriteAsync(job, ct);
+    }
+
+    private static string? ResolveIdempotencyKey<TJob>(TJob job, string? explicitKey)
+        where TJob : IChokaQJob
+    {
+        var key = !string.IsNullOrWhiteSpace(explicitKey)
+            ? explicitKey
+            : (job as IIdempotentJob)?.IdempotencyKey;
+
+        if (string.IsNullOrWhiteSpace(key))
+            return null;
+
+        key = key.Trim();
+        if (key.Length > 255)
+        {
+            // The storage schema uses varchar(255). Failing before serialization and persistence
+            // gives callers a clear contract violation instead of a provider-specific SQL error.
+            throw new ArgumentException("IdempotencyKey exceeds maximum length of 255 characters.", nameof(explicitKey));
+        }
+
+        return key;
     }
 
     public async ValueTask RequeueAsync(IChokaQJob job, CancellationToken ct = default)

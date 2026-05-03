@@ -15,7 +15,8 @@ public interface IJobStateManager
         string jobType,
         string queue,
         double? durationMs = null,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? workerId = null);
 
     /// <summary>
     /// Archives a failed job: Hot → DLQ.
@@ -26,7 +27,9 @@ public interface IJobStateManager
         string jobType,
         string queue,
         string errorDetails,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? workerId = null,
+        ChokaQ.Abstractions.Enums.FailureReason failureReason = ChokaQ.Abstractions.Enums.FailureReason.MaxRetriesExceeded);
 
     /// <summary>
     /// Archives a cancelled job: Hot → DLQ.
@@ -38,7 +41,8 @@ public interface IJobStateManager
         string queue,
         ChokaQ.Abstractions.Enums.JobCancellationReason reason,
         string? details = null,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? workerId = null);
 
     /// <summary>
     /// Reschedules a job for retry (stays in Hot).
@@ -52,18 +56,24 @@ public interface IJobStateManager
         DateTime scheduledAtUtc,
         int newAttemptCount,
         string lastError,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? workerId = null);
 
     /// <summary>
     /// Updates job to Processing status (stays in Hot).
     /// Notifies dashboard about the update.
     /// </summary>
-    Task MarkAsProcessingAsync(
+    /// <remarks>
+    /// The boolean result is intentionally part of the contract. It lets the processor stop
+    /// before dispatching user code when a prefetched job has lost its storage lease.
+    /// </remarks>
+    Task<bool> MarkAsProcessingAsync(
         string jobId,
         string jobType,
         string queue,
         int priority,
         int attemptCount,
         string? createdBy,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? workerId = null);
 }

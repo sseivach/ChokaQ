@@ -19,4 +19,5 @@ public class JobViewModel
 
     public string Payload { get; set; } = "{}";
     public string? ErrorDetails { get; set; }
+    public FailureReason? FailureReason { get; set; }
 }

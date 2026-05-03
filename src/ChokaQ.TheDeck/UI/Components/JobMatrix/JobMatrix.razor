@@ -31,15 +31,39 @@
         <div class="matrix__toolbar-col matrix__toolbar-col--center">
             @if (SelectedCount > 0)
             {
-                <div class="matrix__bulk-actions">
-                    <span class="deck-badge matrix__selection-badge">@SelectedCount selected</span>
-                    <button class="deck-btn deck-btn-primary" @onclick="RestartSelected">Retry</button>
-                    <button class="deck-btn deck-btn-danger" @onclick="CancelSelected">Cancel</button>
-                    @if (CurrentSource == JobSource.DLQ)
-                    {
-                        <button class="deck-btn deck-btn-danger" @onclick="PurgeSelected">Purge</button>
-                    }
-                </div>
+                @if (_pendingBulkAction is null)
+                {
+                    <div class="matrix__bulk-actions">
+                        <span class="deck-badge matrix__selection-badge">@SelectedCount selected</span>
+                        <button class="deck-btn deck-btn-primary" @onclick="RequestBulkRetry">Retry</button>
+                        <button class="deck-btn deck-btn-danger" @onclick="RequestBulkCancel">Cancel</button>
+                        @if (CurrentSource == JobSource.DLQ)
+                        {
+                            <button class="deck-btn deck-btn-danger" @onclick="RequestBulkPurge">Purge</button>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="matrix__bulk-actions matrix__bulk-actions--confirm">
+                        <span class="deck-badge matrix__selection-badge">@SelectedCount selected</span>
+                        <span class="matrix__bulk-confirm-text">@PendingBulkDescription</span>
+                        @if (RequiresTypedConfirmation)
+                        {
+                            <input type="text"
+                                   class="matrix__bulk-confirm-input"
+                                   placeholder="@PendingBulkToken"
+                                   @bind="_bulkConfirmationText"
+                                   @bind:event="oninput" />
+                        }
+                        <button class="deck-btn deck-btn-danger matrix__bulk-confirm-btn"
+                                disabled="@(!CanConfirmBulkAction)"
+                                @onclick="ConfirmBulkAction">
+                            @(_bulkActionExecuting ? "WORKING" : $"CONFIRM {PendingBulkToken}")
+                        </button>
+                        <button class="deck-btn" disabled="@_bulkActionExecuting" @onclick="ResetPendingBulkAction">Back</button>
+                    </div>
+                }
             }
         </div>
 

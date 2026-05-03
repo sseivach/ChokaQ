@@ -8,6 +8,7 @@
 @using ChokaQ.TheDeck.UI.Components.ConsoleLog
 @using ChokaQ.TheDeck.UI.Components.Settings
 @using ChokaQ.TheDeck.UI.Components.Circuits
+@using ChokaQ.TheDeck.UI.Components.Health
 @using ChokaQ.TheDeck.UI.Components.OpsPanel
 @namespace ChokaQ.TheDeck.UI.Pages
 @implements IAsyncDisposable
@@ -25,13 +26,15 @@
 
         <nav class="deck__row deck__row--stats">
             <Stats Counts="_counts"
+                   Health="_systemHealth"
                    SelectedStatus="_activeStatusFilter"
                    IsInteractive="@(_currentContext == JobSource.Hot)"
                    OnStatusSelected="HandleStatusSelected" />
         </nav>
 
         <section class="deck__row deck__row--matrix">
-            <JobMatrix Jobs="_jobs"
+            <JobMatrix @ref="_jobMatrix"
+                       Jobs="_jobs"
                        IsConnected="IsConnected"
                        CurrentSource="_currentContext"
                        OnSourceChanged="HandleSourceChanged"
@@ -59,6 +62,10 @@
             <Settings IsConnected="IsConnected" OnLog="HandleLog" />
         </section>
 
+        <section class="deck__row deck__row--health">
+            <Health HealthSnapshot="_systemHealth" />
+        </section>
+
         <section class="deck__row deck__row--circuits">
             <Circuits Breakers="_circuits" />
         </section>
@@ -72,6 +79,7 @@
                       CurrentPage="_historyPageNumber"
                       PageSize="_historyPageSize"
                       OnLoadRequest="HandleHistoryLoadRequest"
+                      OnDataChanged="HandleDataRefreshRequest"
                       OnRequeue="HandleRequeueRequested"
                       OnDelete="HandleDeleteRequested" />
         </section>

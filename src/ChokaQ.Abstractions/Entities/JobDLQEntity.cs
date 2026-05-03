@@ -11,6 +11,7 @@ namespace ChokaQ.Abstractions.Entities;
 /// - MaxRetries exhausted (FailureReason.MaxRetriesExceeded)
 /// - Manual cancellation (FailureReason.Cancelled)
 /// - Zombie detection (FailureReason.Zombie)
+/// - Operational taxonomy such as Throttled, FatalError, Timeout, or Transient exhaustion
 /// 
 /// Supports resurrection back to JobsHot for retry with fresh state.
 /// </remarks>

@@ -16,11 +16,38 @@ This is the classic **competing consumers** problem in distributed systems.
 
 WITH ActiveCounts AS (
     SELECT [Queue], COUNT(1) AS CurrentActive
-    FROM [{SCHEMA}].[JobsHot] WITH (NOLOCK)
+    FROM [{SCHEMA}].[JobsHot]
     WHERE [Status] IN (1, 2)
     GROUP BY [Queue]
+),
+Candidates AS (
+    SELECT
+        h.[Id],
+        h.[Priority],
+        ISNULL(h.[ScheduledAtUtc], h.[CreatedAtUtc]) AS SortUtc,
+        q.[MaxWorkers],
+        ISNULL(ac.CurrentActive, 0) AS CurrentActive,
+        ROW_NUMBER() OVER (
+            PARTITION BY h.[Queue]
+            ORDER BY h.[Priority] DESC,
+                     ISNULL(h.[ScheduledAtUtc], h.[CreatedAtUtc]) ASC
+        ) AS QueueRank
+    FROM [{SCHEMA}].[JobsHot] h WITH (UPDLOCK, READPAST)
+    LEFT JOIN [{SCHEMA}].[Queues] q ON h.[Queue] = q.[Name]
+    LEFT JOIN ActiveCounts ac ON h.[Queue] = ac.[Queue]
+    WHERE h.[Status] = 0
+      AND (q.[IsPaused] IS NULL OR q.[IsPaused] = 0)
+      AND (q.[IsActive] IS NULL OR q.[IsActive] = 1)
+      AND (h.[ScheduledAtUtc] IS NULL OR h.[ScheduledAtUtc] <= SYSUTCDATETIME())
+),
+Picked AS (
+    SELECT TOP (@Limit) [Id]
+    FROM Candidates
+    WHERE [MaxWorkers] IS NULL
+       OR ([CurrentActive] + [QueueRank]) <= [MaxWorkers]
+    ORDER BY [Priority] DESC, [SortUtc] ASC
 )
-UPDATE TOP (@Limit) h
+UPDATE h
 SET h.[Status] = 1,                    -- Fetched
     h.[WorkerId] = @WorkerId,
     h.[LastUpdatedUtc] = SYSUTCDATETIME()
@@ -33,15 +60,7 @@ OUTPUT
     INSERTED.[StartedAtUtc], INSERTED.[LastUpdatedUtc],
     INSERTED.[CreatedBy], INSERTED.[LastModifiedBy]
 FROM [{SCHEMA}].[JobsHot] h WITH (UPDLOCK, READPAST)
-LEFT JOIN [{SCHEMA}].[Queues] q ON h.[Queue] = q.[Name]
-LEFT JOIN ActiveCounts ac ON h.[Queue] = ac.[Queue]
-WHERE h.[Status] = 0
-  AND (q.[IsPaused] IS NULL OR q.[IsPaused] = 0)
-  AND (q.[IsActive] IS NULL OR q.[IsActive] = 1)
-  AND (q.[MaxWorkers] IS NULL OR ISNULL(ac.CurrentActive, 0) < q.[MaxWorkers])
-  AND (h.[ScheduledAtUtc] IS NULL OR h.[ScheduledAtUtc] <= SYSUTCDATETIME())
-ORDER BY h.[Priority] DESC,
-         ISNULL(h.[ScheduledAtUtc], h.[CreatedAtUtc]) ASC
+INNER JOIN Picked p ON p.[Id] = h.[Id]
 ```
 
 Let's break this apart piece by piece.
@@ -75,23 +94,31 @@ Worker B: SELECT with UPDLOCK, READPAST → SKIPS 1,2,3 → grabs rows 4, 5, 6
 Worker C: SELECT with UPDLOCK, READPAST → SKIPS 1-6 → grabs rows 7, 8, 9
 ```
 
-**Zero blocking. Zero waiting. Zero deadlocks.**
+The hot path avoids waiting on rows that another worker already locked. That is
+the operational reason for `READPAST`: workers keep making progress instead of
+forming a convoy behind the first locked row.
 
-### `NOLOCK` on ActiveCounts CTE
+### Committed ActiveCounts
 
 ```sql
 WITH ActiveCounts AS (
     SELECT [Queue], COUNT(1) AS CurrentActive
-    FROM [chokaq].[JobsHot] WITH (NOLOCK)     -- Dirty reads OK here
+    FROM [chokaq].[JobsHot]
     WHERE [Status] IN (1, 2)
     GROUP BY [Queue]
 )
 ```
 
-The CTE that counts active jobs per queue uses `NOLOCK` — dirty reads are acceptable because:
-- Off-by-one in the count doesn't cause data corruption
-- It's a **hint** for bulkhead enforcement, not a guarantee
-- Using `NOLOCK` prevents this diagnostic query from interfering with the main fetch path
+The CTE that counts active jobs per queue deliberately uses the default committed-read behavior.
+This count participates in the bulkhead decision, so dirty reads are not acceptable:
+
+- A dirty low count could let a queue temporarily exceed `MaxWorkers`.
+- A dirty high count could starve a queue based on work that later rolls back.
+- Capacity decisions belong to the correctness path; only passive dashboard telemetry is allowed to use `NOLOCK`.
+
+This is still not a serializable global semaphore. The authoritative protection remains the
+single `UPDATE ... OUTPUT` fetch statement plus the worker-owned `MarkAsProcessing` gate, but
+reading committed active counts avoids avoidable decisions based on uncommitted data.
 
 ## The UPDATE...OUTPUT Pattern
 
@@ -114,25 +141,27 @@ WHERE ...
 | `SELECT` then `UPDATE` | 2 | Gap between SELECT and UPDATE | Must hold lock across two operations |
 | `UPDATE...OUTPUT` | 1 | None — atomic | Lock acquired and released in one operation |
 
-## Walking Through the WHERE Clause
+## Walking Through The Candidate Filters
 
 ```sql
-WHERE h.[Status] = 0                                    -- ① Only Pending
-  AND (q.[IsPaused] IS NULL OR q.[IsPaused] = 0)       -- ② Not paused
-  AND (q.[IsActive] IS NULL OR q.[IsActive] = 1)       -- ③ Not deactivated
-  AND (q.[MaxWorkers] IS NULL                           -- ④ Bulkhead check
-       OR ISNULL(ac.CurrentActive, 0) < q.[MaxWorkers])
-  AND (h.[ScheduledAtUtc] IS NULL                       -- ⑤ Not scheduled for future
+WHERE h.[Status] = 0                                   -- Only Pending
+  AND (q.[IsPaused] IS NULL OR q.[IsPaused] = 0)       -- Not paused
+  AND (q.[IsActive] IS NULL OR q.[IsActive] = 1)       -- Not deactivated
+  AND (h.[ScheduledAtUtc] IS NULL                      -- Not scheduled for future
        OR h.[ScheduledAtUtc] <= SYSUTCDATETIME())
+
+-- Bulkhead check happens after candidates are ranked per queue:
+WHERE [MaxWorkers] IS NULL
+   OR ([CurrentActive] + [QueueRank]) <= [MaxWorkers]
 ```
 
 | # | Filter | Purpose |
 |---|--------|---------|
-| ① | `Status = 0` | Only grab Pending jobs (not Fetched or Processing) |
-| ② | `IsPaused = 0` | Respect queue pause (admin control) |
-| ③ | `IsActive = 1` | Skip deactivated queues |
-| ④ | `CurrentActive < MaxWorkers` | Enforce bulkhead limits |
-| ⑤ | `ScheduledAtUtc <= NOW` | Only fetch jobs whose delay has expired |
+| 1 | `Status = 0` | Only grab Pending jobs, not Fetched or Processing. |
+| 2 | `IsPaused = 0` | Respect queue pause. |
+| 3 | `IsActive = 1` | Skip deactivated queues. |
+| 4 | `ScheduledAtUtc <= NOW` | Only fetch jobs whose delay has expired. |
+| 5 | `CurrentActive + QueueRank <= MaxWorkers` | Enforce remaining per-queue capacity inside the batch, so one fetch cannot overshoot a queue limit. |
 
 ## The ORDER BY: Priority + Schedule
 
@@ -176,11 +205,15 @@ Worker C executes: UPDATE TOP(2) ... WITH (UPDLOCK, READPAST)
   → Locks Job-5, Job-6
   → OUTPUT returns Job-5, Job-6
 
-Result: Each worker gets a UNIQUE pair. Zero conflicts.
+Result: each worker gets a unique pair from this fetch path.
 ```
 
 ::: tip 💡 Architecture Insight
-The `UPDLOCK + READPAST` combination provides an atomic guarantee at the database engine level. It perfectly prevents two workers from processing the same job. It's a proven, industry-standard pattern for SQL-based message queues. No application-level distributed locking needed.
+The `UPDLOCK + READPAST` combination gives ChokaQ a database-level claim
+primitive. It prevents duplicate fetch claims without a distributed lock service.
+Processing still uses worker ownership and lease checks because real systems
+must also handle shutdown, stale buffers, zombie rescue, and operator actions
+after the initial fetch.
 :::
 
 <br>

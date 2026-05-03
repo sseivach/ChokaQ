@@ -167,6 +167,8 @@ int deleted = await _storage.PurgeArchiveAsync(
 );
 ```
 
+SQL Server cleanup deletes rows in bounded transactions controlled by `SqlServer.CleanupBatchSize` (default: 1000). Operators still call one purge method, but storage repeats short database commits underneath so retention work does not monopolize locks or transaction log space.
+
 ## Safety Gates
 
 ### Hot-Edit Safety

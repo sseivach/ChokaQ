@@ -28,11 +28,11 @@ public class SqlInitializerTests
         // Act
         await initializer.InitializeAsync(CancellationToken.None);
 
-        // Assert - Verify all 5 tables exist
+        // Assert - Verify all tables exist, including the migration ledger.
         await using var conn = new SqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
 
-        var tables = new[] { "JobsHot", "JobsArchive", "JobsDLQ", "StatsSummary", "Queues" };
+        var tables = new[] { "JobsHot", "JobsArchive", "JobsDLQ", "StatsSummary", "Queues", "SchemaMigrations" };
         foreach (var table in tables)
         {
             var cmd = new SqlCommand($@"
@@ -45,6 +45,95 @@ public class SqlInitializerTests
             var count = (int)(await cmd.ExecuteScalarAsync())!;
             count.Should().Be(1, $"Table {testSchema}.{table} should exist");
         }
+    }
+
+    [Fact]
+    public async Task InitializeAsync_ShouldRecordSchemaVersion()
+    {
+        // Arrange
+        var testSchema = "test_schema_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+        var initializer = new SqlInitializer(_fixture.ConnectionString, testSchema, NullLogger<SqlInitializer>.Instance);
+
+        // Act
+        await initializer.InitializeAsync(CancellationToken.None);
+
+        // Assert
+        await using var conn = new SqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+
+        var version1Cmd = new SqlCommand($@"
+            SELECT [Name]
+            FROM [{testSchema}].[SchemaMigrations]
+            WHERE [Version] = 1", conn);
+
+        var version2Cmd = new SqlCommand($@"
+            SELECT [Name]
+            FROM [{testSchema}].[SchemaMigrations]
+            WHERE [Version] = 2", conn);
+
+        var version1Name = (string?)(await version1Cmd.ExecuteScalarAsync());
+        var version2Name = (string?)(await version2Cmd.ExecuteScalarAsync());
+
+        // The migration ledger is an operational audit tool. During incidents and upgrades,
+        // operators need an authoritative database-side answer for the installed schema version.
+        version1Name.Should().Be("Initial Three Pillars schema");
+        version2Name.Should().Be("Hot path index hardening");
+    }
+
+    [Fact]
+    public async Task InitializeAsync_ShouldCreateCriticalPerformanceIndexes()
+    {
+        // Arrange
+        var testSchema = "test_schema_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+        var initializer = new SqlInitializer(_fixture.ConnectionString, testSchema, NullLogger<SqlInitializer>.Instance);
+
+        // Act
+        await initializer.InitializeAsync(CancellationToken.None);
+
+        // Assert
+        await using var conn = new SqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+
+        var expectedIndexes = new[]
+        {
+            $"IX_{testSchema}_JobsHot_Fetch",
+            $"IX_{testSchema}_JobsHot_StatusCreated",
+            $"IX_{testSchema}_JobsHot_FetchedRecovery",
+            $"IX_{testSchema}_JobsHot_ProcessingHeartbeat",
+            $"IX_{testSchema}_JobsDLQ_Type",
+            $"IX_{testSchema}_JobsDLQ_CreatedAt"
+        };
+
+        foreach (var indexName in expectedIndexes)
+        {
+            var cmd = new SqlCommand(@"
+                SELECT COUNT(1)
+                FROM sys.indexes
+                WHERE [name] = @IndexName", conn);
+            cmd.Parameters.AddWithValue("@IndexName", indexName);
+
+            var count = (int)(await cmd.ExecuteScalarAsync())!;
+            count.Should().Be(1, $"Index {indexName} should exist");
+        }
+
+        var fetchKeyCmd = new SqlCommand($@"
+            SELECT COUNT(1)
+            FROM sys.indexes i
+            INNER JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+            INNER JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+            WHERE i.name = @IndexName
+              AND i.object_id = OBJECT_ID(@TableName)
+              AND c.name = 'CreatedAtUtc'
+              AND ic.key_ordinal > 0", conn);
+        fetchKeyCmd.Parameters.AddWithValue("@IndexName", $"IX_{testSchema}_JobsHot_Fetch");
+        fetchKeyCmd.Parameters.AddWithValue("@TableName", $"[{testSchema}].[JobsHot]");
+
+        var fetchHasCreatedAtKey = (int)(await fetchKeyCmd.ExecuteScalarAsync())!;
+
+        // The fetch query orders by ISNULL(ScheduledAtUtc, CreatedAtUtc). Including CreatedAtUtc
+        // as a key column documents that the index shape was reviewed against the actual query,
+        // not just copied from an older simplified example.
+        fetchHasCreatedAtKey.Should().Be(1);
     }
 
     [Fact]
@@ -107,6 +196,6 @@ public class SqlInitializerTests
         cmd.Parameters.AddWithValue("@Schema", testSchema);
 
         var count = (int)(await cmd.ExecuteScalarAsync())!;
-        count.Should().Be(5, "All 5 tables should exist after double initialization");
+        count.Should().Be(6, "All ChokaQ tables, including SchemaMigrations, should exist after double initialization");
     }
 }

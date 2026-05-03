@@ -12,6 +12,8 @@ namespace ChokaQ.Core.Defaults;
 /// </summary>
 public class InMemoryJobStorage : IJobStorage
 {
+    private const int ErrorPrefixLength = 160;
+
     private readonly int _maxCapacity;
     private readonly object _transitionLock = new();
 
@@ -49,9 +51,14 @@ public class InMemoryJobStorage : IJobStorage
         string? idempotencyKey = null,
         CancellationToken ct = default)
     {
-        if (!string.IsNullOrEmpty(idempotencyKey))
+        var normalizedIdempotencyKey = NormalizeIdempotencyKey(idempotencyKey);
+
+        if (!string.IsNullOrEmpty(normalizedIdempotencyKey))
         {
-            var existing = _hotJobs.Values.FirstOrDefault(j => j.IdempotencyKey == idempotencyKey);
+            // ChokaQ's built-in enqueue dedupe is intentionally scoped to the Hot pillar.
+            // Archive and DLQ keep historical/operator records, but they are not admission-control
+            // indexes. Once work leaves Hot, the same business key may be submitted again.
+            var existing = _hotJobs.Values.FirstOrDefault(j => j.IdempotencyKey == normalizedIdempotencyKey);
             if (existing != null)
                 return new ValueTask<string>(existing.Id);
         }
@@ -63,7 +70,7 @@ public class InMemoryJobStorage : IJobStorage
             Type: jobType,
             Payload: payload,
             Tags: tags,
-            IdempotencyKey: idempotencyKey,
+            IdempotencyKey: normalizedIdempotencyKey,
             Priority: priority,
             Status: JobStatus.Pending,
             AttemptCount: 0,
@@ -121,11 +128,18 @@ public class InMemoryJobStorage : IJobStorage
 
         foreach (var job in candidates)
         {
+            if (IsQueueLimitReached(job.Queue, activeCounts))
+            {
+                // The candidate list is built from a point-in-time view. Re-checking the
+                // per-queue bulkhead inside the update loop prevents one large fetch batch
+                // from overshooting MaxWorkers after earlier rows in this same batch claimed slots.
+                continue;
+            }
+
             var fetched = job with
             {
                 Status = JobStatus.Fetched,
                 WorkerId = workerId,
-                AttemptCount = job.AttemptCount + 1,
                 LastUpdatedUtc = now
             };
 
@@ -145,21 +159,37 @@ public class InMemoryJobStorage : IJobStorage
         return new ValueTask<IEnumerable<JobHotEntity>>(lockedJobs);
     }
 
-    public ValueTask MarkAsProcessingAsync(string jobId, CancellationToken ct = default)
+    public ValueTask<bool> MarkAsProcessingAsync(
+        string jobId,
+        CancellationToken ct = default,
+        string? workerId = null)
     {
         if (_hotJobs.TryGetValue(jobId, out var job))
         {
+            if (workerId is not null &&
+                (job.Status != JobStatus.Fetched || !string.Equals(job.WorkerId, workerId, StringComparison.Ordinal)))
+            {
+                // A worker-owned transition must prove both identity and state. This prevents an
+                // old prefetched copy from becoming Processing after ReleaseJobAsync or abandoned
+                // fetch recovery already returned the persisted row to Pending.
+                return new ValueTask<bool>(false);
+            }
+
             var now = DateTime.UtcNow;
             var processing = job with
             {
                 Status = JobStatus.Processing,
+                // Count attempts at the execution boundary, not at fetch time. Fetching only
+                // reserves work in memory; it should not burn retry budget if the job is later
+                // released because of pause, shutdown, or abandoned-fetch recovery.
+                AttemptCount = job.AttemptCount + 1,
                 StartedAtUtc = now,
                 HeartbeatUtc = now,
                 LastUpdatedUtc = now
             };
-            _hotJobs.TryUpdate(jobId, processing, job);
+            return new ValueTask<bool>(_hotJobs.TryUpdate(jobId, processing, job));
         }
-        return ValueTask.CompletedTask;
+        return new ValueTask<bool>(false);
     }
 
     public ValueTask KeepAliveAsync(string jobId, CancellationToken ct = default)
@@ -183,12 +213,19 @@ public class InMemoryJobStorage : IJobStorage
     // ATOMIC TRANSITIONS (Three Pillars)
     // ========================================================================
 
-    public ValueTask ArchiveSucceededAsync(string jobId, double? durationMs = null, CancellationToken ct = default)
+    public ValueTask<bool> ArchiveSucceededAsync(
+        string jobId,
+        double? durationMs = null,
+        CancellationToken ct = default,
+        string? workerId = null)
     {
         lock (_transitionLock)
         {
-            if (!_hotJobs.TryRemove(jobId, out var job))
-                return ValueTask.CompletedTask;
+            if (!_hotJobs.TryGetValue(jobId, out var job) || !IsOwnedBy(job, workerId))
+                return new ValueTask<bool>(false);
+
+            if (!_hotJobs.TryRemove(jobId, out job))
+                return new ValueTask<bool>(false);
 
             var now = DateTime.UtcNow;
             var archived = new JobArchiveEntity(
@@ -212,20 +249,32 @@ public class InMemoryJobStorage : IJobStorage
             _archiveJobs[job.Id] = archived;
             IncrementStats(job.Queue, succeeded: 1);
         }
-        return ValueTask.CompletedTask;
+        return new ValueTask<bool>(true);
     }
 
-    public ValueTask ArchiveFailedAsync(string jobId, string errorDetails, CancellationToken ct = default)
+    public ValueTask<bool> ArchiveFailedAsync(
+        string jobId,
+        string errorDetails,
+        CancellationToken ct = default,
+        string? workerId = null,
+        FailureReason failureReason = FailureReason.MaxRetriesExceeded)
     {
-        return MoveToDLQ(jobId, FailureReason.MaxRetriesExceeded, errorDetails);
+        // The DLQ reason is an operator-facing taxonomy, not just an implementation detail.
+        // Keeping it explicit lets dashboards distinguish poison pills, timeouts, throttling,
+        // and normal transient exhaustion without scraping free-form exception text.
+        return MoveToDLQ(jobId, failureReason, errorDetails, workerId);
     }
 
-    public ValueTask ArchiveCancelledAsync(string jobId, string? cancelledBy = null, CancellationToken ct = default)
+    public ValueTask<bool> ArchiveCancelledAsync(
+        string jobId,
+        string? cancelledBy = null,
+        CancellationToken ct = default,
+        string? workerId = null)
     {
         var error = cancelledBy != null
             ? $"Cancelled by admin: {cancelledBy}"
             : "Cancelled by admin";
-        return MoveToDLQ(jobId, FailureReason.Cancelled, error);
+        return MoveToDLQ(jobId, FailureReason.Cancelled, error, workerId);
     }
 
     public ValueTask<int> ArchiveCancelledBatchAsync(string[] jobIds, string? cancelledBy = null, CancellationToken ct = default)
@@ -240,7 +289,7 @@ public class InMemoryJobStorage : IJobStorage
                 if (_hotJobs.TryGetValue(id, out var job) &&
                    (job.Status == JobStatus.Pending || job.Status == JobStatus.Fetched))
                 {
-                    MoveToDLQ(id, FailureReason.Cancelled, error).GetAwaiter().GetResult();
+                    MoveToDLQ(id, FailureReason.Cancelled, error, workerId: null).GetAwaiter().GetResult();
                     count++;
                 }
             }
@@ -248,9 +297,12 @@ public class InMemoryJobStorage : IJobStorage
         return new ValueTask<int>(count);
     }
 
-    public ValueTask ArchiveZombieAsync(string jobId, CancellationToken ct = default)
+    public ValueTask<bool> ArchiveZombieAsync(
+        string jobId,
+        CancellationToken ct = default,
+        string? workerId = null)
     {
-        return MoveToDLQ(jobId, FailureReason.Zombie, "Zombie: Worker heartbeat expired");
+        return MoveToDLQ(jobId, FailureReason.Zombie, "Zombie: Worker heartbeat expired", workerId);
     }
 
     public ValueTask ResurrectAsync(
@@ -259,10 +311,31 @@ public class InMemoryJobStorage : IJobStorage
         string? resurrectedBy = null,
         CancellationToken ct = default)
     {
+        _ = RepairAndRequeueDLQCore(jobId, updates, resurrectedBy);
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<bool> RepairAndRequeueDLQAsync(
+        string jobId,
+        JobDataUpdateDto updates,
+        string? resurrectedBy = null,
+        CancellationToken ct = default)
+    {
+        // Repair-and-requeue is the operator-safe version of resurrection. It uses the same
+        // atomic DLQ -> Hot move as ordinary retry, but the return value lets the UI distinguish
+        // a successful repair from a row that another admin already purged or requeued.
+        return new ValueTask<bool>(RepairAndRequeueDLQCore(jobId, updates, resurrectedBy));
+    }
+
+    private bool RepairAndRequeueDLQCore(
+        string jobId,
+        JobDataUpdateDto? updates,
+        string? resurrectedBy)
+    {
         lock (_transitionLock)
         {
             if (!_dlqJobs.TryRemove(jobId, out var dlqJob))
-                return ValueTask.CompletedTask;
+                return false;
 
             var now = DateTime.UtcNow;
             var resurrected = new JobHotEntity(
@@ -288,7 +361,8 @@ public class InMemoryJobStorage : IJobStorage
             _hotJobs[dlqJob.Id] = resurrected;
             DecrementStats(dlqJob.Queue, failed: 1);
         }
-        return ValueTask.CompletedTask;
+
+        return true;
     }
 
     public ValueTask<int> ResurrectBatchAsync(string[] jobIds, string? resurrectedBy = null, CancellationToken ct = default)
@@ -341,7 +415,6 @@ public class InMemoryJobStorage : IJobStorage
             {
                 Status = JobStatus.Pending,
                 WorkerId = null,
-                AttemptCount = Math.Max(0, job.AttemptCount - 1),
                 LastUpdatedUtc = DateTime.UtcNow
             };
             _hotJobs.TryUpdate(jobId, released, job);
@@ -353,15 +426,19 @@ public class InMemoryJobStorage : IJobStorage
     // RETRY LOGIC (Stays in Hot)
     // ========================================================================
 
-    public ValueTask RescheduleForRetryAsync(
+    public ValueTask<bool> RescheduleForRetryAsync(
         string jobId,
         DateTime scheduledAtUtc,
         int newAttemptCount,
         string lastError,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? workerId = null)
     {
         if (_hotJobs.TryGetValue(jobId, out var job))
         {
+            if (!IsOwnedBy(job, workerId))
+                return new ValueTask<bool>(false);
+
             var rescheduled = job with
             {
                 Status = JobStatus.Pending,
@@ -371,10 +448,13 @@ public class InMemoryJobStorage : IJobStorage
                 HeartbeatUtc = null,
                 LastUpdatedUtc = DateTime.UtcNow
             };
-            _hotJobs.TryUpdate(jobId, rescheduled, job);
-            IncrementStats(job.Queue, retried: 1);
+            if (_hotJobs.TryUpdate(jobId, rescheduled, job))
+            {
+                IncrementStats(job.Queue, retried: 1);
+                return new ValueTask<bool>(true);
+            }
         }
-        return ValueTask.CompletedTask;
+        return new ValueTask<bool>(false);
     }
 
     // ========================================================================
@@ -409,9 +489,108 @@ public class InMemoryJobStorage : IJobStorage
     {
         foreach (var id in jobIds)
         {
-            _dlqJobs.TryRemove(id, out _);
+            if (_dlqJobs.TryRemove(id, out var removed))
+            {
+                // Purge is not just a dictionary delete: failed counters are operator-facing
+                // truth. Keeping the in-memory backend aligned with SQL makes demos and tests
+                // teach the same accounting rule that production storage follows.
+                DecrementStats(removed.Queue, failed: 1);
+            }
         }
         return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<DlqBulkOperationPreviewDto> PreviewDLQBulkOperationAsync(
+        DlqBulkOperationFilterDto filter,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var limit = NormalizeDlqBulkLimit(filter);
+        var matches = OrderDlqBulkCandidates(ApplyDlqBulkFilter(_dlqJobs.Values, filter)).ToList();
+        var sampleIds = matches.Take(10).Select(j => j.Id).ToArray();
+
+        return new ValueTask<DlqBulkOperationPreviewDto>(
+            new DlqBulkOperationPreviewDto(matches.Count, limit, sampleIds));
+    }
+
+    public ValueTask<int> PurgeDLQByFilterAsync(
+        DlqBulkOperationFilterDto filter,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var limit = NormalizeDlqBulkLimit(filter);
+        var purged = 0;
+
+        lock (_transitionLock)
+        {
+            var candidates = OrderDlqBulkCandidates(ApplyDlqBulkFilter(_dlqJobs.Values, filter))
+                .Take(limit)
+                .ToList();
+
+            foreach (var candidate in candidates)
+            {
+                if (_dlqJobs.TryRemove(candidate.Id, out var removed))
+                {
+                    DecrementStats(removed.Queue, failed: 1);
+                    purged++;
+                }
+            }
+        }
+
+        return new ValueTask<int>(purged);
+    }
+
+    public ValueTask<int> ResurrectDLQByFilterAsync(
+        DlqBulkOperationFilterDto filter,
+        string? resurrectedBy = null,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var limit = NormalizeDlqBulkLimit(filter);
+        var resurrectedCount = 0;
+
+        lock (_transitionLock)
+        {
+            var candidates = OrderDlqBulkCandidates(ApplyDlqBulkFilter(_dlqJobs.Values, filter))
+                .Take(limit)
+                .ToList();
+
+            foreach (var dlqJob in candidates)
+            {
+                if (!_dlqJobs.TryRemove(dlqJob.Id, out var removed))
+                    continue;
+
+                var now = DateTime.UtcNow;
+                var resurrected = new JobHotEntity(
+                    Id: removed.Id,
+                    Queue: removed.Queue,
+                    Type: removed.Type,
+                    Payload: removed.Payload,
+                    Tags: removed.Tags,
+                    IdempotencyKey: null,
+                    Priority: 10,
+                    Status: JobStatus.Pending,
+                    AttemptCount: 0,
+                    WorkerId: null,
+                    HeartbeatUtc: null,
+                    ScheduledAtUtc: null,
+                    CreatedAtUtc: removed.CreatedAtUtc,
+                    StartedAtUtc: null,
+                    LastUpdatedUtc: now,
+                    CreatedBy: removed.CreatedBy,
+                    LastModifiedBy: resurrectedBy
+                );
+
+                _hotJobs[removed.Id] = resurrected;
+                DecrementStats(removed.Queue, failed: 1);
+                resurrectedCount++;
+            }
+        }
+
+        return new ValueTask<int>(resurrectedCount);
     }
 
     public ValueTask<int> PurgeArchiveAsync(DateTime olderThan, CancellationToken ct = default)
@@ -504,6 +683,73 @@ public class InMemoryJobStorage : IJobStorage
         }
 
         return new ValueTask<IEnumerable<StatsSummaryEntity>>(result);
+    }
+
+    public ValueTask<SystemHealthDto> GetSystemHealthAsync(CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+        var oneMinuteCutoff = now.AddMinutes(-1);
+        var fiveMinuteCutoff = now.AddMinutes(-5);
+
+        var allQueues = _queues.Keys
+            .Concat(_hotJobs.Values.Select(j => j.Queue))
+            .Concat(_archiveJobs.Values.Select(j => j.Queue))
+            .Concat(_dlqJobs.Values.Select(j => j.Queue))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(q => q, StringComparer.Ordinal)
+            .ToList();
+
+        var pendingLagByQueue = _hotJobs.Values
+            .Where(j => j.Status == JobStatus.Pending)
+            .Where(j => !j.ScheduledAtUtc.HasValue || j.ScheduledAtUtc <= now)
+            .GroupBy(j => j.Queue, StringComparer.Ordinal)
+            .ToDictionary(
+                g => g.Key,
+                g =>
+                {
+                    // Scheduled jobs should not create false saturation before they are eligible.
+                    // Once they become eligible, lag is measured from ScheduledAtUtc so delayed
+                    // workloads do not look unhealthy simply because they were intentionally delayed.
+                    var lags = g.Select(j => Math.Max(0, (now - (j.ScheduledAtUtc ?? j.CreatedAtUtc)).TotalSeconds)).ToList();
+                    return new QueueHealthDto(
+                        g.Key,
+                        lags.Count,
+                        lags.Count == 0 ? 0 : lags.Average(),
+                        lags.Count == 0 ? 0 : lags.Max());
+                },
+                StringComparer.Ordinal);
+
+        var queueHealth = allQueues
+            .Select(queue => pendingLagByQueue.GetValueOrDefault(queue) ?? new QueueHealthDto(queue, 0, 0, 0))
+            .ToList();
+
+        var succeededLastMinute = _archiveJobs.Values.LongCount(j => j.FinishedAtUtc >= oneMinuteCutoff);
+        var failedLastMinute = _dlqJobs.Values.LongCount(j => j.FailedAtUtc >= oneMinuteCutoff);
+        var succeededLastFiveMinutes = _archiveJobs.Values.LongCount(j => j.FinishedAtUtc >= fiveMinuteCutoff);
+        var failedLastFiveMinutes = _dlqJobs.Values.LongCount(j => j.FailedAtUtc >= fiveMinuteCutoff);
+
+        var topErrors = _dlqJobs.Values
+            .GroupBy(j => new { j.FailureReason, Prefix = NormalizeErrorPrefix(j.ErrorDetails) })
+            .Select(g => new DlqErrorGroupDto(
+                g.Key.FailureReason,
+                g.Key.Prefix,
+                g.LongCount(),
+                g.Max(j => j.FailedAtUtc)))
+            .OrderByDescending(g => g.Count)
+            .ThenByDescending(g => g.LatestFailedAtUtc)
+            .Take(5)
+            .ToList();
+
+        var health = new SystemHealthDto(
+            GeneratedAtUtc: now,
+            Queues: queueHealth,
+            JobsPerSecondLastMinute: CalculateJobsPerSecond(succeededLastMinute + failedLastMinute, 60),
+            JobsPerSecondLastFiveMinutes: CalculateJobsPerSecond(succeededLastFiveMinutes + failedLastFiveMinutes, 300),
+            FailureRateLastMinutePercent: CalculateFailureRatePercent(failedLastMinute, succeededLastMinute + failedLastMinute),
+            FailureRateLastFiveMinutesPercent: CalculateFailureRatePercent(failedLastFiveMinutes, succeededLastFiveMinutes + failedLastFiveMinutes),
+            TopErrors: topErrors);
+
+        return new ValueTask<SystemHealthDto>(health);
     }
 
     public ValueTask<IEnumerable<JobHotEntity>> GetActiveJobsAsync(
@@ -684,6 +930,9 @@ public class InMemoryJobStorage : IJobStorage
         var now = DateTime.UtcNow;
         int count = 0;
 
+        // Fetched recovery uses its own timeout domain. A buffered job has not executed user
+        // code yet, so returning it to Pending is safe; the separate timeout prevents long
+        // prefetch waits from being judged by the stricter Processing heartbeat policy.
         var abandonedJobs = _hotJobs.Values
             .Where(j => j.Status == JobStatus.Fetched && j.LastUpdatedUtc < now.AddSeconds(-timeoutSeconds))
             .ToList();
@@ -696,7 +945,6 @@ public class InMemoryJobStorage : IJobStorage
                 {
                     Status = JobStatus.Pending,
                     WorkerId = null,
-                    AttemptCount = Math.Max(0, job.AttemptCount - 1),
                     LastUpdatedUtc = now
                 };
 
@@ -806,11 +1054,24 @@ public class InMemoryJobStorage : IJobStorage
         if (!string.IsNullOrEmpty(filter.Queue))
             query = query.Where(x => x.Queue == filter.Queue);
 
+        if (filter.FailureReason.HasValue)
+        {
+            // DLQ reason filtering is a taxonomy filter, not a text search. Keeping it typed
+            // lets operators separate throttling, fatal poison pills, timeouts, and ordinary
+            // transient exhaustion even when error messages are noisy or localized.
+            query = query.Where(x => x.FailureReason == filter.FailureReason.Value);
+        }
+
         if (filter.FromUtc.HasValue)
             query = query.Where(x => x.CreatedAtUtc >= filter.FromUtc);
 
+        if (filter.ToUtc.HasValue)
+            query = query.Where(x => x.CreatedAtUtc <= filter.ToUtc);
+
         if (!string.IsNullOrEmpty(filter.SearchTerm))
-            query = query.Where(x => x.Id.Contains(filter.SearchTerm, StringComparison.OrdinalIgnoreCase));
+        {
+            query = query.Where(x => MatchesDlqSearch(x, filter.SearchTerm));
+        }
 
         var total = query.Count();
 
@@ -828,12 +1089,88 @@ public class InMemoryJobStorage : IJobStorage
     // PRIVATE HELPERS
     // ========================================================================
 
-    private ValueTask MoveToDLQ(string jobId, FailureReason reason, string errorDetails)
+    private static string? NormalizeIdempotencyKey(string? idempotencyKey)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+            return null;
+
+        var normalized = idempotencyKey.Trim();
+        if (normalized.Length > 255)
+            throw new ArgumentException("IdempotencyKey exceeds maximum length of 255 characters.", nameof(idempotencyKey));
+
+        return normalized;
+    }
+
+    private static int NormalizeDlqBulkLimit(DlqBulkOperationFilterDto filter)
+    {
+        var requested = filter.MaxJobs <= 0
+            ? DlqBulkOperationFilterDto.DefaultMaxJobs
+            : filter.MaxJobs;
+
+        return Math.Clamp(requested, 1, DlqBulkOperationFilterDto.AbsoluteMaxJobs);
+    }
+
+    private static IEnumerable<JobDLQEntity> ApplyDlqBulkFilter(
+        IEnumerable<JobDLQEntity> source,
+        DlqBulkOperationFilterDto filter)
+    {
+        var query = source;
+
+        if (!string.IsNullOrWhiteSpace(filter.Queue))
+            query = query.Where(j => string.Equals(j.Queue, filter.Queue.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        if (filter.FailureReason.HasValue)
+            query = query.Where(j => j.FailureReason == filter.FailureReason.Value);
+
+        if (!string.IsNullOrWhiteSpace(filter.Type))
+            query = query.Where(j => string.Equals(j.Type, filter.Type.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        if (filter.FromUtc.HasValue)
+            query = query.Where(j => j.CreatedAtUtc >= filter.FromUtc.Value);
+
+        if (filter.ToUtc.HasValue)
+            query = query.Where(j => j.CreatedAtUtc <= filter.ToUtc.Value);
+
+        if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
+            query = query.Where(j => MatchesDlqSearch(j, filter.SearchTerm));
+
+        return query;
+    }
+
+    private static IOrderedEnumerable<JobDLQEntity> OrderDlqBulkCandidates(IEnumerable<JobDLQEntity> source)
+    {
+        // Filtered bulk actions use the same stable order for preview and execution. Operators see
+        // the newest failures first, while Id acts as a deterministic tie-breaker for repeatability.
+        return source
+            .OrderByDescending(j => j.FailedAtUtc)
+            .ThenBy(j => j.Id, StringComparer.Ordinal);
+    }
+
+    private static bool MatchesDlqSearch(JobDLQEntity job, string searchTerm)
+    {
+        return Contains(job.Id, searchTerm)
+            || Contains(job.Type, searchTerm)
+            || Contains(job.Tags, searchTerm)
+            || Contains(job.ErrorDetails, searchTerm);
+    }
+
+    private static bool Contains(string? value, string searchTerm) =>
+        !string.IsNullOrEmpty(value)
+        && value.Contains(searchTerm, StringComparison.OrdinalIgnoreCase);
+
+    private ValueTask<bool> MoveToDLQ(
+        string jobId,
+        FailureReason reason,
+        string errorDetails,
+        string? workerId)
     {
         lock (_transitionLock)
         {
-            if (!_hotJobs.TryRemove(jobId, out var job))
-                return ValueTask.CompletedTask;
+            if (!_hotJobs.TryGetValue(jobId, out var job) || !IsOwnedBy(job, workerId))
+                return new ValueTask<bool>(false);
+
+            if (!_hotJobs.TryRemove(jobId, out job))
+                return new ValueTask<bool>(false);
 
             var now = DateTime.UtcNow;
             var dlqJob = new JobDLQEntity(
@@ -855,7 +1192,41 @@ public class InMemoryJobStorage : IJobStorage
             _dlqJobs[job.Id] = dlqJob;
             IncrementStats(job.Queue, failed: 1);
         }
-        return ValueTask.CompletedTask;
+        return new ValueTask<bool>(true);
+    }
+
+    private static bool IsOwnedBy(JobHotEntity job, string? workerId)
+    {
+        // Null workerId is reserved for administrative or recovery operations that
+        // intentionally bypass worker ownership. Normal workers must prove that the
+        // row is still assigned to them before they can finalize or reschedule it.
+        return workerId is null || string.Equals(job.WorkerId, workerId, StringComparison.Ordinal);
+    }
+
+    private static double CalculateJobsPerSecond(long processed, int windowSeconds) =>
+        windowSeconds <= 0 ? 0 : processed / (double)windowSeconds;
+
+    private static double CalculateFailureRatePercent(long failed, long processed) =>
+        processed == 0 ? 0 : (failed * 100d) / processed;
+
+    private static string NormalizeErrorPrefix(string? errorDetails)
+    {
+        if (string.IsNullOrWhiteSpace(errorDetails))
+            return "(empty error details)";
+
+        var firstLine = errorDetails
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Trim();
+
+        while (firstLine.Contains("  ", StringComparison.Ordinal))
+        {
+            firstLine = firstLine.Replace("  ", " ", StringComparison.Ordinal);
+        }
+
+        return firstLine.Length <= ErrorPrefixLength
+            ? firstLine
+            : firstLine[..ErrorPrefixLength];
     }
 
     private void EnsureQueueExists(string queue)
@@ -916,6 +1287,10 @@ public class InMemoryJobStorage : IJobStorage
         if (totalCount < _maxCapacity)
             return;
 
+        // In-memory mode uses a retention cap, not a hard producer admission gate. Hot jobs are
+        // accepted work and must remain visible to the worker, so pressure is relieved from the
+        // historical pillars first. SQL mode is the correct choice when operators need a durable,
+        // database-sized backlog instead of process memory acting as the pressure boundary.
         var archiveToRemove = _archiveJobs.Values
             .OrderBy(j => j.FinishedAtUtc)
             .Take(1000)

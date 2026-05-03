@@ -40,6 +40,10 @@
                     <li><span class="deck-meta-label">Type</span> <span class="deck-meta-value">@_job.Type</span></li>
                     <li><span class="deck-meta-label">Queue</span> <span class="deck-meta-value">@_job.Queue</span></li>
                     <li><span class="deck-meta-label">Priority</span> <span class="deck-meta-value">@_job.Priority</span></li>
+                    @if (_job.FailureReason.HasValue)
+                    {
+                        <li><span class="deck-meta-label">Failure Reason</span> <span class="deck-meta-value">@_job.FailureReason</span></li>
+                    }
                     <li><span class="deck-meta-label">Created By</span> <span class="deck-meta-value">@(_job.CreatedBy ?? "-")</span></li>
                 </ul>
             </div>
