@@ -2,6 +2,7 @@ using ChokaQ.Core.Observability;
 
 namespace ChokaQ.Tests.Unit.Observability;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class ChokaQLogEventsTests
 {
     [Fact]

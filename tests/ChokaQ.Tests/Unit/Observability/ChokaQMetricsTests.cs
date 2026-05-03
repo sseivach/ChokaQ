@@ -4,6 +4,7 @@ using System.Diagnostics.Metrics;
 
 namespace ChokaQ.Tests.Unit.Observability;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class ChokaQMetricsTests
 {
     [Fact]

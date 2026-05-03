@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ChokaQ.Tests.Unit.Workers;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class SqlJobWorkerTests
 {
     [Fact]

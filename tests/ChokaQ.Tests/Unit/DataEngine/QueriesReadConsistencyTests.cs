@@ -3,6 +3,7 @@ using ChokaQ.Storage.SqlServer.DataEngine;
 
 namespace ChokaQ.Tests.Unit.DataEngine;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class QueriesReadConsistencyTests
 {
     private static readonly HashSet<string> DashboardTelemetryQueries = new(StringComparer.Ordinal)

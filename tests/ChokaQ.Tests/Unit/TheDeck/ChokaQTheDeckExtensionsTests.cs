@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace ChokaQ.Tests.Unit.TheDeck;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class ChokaQTheDeckExtensionsTests
 {
     [Fact]

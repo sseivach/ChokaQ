@@ -14,6 +14,7 @@ namespace ChokaQ.Tests.Unit.Defaults;
 /// <summary>
 /// Unit tests for InMemoryQueue - producer/consumer buffer.
 /// </summary>
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class InMemoryQueueTests
 {
     private readonly IJobStorage _storage;

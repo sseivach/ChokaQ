@@ -3,6 +3,7 @@ using ChokaQ.TheDeck.UI.Pages;
 
 namespace ChokaQ.Tests.Unit.TheDeck;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class DashboardHistoryPagingTests
 {
     [Fact]

@@ -2,6 +2,7 @@ using ChokaQ.Core.Concurrency;
 
 namespace ChokaQ.Tests.Unit.Concurrency;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class DynamicConcurrencyLimiterTests
 {
     [Fact]

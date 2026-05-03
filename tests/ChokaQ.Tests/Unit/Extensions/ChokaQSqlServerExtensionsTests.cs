@@ -12,6 +12,7 @@ using Microsoft.Extensions.Options;
 
 namespace ChokaQ.Tests.Unit.Extensions;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class ChokaQSqlServerExtensionsTests
 {
     [Fact]

@@ -9,6 +9,7 @@ namespace ChokaQ.Tests.Unit.Execution;
 /// <summary>
 /// Unit tests for BusJobDispatcher - resolves and executes IChokaQJob handlers.
 /// </summary>
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class BusJobDispatcherTests
 {
     private readonly IServiceScopeFactory _scopeFactory;

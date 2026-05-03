@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ChokaQ.Tests.Unit.Idempotency;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class IdempotencyMiddlewareTests
 {
     private readonly IIdempotencyStore _store = new InMemoryIdempotencyStore();

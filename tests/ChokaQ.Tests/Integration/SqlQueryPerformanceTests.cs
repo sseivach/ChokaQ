@@ -20,6 +20,7 @@ namespace ChokaQ.Tests.Integration;
 /// the dashboard into a workload.
 /// </remarks>
 [Collection("SqlServer")]
+[Trait(TestCategories.Category, TestCategories.Integration)]
 public class SqlQueryPerformanceTests
 {
     private static readonly TimeSpan HotPathBudget = TimeSpan.FromSeconds(3);

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace ChokaQ.Tests.Unit.Notifications;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class ChokaQSignalRNotifierTests
 {
     private readonly IHubContext<ChokaQHub> _hubContext;

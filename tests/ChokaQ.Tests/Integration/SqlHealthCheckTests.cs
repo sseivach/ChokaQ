@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 namespace ChokaQ.Tests.Integration;
 
 [Collection("SqlServer")]
+[Trait(TestCategories.Category, TestCategories.Integration)]
 public class SqlHealthCheckTests
 {
     private readonly SqlServerFixture _fixture;

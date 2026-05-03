@@ -9,6 +9,7 @@ namespace ChokaQ.Tests.Integration;
 /// Integration tests for SqlInitializer - schema creation and migration.
 /// </summary>
 [Collection("SqlServer")]
+[Trait(TestCategories.Category, TestCategories.Integration)]
 public class SqlInitializerTests
 {
     private readonly SqlServerFixture _fixture;

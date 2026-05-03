@@ -12,6 +12,7 @@ namespace ChokaQ.Tests.Integration;
 /// Tests the Three Pillars architecture (Hot, Archive, DLQ) with actual database operations.
 /// </summary>
 [Collection("SqlServer")]
+[Trait(TestCategories.Category, TestCategories.Integration)]
 public class SqlJobStorageIntegrationTests
 {
     private readonly SqlServerFixture _fixture;

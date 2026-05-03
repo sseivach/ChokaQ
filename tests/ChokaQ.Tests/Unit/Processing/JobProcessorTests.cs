@@ -17,6 +17,7 @@ namespace ChokaQ.Tests.Unit.Processing;
 /// Unit tests for JobProcessor - the core job execution engine.
 /// Tests success, failure, retry logic, cancellation, and circuit breaker integration.
 /// </summary>
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class JobProcessorTests
 {
     private readonly IJobStorage _storage;

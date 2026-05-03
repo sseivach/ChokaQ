@@ -10,6 +10,7 @@ namespace ChokaQ.Tests.Integration;
 /// Tests race conditions, parallel operations, and atomic guarantees.
 /// </summary>
 [Collection("SqlServer")]
+[Trait(TestCategories.Category, TestCategories.Integration)]
 public class SqlConcurrencyTests
 {
     private readonly SqlServerFixture _fixture;

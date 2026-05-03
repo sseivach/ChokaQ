@@ -108,7 +108,7 @@ source.
 ## 4. Unit Test Gate
 
 ```powershell
-dotnet test ChokaQ.sln --configuration Release --no-build --filter "FullyQualifiedName!~Integration"
+dotnet test ChokaQ.sln --configuration Release --no-build --filter "Category=Unit"
 ```
 
 Checklist:
@@ -125,7 +125,7 @@ contract regressions before slower SQL and Docker checks spend time.
 Docker must be available for this gate.
 
 ```powershell
-dotnet test ChokaQ.sln --configuration Release --no-build
+dotnet test ChokaQ.sln --configuration Release --no-build --filter "Category=Integration"
 ```
 
 Checklist:

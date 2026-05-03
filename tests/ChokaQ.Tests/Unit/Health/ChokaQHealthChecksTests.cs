@@ -11,6 +11,7 @@ using Microsoft.Extensions.Options;
 
 namespace ChokaQ.Tests.Unit.Health;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class ChokaQHealthChecksTests
 {
     [Fact]

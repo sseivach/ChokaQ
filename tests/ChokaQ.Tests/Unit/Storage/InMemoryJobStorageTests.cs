@@ -8,6 +8,7 @@ namespace ChokaQ.Tests.Unit.Storage;
 /// Tests for InMemoryJobStorage - the largest and most critical component (899 lines, 50+ methods).
 /// Covers: Core operations, atomic transitions, retry logic, admin operations, observability, queue management.
 /// </summary>
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class InMemoryJobStorageTests
 {
     private static string NewId() => Guid.NewGuid().ToString("N");

@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ChokaQ.Tests.Unit.Resilience;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class ZombieRescueServiceTests
 {
     [Fact]

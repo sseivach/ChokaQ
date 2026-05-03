@@ -11,6 +11,7 @@ using System.Security.Claims;
 
 namespace ChokaQ.Tests.Hub;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class ChokaQHubTests
 {
     private readonly IWorkerManager _workerManager;

@@ -8,6 +8,7 @@ namespace ChokaQ.Tests.Unit.Execution;
 /// <summary>
 /// Unit tests for PipeJobDispatcher - delegates to single pipe handler.
 /// </summary>
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class PipeJobDispatcherTests
 {
     private readonly IServiceScopeFactory _scopeFactory;

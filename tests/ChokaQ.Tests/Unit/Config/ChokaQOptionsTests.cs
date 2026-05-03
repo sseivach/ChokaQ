@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace ChokaQ.Tests.Unit.Config;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class ChokaQOptionsTests
 {
     [Fact]

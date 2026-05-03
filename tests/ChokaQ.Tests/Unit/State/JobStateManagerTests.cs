@@ -11,6 +11,7 @@ namespace ChokaQ.Tests.Unit.State;
 /// <summary>
 /// Unit tests for JobStateManager - orchestrates state transitions and notifications.
 /// </summary>
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class JobStateManagerTests
 {
     private readonly IJobStorage _storage;

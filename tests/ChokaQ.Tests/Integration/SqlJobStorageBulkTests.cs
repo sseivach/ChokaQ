@@ -12,6 +12,7 @@ namespace ChokaQ.Tests.Integration;
 /// Requires a real SQL Server connection (Testcontainers).
 /// </summary>
 [Collection("SqlServer")]
+[Trait(TestCategories.Category, TestCategories.Integration)]
 public class SqlJobStorageBulkTests
 {
     private readonly SqlServerFixture _fixture;

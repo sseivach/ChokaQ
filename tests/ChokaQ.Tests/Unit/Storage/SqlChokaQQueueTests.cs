@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ChokaQ.Tests.Unit.Storage;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class SqlChokaQQueueTests
 {
     private readonly IJobStorage _storage;
