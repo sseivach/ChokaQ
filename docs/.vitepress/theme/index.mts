@@ -1,8 +1,8 @@
 import DefaultTheme from 'vitepress/theme'
-import './custom.css' // Подключаем наш пацанский конфиг стилей
+import './custom.css'
 
 export default {
-    extends: DefaultTheme, // База от VitePress
+    extends: DefaultTheme,
     enhanceApp({ app, router, siteData }) {
 
     }

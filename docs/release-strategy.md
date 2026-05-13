@@ -70,7 +70,7 @@ Before publishing any NuGet package, ChokaQ should have:
 - stable public API names and configuration sections;
 - README that describes implemented behavior, not aspirational behavior;
 - architecture docs that clearly separate implemented guarantees from planned
-  learning/book material;
+  product direction;
 - package metadata, license, symbols, SourceLink, and package README;
 - `dotnet build` passing without warnings;
 - unit tests passing;

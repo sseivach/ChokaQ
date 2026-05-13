@@ -106,6 +106,9 @@ Lifecycle logs use stable `EventId` values as well. Operators can query `JobRetr
 ## When to Choose ChokaQ
 
 ✅ **Ideal for:**
+* **Enterprise Scale:** Systems processing anywhere from 10 to 10,000+ jobs per second.
+* **Zero DevOps Overhead:** Teams that want durable, distributed queues but refuse to deploy and maintain dedicated cluster infrastructure (like external brokers or distributed caches) just for background jobs.
+* **Complex Concurrency Needs:** Workloads that require cluster-wide strict concurrency limits (Bulkhead) without introducing external distributed lock managers.
 - SQL Server-centric environments
 - Zero dependency conflict requirements
 - Real-time dashboard with edit capabilities
@@ -114,6 +117,7 @@ Lifecycle logs use stable `EventId` values as well. Operators can query `JobRetr
 - Teams wanting full control over every line of infrastructure code
 
 ❌ **Not designed for:**
+* **Extreme-Scale Event Streaming (1M+ RPS):** If you need to process millions of events per second, a dedicated log-based streaming platform is required. ChokaQ prioritizes transactional safety, rich state management, and operational simplicity over raw extreme throughput.
 - Cross-service pub/sub messaging patterns
 - PostgreSQL or Redis storage (SQL Server only, by design)
 - Recurring/scheduled jobs (not yet supported)

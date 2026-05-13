@@ -86,6 +86,13 @@ Most frameworks implement bulkhead at the **application level** — separate thr
 Enforcing the Bulkhead pattern at the database level solves the multi-instance problem. Application-level semaphores do not coordinate between instances. Every worker reads the same `JobsHot` table, so the `ActiveCounts` CTE gives a committed shared view of currently active work. Production SQL also ranks candidates per queue, which prevents one fetch batch from claiming more rows than the queue's remaining capacity.
 :::
 
+::: tip 💡 The Scale Trade-off (Why Database-Level?)
+You might ask: "Isn't running `COUNT(1)` on the database for every fetch expensive?" 
+In a traditional single-table queue design (where history and active jobs are mixed), yes. But because ChokaQ uses the **Three Pillars** architecture, the `JobsHot` table only contains currently active jobs. Executing an indexed `COUNT` on a table with a few hundred or thousand rows is instantaneous for a relational database. 
+
+By trading a microscopic amount of database CPU, you get **perfect, cluster-wide distributed coordination** without the operational burden of deploying and monitoring a separate distributed caching layer.
+:::
+
 ## Runtime Adjustment
 
 Limits can be changed **at runtime** via The Deck dashboard or API — no restart required:

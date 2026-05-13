@@ -67,7 +67,6 @@ Read the public entry points:
 - `docs/configuration.md`
 - `docs/release-strategy.md`
 - `docs/roadmap.md`
-- `docs/roadmap.ru.md`
 
 Checklist:
 

@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: "ChokaQ",
-  description: "SQL-backed background job engine and architecture learning project for .NET 10",
+  description: "SQL-backed background job engine with full architecture documentation for .NET 10",
   
   head: [
     ['link', { rel: 'icon', href: '/logo.png' }],
@@ -19,7 +19,7 @@ export default defineConfig({
 
     nav: [
       { text: 'Getting Started', link: '/getting-started' },
-      { text: 'Learning Track', link: '/learning-track' },
+      { text: 'Study Guide', link: '/study-guide' },
       { text: 'Architecture', link: '/1-architecture/three-pillars' },
       { text: 'Deep Dives', link: '/3-deep-dives/sql-concurrency' },
       { text: 'The Deck', link: '/4-the-deck/realtime-signalr' }
@@ -34,7 +34,7 @@ export default defineConfig({
           { text: 'Runtime Configuration', link: '/configuration' },
           { text: 'Release Strategy', link: '/release-strategy' },
           { text: 'Release Checklist', link: '/release-checklist' },
-          { text: 'Learning Track', link: '/learning-track' },
+          { text: 'Study Guide', link: '/study-guide' },
           { text: 'Why ChokaQ?', link: '/why-chokaq' }
         ]
       },

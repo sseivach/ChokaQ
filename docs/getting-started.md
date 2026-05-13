@@ -269,7 +269,7 @@ public class LoggingMiddleware : IChokaQMiddleware
 | Topic | What You'll Learn |
 |-------|-------------------|
 | [Why ChokaQ?](/why-chokaq) | The core philosophy and architectural benefits |
-| [Architecture Learning Track](/learning-track) | The study map for production patterns and interview framing |
+| [Architecture Study Guide](/study-guide) | The study map for production patterns and interview framing |
 | [Three Pillars](/1-architecture/three-pillars) | Why we physically separate Hot, Archive, and DLQ |
 | [State Machine](/2-lifecycle/state-machine) | The full lifecycle of a job from Pending to Archive |
 | [The Deck](/4-the-deck/realtime-signalr) | Real-time admin dashboard with SignalR |

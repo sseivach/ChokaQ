@@ -1,12 +1,13 @@
-# Architecture Learning Track
+# Architecture Study Guide
 
 ChokaQ is both a background job processor and a practical architecture study
-project. The product goal is useful software. The learning goal is a codebase
-that explains how production patterns work when they are forced to survive real
-state, failures, operators, dashboards, and tests.
+project. The product goal is useful software. The documentation goal is a docs
+site that explains how production patterns work when they are forced to survive
+real state, failures, operators, dashboards, and tests.
 
-Use this page as the reading order for senior-to-architect growth, interview
-preparation, and future book-style documentation.
+Use this page as the reading order for understanding the system, preparing for
+senior/staff architecture discussions, and expanding the docs site with deeper
+implementation notes.
 
 ## How To Read ChokaQ
 
@@ -21,9 +22,9 @@ Read each feature in four passes:
 This is the difference between "we added a queue" and "we understand a queue."
 The first is a feature. The second is architecture.
 
-## Chapter Template
+## Deep-Dive Page Template
 
-Each deep-dive chapter should eventually follow the same structure:
+Each major site page should eventually follow the same structure:
 
 | Section | Purpose |
 |---|---|
@@ -56,10 +57,32 @@ Each deep-dive chapter should eventually follow the same structure:
 | Admin Safety | Treats dashboards as production control planes, not just pretty UI. | [Getting Started](/getting-started) |
 | Release Readiness | Separates code that works locally from software that can be adopted safely. | [Release Strategy](/release-strategy) |
 
+## Site Expansion Map
+
+The docs site should absorb the useful architecture narrative directly. Future
+expansion should deepen existing pages instead of creating a separate content
+layer.
+
+| Area | Site Destination | Expansion Notes |
+|---|---|---|
+| In-memory queues | [In-Memory Engine](/3-deep-dives/memory-management) | Explain `Channel<T>`, bounded capacity, process-local durability limits, and why restarts lose volatile work. |
+| Deduplication and idempotency | [Getting Started](/getting-started) and [State Machine](/2-lifecycle/state-machine) | Show the difference between enqueue dedupe, handler idempotency, and result idempotency. |
+| Metrics correctness | [Rolling Observability](/4-the-deck/rolling-observability) | Explain why naive `ConcurrentDictionary.AddOrUpdate` patterns can distort counters under load and why ChokaQ uses explicit metric recording paths. |
+| Single-table queue failure | [Three Pillars](/1-architecture/three-pillars) and [Why SQL Server?](/1-architecture/why-sql-server) | Show how mixed hot/history rows degrade indexes and make dashboard counts expensive. |
+| Handler dispatch | [Expression Trees](/3-deep-dives/expression-trees) | Contrast reflection-based invocation with cached compiled delegates. |
+| Competing consumers | [SQL Concurrency](/3-deep-dives/sql-concurrency) | Explain `UPDLOCK`, `READPAST`, ownership guards, and why SQL Server is the coordination boundary. |
+| Graceful shutdown | [State Machine](/2-lifecycle/state-machine) | Document tracked processing tasks, prefetch release, cancellation paths, and observable shutdown behavior. |
+| Fast-fail classification | [Smart Worker](/1-architecture/smart-worker) | Explain fatal exception opt-in, transient failures, retry exhaustion, and DLQ taxonomy. |
+| Cancellation isolation | [Smart Worker](/1-architecture/smart-worker) and [State Machine](/2-lifecycle/state-machine) | Show why business cancellation tokens must not cancel infrastructure finalization. |
+| Heartbeats and leases | [Zombie Rescue](/2-lifecycle/zombie-rescue) | Explain fetched-job timeout, processing heartbeat timeout, worker identity, and zombie recovery. |
+| Bulkhead isolation | [Bulkhead Isolation](/2-lifecycle/bulkhead-isolation) | Explain noisy-neighbor protection and database-level per-queue coordination. |
+| Dynamic concurrency | [Dynamic Concurrency Limiter](/3-deep-dives/dynamic-concurrency-limiter) | Explain runtime capacity changes, coalesced wake signals, and avoided permit drift. |
+| The Deck | [Real-time SignalR](/4-the-deck/realtime-signalr), [Rolling Observability](/4-the-deck/rolling-observability), and [Edit + Resurrect](/4-the-deck/resurrect-dlq) | Treat the dashboard as an operator control plane with security, audit, consistency, and safe mutation semantics. |
+
 ## Evolutionary Lessons
 
-For the future architecture-book version of ChokaQ, key features should be
-documented as design evolution, not only as final polished code:
+Important feature pages should document design evolution, not only final polished
+code:
 
 1. Show the first simple implementation.
 2. Explain why it was reasonable at that stage.

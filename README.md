@@ -11,7 +11,7 @@
 
 ChokaQ is also becoming a learning project: the codebase and docs are intended to explain production patterns such as backpressure, circuit breakers, bulkheads, leases, idempotency, zombie recovery, and observability in the context of one working system.
 
-Use the docs site as both product documentation and a study map. The [Architecture Learning Track](docs/learning-track.md) explains how each production pattern should be read, tested, operated, and discussed in senior/staff architecture interviews.
+Use the docs site as both product documentation and a study map. The [Architecture Study Guide](docs/study-guide.md) explains how each production pattern should be read, tested, operated, and discussed in senior/staff architecture interviews.
 
 ![ChokaQ Dashboard](scr1.jpg)
 ![ChokaQ Dashboard - Ops Panel](scr2.jpg)

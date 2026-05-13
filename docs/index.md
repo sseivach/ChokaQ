@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "ChokaQ"
   text: ".NET 10 Background Job Engine"
-  tagline: "SQL-backed reliability, real-time operations, and architecture lessons on production patterns"
+  tagline: "The pragmatic .NET 10 job engine for Enterprise. Get SQL-backed reliability, real-time operations, and cluster-wide concurrency without the heavy infrastructure tax of external message brokers."
   actions:
     - theme: brand
       text: Get Started →
@@ -42,9 +42,9 @@ features:
     details: "No EF Core, no Dapper, no Polly. ChokaQ keeps infrastructure code explicit and relies on the official Microsoft SQL client for SQL Server access."
     link: /1-architecture/minimal-dependencies
   - icon: 📚
-    title: Architecture Learning Track
+    title: Architecture Study Guide
     details: The docs are growing into a practical architecture guide that explains backpressure, circuit breakers, bulkheads, retries, leases, and observability using this codebase.
-    link: /learning-track
+    link: /study-guide
 ---
 
 <br>
@@ -73,4 +73,4 @@ The **ZombieRescueService** periodically scans for jobs stuck in `Fetched` or `P
 
 <br>
 
-> *Ready to dive in? Start with the [Three Pillars Architecture](/1-architecture/three-pillars), run the [Docker Compose Sample](/samples/docker-compose), or use the [Learning Track](/learning-track) as a study map.*
+> *Ready to dive in? Start with the [Three Pillars Architecture](/1-architecture/three-pillars), run the [Docker Compose Sample](/samples/docker-compose), or use the [Study Guide](/study-guide) as a study map.*
