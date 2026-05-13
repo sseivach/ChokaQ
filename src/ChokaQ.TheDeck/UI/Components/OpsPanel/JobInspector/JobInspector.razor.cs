@@ -92,7 +92,7 @@ public partial class JobInspector
 
         // 3. Try DLQ
         var dlqJob = await JobStorage.GetDLQJobAsync(jobId);
-        if (dlqJob != null) return new JobInspectorModel { Id = dlqJob.Id, Queue = dlqJob.Queue, Type = dlqJob.Type, Payload = dlqJob.Payload, Status = JobStatus.Failed, AttemptCount = dlqJob.AttemptCount, CreatedBy = dlqJob.CreatedBy, CreatedAtUtc = dlqJob.CreatedAtUtc, ErrorDetails = dlqJob.ErrorDetails, Source = JobSource.DLQ };
+        if (dlqJob != null) return new JobInspectorModel { Id = dlqJob.Id, Queue = dlqJob.Queue, Type = dlqJob.Type, Payload = dlqJob.Payload, Status = JobStatus.Failed, AttemptCount = dlqJob.AttemptCount, CreatedBy = dlqJob.CreatedBy, CreatedAtUtc = dlqJob.CreatedAtUtc, ErrorDetails = dlqJob.ErrorDetails, FailureReason = dlqJob.FailureReason, Source = JobSource.DLQ };
 
         return null;
     }
@@ -135,6 +135,7 @@ public partial class JobInspector
         public DateTime? StartedAtUtc { get; init; }
         public DateTime? FinishedAtUtc { get; init; }
         public string? ErrorDetails { get; init; }
+        public FailureReason? FailureReason { get; init; }
         public JobSource Source { get; init; }
     }
 }

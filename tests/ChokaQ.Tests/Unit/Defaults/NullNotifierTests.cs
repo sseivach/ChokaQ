@@ -3,6 +3,7 @@ using ChokaQ.Core.Defaults;
 
 namespace ChokaQ.Tests.Unit.Defaults;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class NullNotifierTests
 {
     [Fact]

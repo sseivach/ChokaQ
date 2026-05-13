@@ -11,12 +11,20 @@
             }
         </div>
         <div class="editor__header-actions">
+            @if (CanRepairAndRequeue)
+            {
+                <button class="deck-btn deck-btn-primary editor__requeue-btn"
+                        @onclick="SaveAndRequeueAsync"
+                        disabled="@(_isSaving || _isRequeueing)">
+                    @(_isRequeueing ? "Retrying..." : "Save & Retry")
+                </button>
+            }
             <button class="deck-btn deck-btn-primary" 
                     @onclick="SaveChangesAsync" 
-                    disabled="@_isSaving">
+                    disabled="@(_isSaving || _isRequeueing)">
                 @(_isSaving ? "Saving..." : "Save")
             </button>
-            <button class="deck-btn" @onclick="CancelAsync">Cancel</button>
+            <button class="deck-btn" @onclick="CancelAsync" disabled="@(_isSaving || _isRequeueing)">Cancel</button>
         </div>
     </header>
 

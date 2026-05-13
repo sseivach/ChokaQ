@@ -43,7 +43,7 @@ public class SqlServerFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Truncates all 5 tables to ensure test isolation.
+    /// Truncates mutable runtime tables to ensure test isolation.
     /// Called at the start of each test.
     /// </summary>
     public async Task CleanTablesAsync()
@@ -56,6 +56,7 @@ public class SqlServerFixture : IAsyncLifetime
             $"[{Schema}].[JobsHot]",
             $"[{Schema}].[JobsArchive]",
             $"[{Schema}].[JobsDLQ]",
+            $"[{Schema}].[MetricBuckets]",
             $"[{Schema}].[StatsSummary]",
             $"[{Schema}].[Queues]"
         };

@@ -1,4 +1,6 @@
 ﻿@using ChokaQ.TheDeck.Enums
+@using ChokaQ.Abstractions.DTOs
+@using ChokaQ.Abstractions.Enums
 @namespace ChokaQ.TheDeck.UI.Components.OpsPanel.HistoryFilter
 
 <div class="filter">
@@ -44,6 +46,28 @@
         </div>
     </div>
 
+    @if (Context == JobSource.DLQ)
+    {
+        <div class="filter__group">
+            <div class="filter__row">
+                <div class="filter__col">
+                    <label class="filter__label">Failure Reason</label>
+                    <select class="filter__select" @bind="_failureReason">
+                        <option value="">All</option>
+                        @foreach (var reason in Enum.GetValues<FailureReason>())
+                        {
+                            <option value="@reason.ToString()">@reason</option>
+                        }
+                    </select>
+                </div>
+                <div class="filter__col">
+                    <label class="filter__label">Job Type</label>
+                    <input type="text" class="filter__input" placeholder="All" @bind="_jobType" />
+                </div>
+            </div>
+        </div>
+    }
+
     <div class="filter__group">
         <label class="filter__label">Sort By</label>
         <div class="filter__row">
@@ -65,6 +89,63 @@
             LOAD DATA
         </button>
     </div>
+
+    @if (Context == JobSource.DLQ)
+    {
+        <div class="filter__bulk">
+            <div class="filter__bulk-header">
+                <span class="filter__label">Bulk DLQ</span>
+                <input type="number"
+                       min="1"
+                       max="@DlqBulkOperationFilterDto.AbsoluteMaxJobs"
+                       class="filter__input filter__bulk-limit"
+                       @bind="_bulkMaxJobs" />
+            </div>
+            <div class="filter__row">
+                <button class="deck-btn filter__bulk-btn" disabled="@_isBulkBusy" @onclick="PreviewBulkRequeue">
+                    PREVIEW REQUEUE
+                </button>
+                <button class="deck-btn deck-btn-danger filter__bulk-btn" disabled="@_isBulkBusy" @onclick="PreviewBulkPurge">
+                    PREVIEW PURGE
+                </button>
+            </div>
+
+            @if (_bulkPreview != null)
+            {
+                <div class="filter__bulk-preview">
+                    <div class="filter__bulk-line">
+                        <span class="deck-badge deck-badge--info">@BulkConfirmationToken</span>
+                        <span>@_bulkPreview.WillAffectCount.ToString("N0") / @_bulkPreview.MatchedCount.ToString("N0") matched</span>
+                    </div>
+                    @if (_bulkPreview.IsTruncated)
+                    {
+                        <div class="filter__bulk-note">Capped at @_bulkPreview.MaxJobs.ToString("N0") jobs</div>
+                    }
+                    @if (_bulkPreview.SampleJobIds.Count > 0)
+                    {
+                        <div class="filter__bulk-sample">@string.Join(", ", _bulkPreview.SampleJobIds)</div>
+                    }
+                    <div class="filter__row">
+                        <input type="text"
+                               class="filter__input"
+                               placeholder="@BulkConfirmationToken"
+                               @bind="_bulkConfirmation"
+                               @bind:event="oninput" />
+                        <button class="deck-btn deck-btn-danger filter__bulk-confirm"
+                                disabled="@(!CanExecuteBulk)"
+                                @onclick="ExecuteBulkOperation">
+                            CONFIRM
+                        </button>
+                    </div>
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(_bulkResultMessage))
+            {
+                <div class="filter__bulk-result">@_bulkResultMessage</div>
+            }
+        </div>
+    }
 
     <hr class="deck-hr" />
 

@@ -50,4 +50,28 @@ public partial class JobRow
     };
 
     private string GetStatusLabel() => Job.Status.ToString().ToUpper();
+
+    private string? GetFailureReasonLabel() => Job.FailureReason?.ToString().ToUpperInvariant();
+
+    private bool HasErrorFamily => !string.IsNullOrWhiteSpace(Job.ErrorFamily);
+
+    private string GetErrorFamilyTitle()
+    {
+        // The row shows the normalized family for scanning. The tooltip keeps the full incident
+        // detail nearby so operators can confirm the family without opening the inspector first.
+        return string.IsNullOrWhiteSpace(Job.ErrorDetails)
+            ? Job.ErrorFamily ?? string.Empty
+            : Job.ErrorDetails;
+    }
+
+    private string GetFailureReasonModifier() => Job.FailureReason switch
+    {
+        FailureReason.Throttled => "job-row__failure--throttled",
+        FailureReason.FatalError => "job-row__failure--fatal",
+        FailureReason.Timeout => "job-row__failure--timeout",
+        FailureReason.Transient => "job-row__failure--transient",
+        FailureReason.Cancelled => "job-row__failure--cancelled",
+        FailureReason.Zombie => "job-row__failure--zombie",
+        _ => "job-row__failure--default"
+    };
 }

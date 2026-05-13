@@ -1,4 +1,4 @@
-﻿namespace ChokaQ.Core.Processing;
+namespace ChokaQ.Core.Processing;
 
 /// <summary>
 /// Encapsulates the complete lifecycle of processing a single job.
@@ -7,19 +7,28 @@
 public interface IJobProcessor
 {
     /// <summary>
-    /// Configuration: Maximum number of retries.
+    /// Compatibility configuration: maximum total execution attempts.
     /// </summary>
+    /// <remarks>
+    /// Prefer ChokaQOptions.Retry.MaxAttempts for new code. This property remains so The Deck
+    /// and older hosts can tune retry policy without taking a breaking API change.
+    /// </remarks>
     int MaxRetries { get; set; }
 
     /// <summary>
-    /// Configuration: Delay between retries in seconds.
+    /// Compatibility configuration: base retry delay in seconds.
     /// </summary>
+    /// <remarks>
+    /// Prefer ChokaQOptions.Retry.BaseDelay for new code.
+    /// </remarks>
     int RetryDelaySeconds { get; set; }
 
     /// <summary>
-    /// Configuration: Time to wait (in seconds) when the Circuit Breaker blocks execution.
-    /// Default: 5 seconds.
+    /// Compatibility configuration: delay in seconds when the Circuit Breaker blocks execution.
     /// </summary>
+    /// <remarks>
+    /// Prefer ChokaQOptions.Retry.CircuitBreakerDelay for new code.
+    /// </remarks>
     int CircuitBreakerDelaySeconds { get; set; }
 
     /// <summary>
@@ -29,6 +38,7 @@ public interface IJobProcessor
     /// <param name="jobType">Type key or class name.</param>
     /// <param name="payload">JSON payload.</param>
     /// <param name="workerId">The ID of the worker thread.</param>
+    /// <param name="attemptCount">Persisted count of attempts that have already started execution.</param>
     /// <param name="workerCt">The worker's cancellation token.</param>
     Task ProcessJobAsync(
         string jobId,
@@ -37,5 +47,7 @@ public interface IJobProcessor
         string workerId,
         int attemptCount,
         string? createdBy,
+        DateTime? scheduledAtUtc,
+        DateTime createdAtUtc,
         CancellationToken workerCt);
 }

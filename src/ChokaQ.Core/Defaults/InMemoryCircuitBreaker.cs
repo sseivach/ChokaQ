@@ -8,15 +8,20 @@ namespace ChokaQ.Core.Defaults;
 /// <summary>
 /// Thread-safe in-memory implementation of the Circuit Breaker pattern.
 /// Uses a lock-free read / locked write approach for maximum performance.
+/// 
+/// [RESILIENCY PATTERN - "The Circuit State Machine"]:
+/// 1. CLOSED: Normal operation. Fast lock-free reads.
+/// 2. OPEN: External dependency is down. Fast fail to prevent thread pool exhaustion.
+/// 3. HALF-OPEN: "Testing the waters". Allows exactly N requests to pass through 
+///    to check if the dependency has recovered. If they fail, immediate trip back to OPEN.
+///    This prevents the "Thundering Herd" on a newly recovered downstream service.
 /// </summary>
 public class InMemoryCircuitBreaker : ICircuitBreaker
 {
     private readonly TimeProvider _timeProvider;
+    private readonly CircuitPolicy _defaultPolicy = new();
 
-    // Configuration constants
-    private const int FailureThreshold = 5;
-    private const int BreakDurationSeconds = 30; // Circuit stays open for 30s
-
+    private readonly ConcurrentDictionary<string, CircuitPolicy> _policies = new();
     private readonly ConcurrentDictionary<string, CircuitStateEntry> _states = new();
 
     public InMemoryCircuitBreaker(TimeProvider timeProvider)
@@ -24,72 +29,63 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
         _timeProvider = timeProvider;
     }
 
-    public bool IsExecutionPermitted(string jobType)
+    public void RegisterPolicy(string circuitKey, CircuitPolicy policy)
     {
-        var entry = GetEntry(jobType);
+        _policies[circuitKey] = policy;
+    }
+
+    public bool IsExecutionPermitted(string circuitKey)
+    {
+        var entry = GetEntry(circuitKey);
         var now = _timeProvider.GetUtcNow();
 
         // FAST PATH: Lock-free read of the volatile Status field
         if (entry.Status == CircuitStatus.Closed) return true;
 
-        if (entry.Status == CircuitStatus.Open)
-        {
-            // Check if timeout elapsed
-            if (now >= entry.LastFailureUtc.AddSeconds(BreakDurationSeconds))
-            {
-                if (entry.TryTransitionToHalfOpen())
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        // Half-Open: Allow execution (could limit concurrency here in future)
-        return true;
+        return entry.TryAcquireExecutionPermit(now);
     }
 
-    public void ReportSuccess(string jobType)
+    public void ReportSuccess(string circuitKey)
     {
-        var entry = GetEntry(jobType);
+        var entry = GetEntry(circuitKey);
         entry.RecordSuccess();
     }
 
-    public void ReportFailure(string jobType)
+    public void ReportFailure(string circuitKey, CircuitFailureSeverity severity = CircuitFailureSeverity.Transient)
     {
-        var entry = GetEntry(jobType);
+        var entry = GetEntry(circuitKey);
         var now = _timeProvider.GetUtcNow();
 
-        entry.RecordFailure(now, FailureThreshold);
+        entry.RecordFailure(now, severity);
     }
 
-    public CircuitStatus GetStatus(string jobType) => GetEntry(jobType).Status;
+    public CircuitStatus GetStatus(string circuitKey) => GetEntry(circuitKey).Status;
 
-    /// <summary>
-    /// Implementation of the new DTO-based stats method.
-    /// </summary>
     public IEnumerable<CircuitStatsDto> GetCircuitStats()
     {
         return _states.Select(kvp =>
         {
-            var jobType = kvp.Key;
+            var circuitKey = kvp.Key;
             var entry = kvp.Value;
 
             DateTime? resetAt = null;
 
-            // Calculate reset time if Open
             if (entry.Status == CircuitStatus.Open)
             {
-                resetAt = entry.LastFailureUtc.AddSeconds(BreakDurationSeconds).UtcDateTime;
+                resetAt = entry.LastFailureUtc.AddSeconds(entry.Policy.BreakDurationSeconds).UtcDateTime;
             }
 
-            return new CircuitStatsDto(jobType, entry.Status, entry.FailureCount, resetAt);
+            return new CircuitStatsDto(circuitKey, entry.Status, entry.FailureCount, resetAt);
         });
     }
 
-    private CircuitStateEntry GetEntry(string jobType)
+    private CircuitStateEntry GetEntry(string circuitKey)
     {
-        return _states.GetOrAdd(jobType, _ => new CircuitStateEntry());
+        return _states.GetOrAdd(circuitKey, key => 
+        {
+            var policy = _policies.GetValueOrDefault(key, _defaultPolicy);
+            return new CircuitStateEntry(policy);
+        });
     }
 
     /// <summary>
@@ -98,6 +94,7 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
     /// </summary>
     private class CircuitStateEntry
     {
+        public readonly CircuitPolicy Policy;
         private readonly object _stateLock = new();
 
         public volatile CircuitStatus Status = CircuitStatus.Closed;
@@ -105,6 +102,12 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
         // These fields are mutated under lock, but can be safely read for UI stats
         public int FailureCount { get; private set; }
         public DateTimeOffset LastFailureUtc { get; private set; }
+        public int ActiveHalfOpenCalls { get; private set; }
+
+        public CircuitStateEntry(CircuitPolicy policy)
+        {
+            Policy = policy;
+        }
 
         public void RecordSuccess()
         {
@@ -115,33 +118,52 @@ public class InMemoryCircuitBreaker : ICircuitBreaker
             {
                 Status = CircuitStatus.Closed;
                 FailureCount = 0;
+                ActiveHalfOpenCalls = 0;
             }
         }
 
-        public void RecordFailure(DateTimeOffset now, int threshold)
+        public void RecordFailure(DateTimeOffset now, CircuitFailureSeverity severity)
         {
             lock (_stateLock)
             {
                 LastFailureUtc = now;
                 FailureCount++;
+                ActiveHalfOpenCalls = 0;
 
-                if (Status == CircuitStatus.HalfOpen || FailureCount >= threshold)
+                if (Status == CircuitStatus.HalfOpen || FailureCount >= Policy.FailureThreshold || severity == CircuitFailureSeverity.Fatal)
                 {
                     Status = CircuitStatus.Open;
                 }
             }
         }
 
-        public bool TryTransitionToHalfOpen()
+        public bool TryAcquireExecutionPermit(DateTimeOffset now)
         {
             lock (_stateLock)
             {
                 if (Status == CircuitStatus.Open)
                 {
-                    Status = CircuitStatus.HalfOpen;
-                    return true;
+                    // Check if break duration elapsed
+                    if (now >= LastFailureUtc.AddSeconds(Policy.BreakDurationSeconds))
+                    {
+                        Status = CircuitStatus.HalfOpen;
+                        ActiveHalfOpenCalls = 1;
+                        return true;
+                    }
+                    return false;
                 }
-                return false;
+
+                if (Status == CircuitStatus.HalfOpen)
+                {
+                    if (ActiveHalfOpenCalls < Policy.HalfOpenMaxCalls)
+                    {
+                        ActiveHalfOpenCalls++;
+                        return true;
+                    }
+                    return false; // Deny execution until half-open requests finish
+                }
+
+                return true; // Closed
             }
         }
     }

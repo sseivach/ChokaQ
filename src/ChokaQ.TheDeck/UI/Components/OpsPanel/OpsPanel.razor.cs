@@ -12,7 +12,7 @@ namespace ChokaQ.TheDeck.UI.Components.OpsPanel;
 /// </summary>
 public partial class OpsPanel
 {
-    // --- Parameters from Parent (TheDeck) ---
+
 
     /// <summary>
     /// Indicates if the application is currently in History Mode (orange state).
@@ -20,15 +20,15 @@ public partial class OpsPanel
     /// </summary>
     [Parameter] public bool IsHistoryMode { get; set; }
 
-    // --- Data Parameters for History Filter (Placeholders for Stage 3) ---
-    // These are passed down from TheDeck so the filter component knows what to display.
+
     [Parameter] public JobSource CurrentContext { get; set; } = JobSource.Archive;
     [Parameter] public int TotalItems { get; set; }
     [Parameter] public int CurrentPage { get; set; } = 1;
     [Parameter] public int PageSize { get; set; } = 100;
+    [Parameter] public HistoryFilterDto? ActiveHistoryFilter { get; set; }
     [Parameter] public HubConnection? HubConnection { get; set; }
 
-    // --- Events ---
+
 
     /// <summary>
     /// Fired when the user requests to requeue (retry) a job.
@@ -46,7 +46,15 @@ public partial class OpsPanel
     /// </summary>
     [Parameter] public EventCallback<HistoryFilterDto> OnLoadRequest { get; set; }
 
-    // --- Internal State ---
+    /// <summary>
+    /// Fired after an editor command changes storage state.
+    /// The side panel can reload the inspector on its own, but the page shell owns counters,
+    /// health indicators, and the current table. Bubbling this event keeps those surfaces
+    /// reconciled from storage instead of letting the editor create a local UI-only truth.
+    /// </summary>
+    [Parameter] public EventCallback OnDataChanged { get; set; }
+
+
 
     private OpsTab _activeTab = OpsTab.None;
     private string? _selectedJobId;
@@ -58,21 +66,20 @@ public partial class OpsPanel
     /// </summary>
     protected override void OnParametersSet()
     {
-        // Rule 1: If we switched TO History Mode and nothing is open, show the Filters.
+
         if (IsHistoryMode && _activeTab == OpsTab.None)
         {
             _activeTab = OpsTab.HistoryFilter;
         }
 
-        // Rule 2: If we switched FROM History Mode (to Live) and Filters were open, close the panel.
-        // We don't want to show history filters in Live mode.
+
         if (!IsHistoryMode && _activeTab == OpsTab.HistoryFilter)
         {
             _activeTab = OpsTab.None;
         }
     }
 
-    // --- Public API (Called by TheDeck via @ref) ---
+
 
     /// <summary>
     /// Opens the Job Inspector for a specific job ID.
@@ -89,10 +96,13 @@ public partial class OpsPanel
     /// Forces the panel to show the History Filter tab.
     /// Called when the user toggles the mode switch to "History".
     /// </summary>
-    public void ShowHistoryFilter()
+    public void ShowHistoryFilter(bool force = false)
     {
-        if (IsHistoryMode)
+        if (force || IsHistoryMode)
         {
+            // Dashboard click-through can update the parent context before Blazor has pushed the
+            // new IsHistoryMode parameter into this child component. The force flag lets the
+            // parent open the correct operator workflow immediately after a Top Errors click.
             SwitchTab(OpsTab.HistoryFilter);
         }
     }
@@ -105,14 +115,13 @@ public partial class OpsPanel
         _selectedJobId = null;
         _editorModel = null;
 
-        // Logic: If in History Mode, "Closing" an inspector just takes us back to the Filter list.
-        // If in Live Mode, "Closing" shuts the whole panel.
+
         _activeTab = IsHistoryMode ? OpsTab.HistoryFilter : OpsTab.None;
 
         StateHasChanged();
     }
 
-    // --- Internal Logic ---
+
 
     private void SwitchTab(OpsTab tab)
     {
@@ -120,7 +129,7 @@ public partial class OpsPanel
         StateHasChanged();
     }
 
-    // --- Child Component Handlers ---
+
 
     /// <summary>
     /// Handles the "Edit" button click from the Inspector.
@@ -139,7 +148,7 @@ public partial class OpsPanel
     private async Task HandleJobSaved(string jobId)
     {
         ShowJobInspector(jobId);
-        await Task.CompletedTask;
+        await OnDataChanged.InvokeAsync();
     }
 
     /// <summary>
@@ -166,13 +175,13 @@ public partial class OpsPanel
         }
     }
 
-    // Bubble up events to parent
+
     private async Task HandleRequeue(string jobId) => await OnRequeue.InvokeAsync(jobId);
 
     private async Task HandleDelete(string jobId)
     {
         await OnDelete.InvokeAsync(jobId);
-        // After deletion, close the inspector for that job
+
         ClearPanel();
     }
 

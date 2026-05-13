@@ -17,8 +17,8 @@
             @foreach (var circuit in Breakers)
             {
                 <article class="circuits__item @GetStatusModifier(circuit.Status)">
-                    <div class="circuits__name" title="@circuit.JobType">
-                        @FormatName(circuit.JobType)
+                    <div class="circuits__name" title="@circuit.CircuitKey">
+                        @FormatName(circuit.CircuitKey)
                     </div>
                     <div class="circuits__status-row">
                          <span class="circuits__icon @GetIconModifier(circuit.Status)">@GetIcon(circuit.Status)</span>

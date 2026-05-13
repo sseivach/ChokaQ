@@ -8,6 +8,7 @@ namespace ChokaQ.Tests.Unit.Execution;
 /// <summary>
 /// Unit tests for PipeJobDispatcher - delegates to single pipe handler.
 /// </summary>
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class PipeJobDispatcherTests
 {
     private readonly IServiceScopeFactory _scopeFactory;
@@ -25,6 +26,9 @@ public class PipeJobDispatcherTests
         _scopeFactory.CreateScope().Returns(_scope);
         _scope.ServiceProvider.Returns(_serviceProvider);
         _serviceProvider.GetService(typeof(IChokaQPipeHandler)).Returns(_handler);
+
+        _serviceProvider.GetService(typeof(IEnumerable<ChokaQ.Abstractions.Middleware.IChokaQMiddleware>))
+            .Returns(Array.Empty<ChokaQ.Abstractions.Middleware.IChokaQMiddleware>());
 
         // Setup internal JobContext via reflection
         var notifier = Substitute.For<ChokaQ.Abstractions.Notifications.IChokaQNotifier>();

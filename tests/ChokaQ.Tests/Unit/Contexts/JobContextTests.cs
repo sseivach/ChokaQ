@@ -3,6 +3,7 @@ using ChokaQ.Core.Contexts;
 
 namespace ChokaQ.Tests.Unit.Contexts;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class JobContextTests
 {
     [Fact]

@@ -1,4 +1,5 @@
 using Microsoft.Data.SqlClient;
+using System.Runtime.CompilerServices;
 
 namespace ChokaQ.Storage.SqlServer.DataEngine;
 
@@ -7,6 +8,30 @@ namespace ChokaQ.Storage.SqlServer.DataEngine;
 /// </summary>
 public static class SqlMapper
 {
+    private static readonly ConditionalWeakTable<SqlConnection, CommandOptions> ConnectionOptions = new();
+
+    /// <summary>
+    /// Associates ChokaQ command settings with an open connection.
+    /// </summary>
+    /// <remarks>
+    /// ADO.NET stores CommandTimeout on SqlCommand, not on SqlConnection. SqlJobStorage opens
+    /// connections while SqlMapper creates commands, so we attach the timeout to the connection
+    /// and apply it every time a command is built. ConditionalWeakTable keeps this bookkeeping
+    /// from extending the lifetime of disposed connections.
+    /// </remarks>
+    internal static void SetCommandTimeout(this SqlConnection conn, int commandTimeoutSeconds)
+    {
+        if (commandTimeoutSeconds <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(commandTimeoutSeconds),
+                "SQL command timeout must be greater than zero seconds.");
+        }
+
+        ConnectionOptions.Remove(conn);
+        ConnectionOptions.Add(conn, new CommandOptions(commandTimeoutSeconds));
+    }
+
     /// <summary>
     /// Executes a query and returns multiple rows.
     /// </summary>
@@ -18,7 +43,7 @@ public static class SqlMapper
     {
         var (sqlParams, modifiedSql) = ParameterBuilder.BuildParameters(parameters, sql);
 
-        using var cmd = new SqlCommand(modifiedSql, conn);
+        using var cmd = CreateCommand(conn, modifiedSql);
         cmd.Parameters.AddRange(sqlParams);
 
         using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -54,7 +79,7 @@ public static class SqlMapper
     {
         var (sqlParams, modifiedSql) = ParameterBuilder.BuildParameters(parameters, sql);
 
-        using var cmd = new SqlCommand(modifiedSql, conn);
+        using var cmd = CreateCommand(conn, modifiedSql);
         cmd.Parameters.AddRange(sqlParams);
 
         using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -86,7 +111,7 @@ public static class SqlMapper
     {
         var (sqlParams, modifiedSql) = ParameterBuilder.BuildParameters(parameters, sql);
 
-        using var cmd = new SqlCommand(modifiedSql, conn);
+        using var cmd = CreateCommand(conn, modifiedSql);
         cmd.Parameters.AddRange(sqlParams);
 
         using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -126,7 +151,7 @@ public static class SqlMapper
     {
         var (sqlParams, modifiedSql) = ParameterBuilder.BuildParameters(parameters, sql);
 
-        using var cmd = new SqlCommand(modifiedSql, conn);
+        using var cmd = CreateCommand(conn, modifiedSql);
         cmd.Parameters.AddRange(sqlParams);
 
         return await cmd.ExecuteNonQueryAsync(ct);
@@ -143,7 +168,7 @@ public static class SqlMapper
     {
         var (sqlParams, modifiedSql) = ParameterBuilder.BuildParameters(parameters, sql);
 
-        using var cmd = new SqlCommand(modifiedSql, conn);
+        using var cmd = CreateCommand(conn, modifiedSql);
         cmd.Parameters.AddRange(sqlParams);
 
         var result = await cmd.ExecuteScalarAsync(ct);
@@ -168,4 +193,18 @@ public static class SqlMapper
             || type == typeof(Guid)
             || (Nullable.GetUnderlyingType(type) != null && IsPrimitiveType(Nullable.GetUnderlyingType(type)!));
     }
+
+    private static SqlCommand CreateCommand(SqlConnection conn, string sql)
+    {
+        var command = new SqlCommand(sql, conn);
+
+        if (ConnectionOptions.TryGetValue(conn, out var options))
+        {
+            command.CommandTimeout = options.CommandTimeoutSeconds;
+        }
+
+        return command;
+    }
+
+    private sealed record CommandOptions(int CommandTimeoutSeconds);
 }

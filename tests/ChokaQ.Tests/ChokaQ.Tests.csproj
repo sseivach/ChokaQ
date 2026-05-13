@@ -28,6 +28,7 @@
     <Using Include="Xunit" />
     <Using Include="FluentAssertions" />
     <Using Include="NSubstitute" />
+    <Using Include="ChokaQ.Tests" />
   </ItemGroup>
 
   <ItemGroup>

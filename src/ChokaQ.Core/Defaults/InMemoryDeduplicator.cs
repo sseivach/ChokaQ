@@ -4,8 +4,9 @@ using System.Collections.Concurrent;
 namespace ChokaQ.Core.Defaults;
 
 /// <summary>
-/// A zero-dependency, in-memory implementation of the deduplicator.
-/// Uses a ConcurrentDictionary to track active keys and a background timer to cleanup expired entries.
+/// A small in-memory implementation of the deduplicator.
+/// It uses only BCL primitives because active-key deduplication is intentionally simple here:
+/// a ConcurrentDictionary tracks active keys and a background timer removes expired entries.
 /// </summary>
 public class InMemoryDeduplicator : IDeduplicator, IDisposable
 {

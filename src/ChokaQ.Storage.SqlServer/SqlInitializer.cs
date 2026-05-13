@@ -1,5 +1,6 @@
 ﻿using ChokaQ.Storage.SqlServer.DataEngine;
 using Microsoft.Data.SqlClient;
+using ChokaQ.Core.Observability;
 using Microsoft.Extensions.Logging;
 using System.Reflection;
 using System.Text.RegularExpressions;
@@ -14,13 +15,23 @@ public class SqlInitializer
 {
     private readonly string _connectionString;
     private readonly string _schemaName;
+    private readonly int _commandTimeoutSeconds;
     private readonly ILogger<SqlInitializer> _logger;
 
-    public SqlInitializer(string connectionString, string schemaName, ILogger<SqlInitializer> logger)
+    public SqlInitializer(
+        string connectionString,
+        string schemaName,
+        ILogger<SqlInitializer> logger,
+        int commandTimeoutSeconds = 30)
     {
         _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
         _schemaName = schemaName ?? throw new ArgumentNullException(nameof(schemaName));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _commandTimeoutSeconds = commandTimeoutSeconds > 0
+            ? commandTimeoutSeconds
+            : throw new ArgumentOutOfRangeException(
+                nameof(commandTimeoutSeconds),
+                "SQL command timeout must be greater than zero seconds.");
     }
 
     /// <summary>
@@ -28,7 +39,10 @@ public class SqlInitializer
     /// </summary>
     public async Task InitializeAsync(CancellationToken ct = default)
     {
-        _logger.LogInformation("Starting ChokaQ database initialization. Target Schema: {Schema}", _schemaName);
+        _logger.LogInformation(
+            ChokaQLogEvents.SqlInitializationStarted,
+            "Starting ChokaQ database initialization. Target Schema: {Schema}",
+            _schemaName);
 
         // 1. Security Validation
         // Prevent SQL Injection via schema name configuration
@@ -41,6 +55,7 @@ public class SqlInitializer
         {
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync(ct);
+            connection.SetCommandTimeout(_commandTimeoutSeconds);
 
             // 2. Define execution order
             // Tables must be created before Stored Procedures
@@ -55,11 +70,16 @@ public class SqlInitializer
                 await ExecuteScriptFromResourceAsync(connection, resourceName, ct);
             }
 
-            _logger.LogInformation("ChokaQ database initialization completed successfully.");
+            _logger.LogInformation(
+                ChokaQLogEvents.SqlInitializationCompleted,
+                "ChokaQ database initialization completed successfully.");
         }
         catch (Exception ex)
         {
-            _logger.LogCritical(ex, "ChokaQ database initialization failed. Application may not function correctly.");
+            _logger.LogCritical(
+                ChokaQLogEvents.SqlInitializationFailed,
+                ex,
+                "ChokaQ database initialization failed. Application may not function correctly.");
             throw;
         }
     }
@@ -97,7 +117,11 @@ public class SqlInitializer
             }
             catch (SqlException ex)
             {
-                _logger.LogError(ex, "Error executing SQL block from {Resource}.", resourceName);
+                _logger.LogError(
+                    ChokaQLogEvents.SqlScriptExecutionFailed,
+                    ex,
+                    "Error executing SQL block from {Resource}.",
+                    resourceName);
                 throw; // Rethrow to stop initialization
             }
         }

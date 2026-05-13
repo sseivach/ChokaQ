@@ -9,6 +9,7 @@ namespace ChokaQ.Tests.Unit.Execution;
 /// <summary>
 /// Unit tests for BusJobDispatcher - resolves and executes IChokaQJob handlers.
 /// </summary>
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class BusJobDispatcherTests
 {
     private readonly IServiceScopeFactory _scopeFactory;
@@ -25,6 +26,9 @@ public class BusJobDispatcherTests
 
         _scopeFactory.CreateScope().Returns(_scope);
         _scope.ServiceProvider.Returns(_serviceProvider);
+
+        _serviceProvider.GetService(typeof(IEnumerable<ChokaQ.Abstractions.Middleware.IChokaQMiddleware>))
+            .Returns(Array.Empty<ChokaQ.Abstractions.Middleware.IChokaQMiddleware>());
     }
 
     private void SetupJobContext()

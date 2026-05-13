@@ -5,6 +5,7 @@ namespace ChokaQ.Tests.Unit.Execution;
 /// <summary>
 /// Unit tests for JobTypeRegistry - bidirectional job type mapping.
 /// </summary>
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class JobTypeRegistryTests
 {
     [Fact]

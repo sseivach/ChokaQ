@@ -3,8 +3,9 @@
 namespace ChokaQ.Storage.SqlServer.DataEngine;
 
 /// <summary>
-/// A zero-dependency retry policy for transient SQL Server errors (e.g., deadlocks, network blips).
-/// Uses Exponential Backoff with Jitter to prevent thundering herd problems.
+/// A small, self-contained retry policy for transient SQL Server errors (e.g., deadlocks, network blips).
+/// We keep this local instead of depending on a general-purpose resilience library because ChokaQ only
+/// needs one narrow SQL retry shape here: exponential backoff with jitter to prevent thundering-herd retries.
 /// </summary>
 internal static class SqlRetryPolicy
 {

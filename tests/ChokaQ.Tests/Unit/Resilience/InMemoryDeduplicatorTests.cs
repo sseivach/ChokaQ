@@ -2,6 +2,7 @@ using ChokaQ.Core.Defaults;
 
 namespace ChokaQ.Tests.Unit.Resilience;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class InMemoryDeduplicatorTests
 {
     [Fact]

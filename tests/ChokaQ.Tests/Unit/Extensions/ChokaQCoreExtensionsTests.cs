@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace ChokaQ.Tests.Unit.Extensions;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class ChokaQCoreExtensionsTests
 {
     [Fact]

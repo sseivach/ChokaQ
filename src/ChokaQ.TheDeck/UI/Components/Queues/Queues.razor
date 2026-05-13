@@ -31,6 +31,7 @@
                     <th class="queues__th queues__th--reserv2">Failed</th>
                     <th class="queues__th queues__th--reserv1">Buffered</th>
                     <th class="queues__th queues__th--reserv3">Pending</th>
+                    <th class="queues__th queues__th--lag">Lag</th>
                     <th class="queues__th queues__th--timeout">Max Workers</th>
                     <th class="queues__th queues__th--timeout">Zombie (s)</th>
                     <th class="queues__th queues__th--updated">Last Updated</th>
@@ -47,6 +48,7 @@
                 @foreach (var q in VisibleQueues)
                 {
                     var stats = GetQueueStats(q.Name);
+                    var health = GetQueueHealth(q.Name);
                     <tr>
                         <td class="queues__name @(!q.IsActive ? "queues__name--inactive" : "")">@q.Name</td>
 
@@ -87,6 +89,20 @@
                             @if (stats != null)
                             {
                                 <span class="queues__stats-pending" title="Pending">@stats.Pending.ToString("N0")</span>
+                            }
+                            else
+                            {
+                                <span class="queues__stats-empty">-</span>
+                            }
+                        </td>
+
+                        <td class="queues__lag-cell">
+                            @if (health != null)
+                            {
+                                <span class="queues__lag @GetLagModifier(health)"
+                                      title="Avg pending lag / Max pending lag">
+                                    @FormatLag(health.AverageLagSeconds) / @FormatLag(health.MaxLagSeconds)
+                                </span>
                             }
                             else
                             {

@@ -7,6 +7,7 @@ namespace ChokaQ.Tests.Integration;
 /// <summary>
 /// Tests for the internal TypeMapper class which maps IDataReader to objects.
 /// </summary>
+[Trait(TestCategories.Category, TestCategories.Integration)]
 public class TypeMapperTests
 {
     private readonly IDataReader _reader;

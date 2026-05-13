@@ -2,6 +2,7 @@ using ChokaQ.Abstractions.DTOs;
 
 namespace ChokaQ.Tests.Unit.DTOs;
 
+[Trait(TestCategories.Category, TestCategories.Unit)]
 public class DtoEntityTests
 {
     [Fact]

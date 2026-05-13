@@ -1,4 +1,5 @@
 using ChokaQ.TheDeck.Models;
+using ChokaQ.TheDeck.Enums;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
 using System.Text.Json;
@@ -21,6 +22,9 @@ public partial class JobEditor
     private int _editPriority = 10;
     private string? _errorMessage;
     private bool _isSaving;
+    private bool _isRequeueing;
+
+    private bool CanRepairAndRequeue => Job?.Source == JobSource.DLQ;
 
     protected override void OnParametersSet()
     {
@@ -82,6 +86,60 @@ public partial class JobEditor
         finally
         {
             _isSaving = false;
+        }
+    }
+
+    private async Task SaveAndRequeueAsync()
+    {
+        if (Job == null || HubConnection == null)
+        {
+            _errorMessage = "Connection lost or Job is null.";
+            return;
+        }
+
+        if (!CanRepairAndRequeue)
+        {
+            _errorMessage = "Save and retry is only available for DLQ jobs.";
+            return;
+        }
+
+        if (!TryValidateJson(_editPayload, out var validationError))
+        {
+            _errorMessage = validationError;
+            return;
+        }
+
+        try
+        {
+            _isRequeueing = true;
+            _errorMessage = null;
+
+            // Repair-and-requeue is deliberately one Hub command. If we saved the payload first
+            // and requeued in a second request, an operator could leave the job half-repaired
+            // during an outage by closing the browser or losing the SignalR connection.
+            var success = await HubConnection.InvokeAsync<bool>(
+                "RepairAndRequeueDLQJob",
+                Job.Id,
+                _editPayload,
+                null,
+                _editPriority);
+
+            if (success)
+            {
+                await OnSaved.InvokeAsync(Job.Id);
+            }
+            else
+            {
+                _errorMessage = "Repair and retry failed. Job might have been purged or requeued externally.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"SignalR Error: {ex.Message}";
+        }
+        finally
+        {
+            _isRequeueing = false;
         }
     }
 
