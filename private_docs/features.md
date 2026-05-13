@@ -24,7 +24,7 @@ ChokaQ is in **active development / production-preview hardening**.
 | SQL integration tests pass in CI. | Done in roadmap snapshot | Roadmap snapshot: 78 passed, 1 skipped with SQL/Testcontainers available. |
 | SQL mode enqueue no longer depends on in-memory channel. | Done | SQL mode uses `SqlChokaQQueue` and SQL storage directly. |
 | All state transitions are atomic and ownership-aware. | Done | Hot/Archive/DLQ transitions use transaction-scoped SQL moves with ownership guards. |
-| Worker shutdown is graceful and observable. | Done | SQL worker tracks fetcher, processor, prefetched jobs, and active processing tasks. |
+| Worker shutdown is graceful and observable. | Partial | SQL worker tracks fetcher, processor, prefetched jobs, and active processing tasks; explicit shutdown grace budget and Kubernetes guidance are still tracked as high-priority hardening. |
 | The Deck is not public unless explicitly configured. | Done | Dashboard authorization is secure by default; anonymous access requires explicit opt-in. |
 | Queue lag, failure rate, and top DLQ errors are visible in dashboard. | Done | Rolling observability uses `MetricBuckets` and dashboard widgets. |
 | Failure taxonomy is persisted and filterable. | Done | DLQ rows carry failure reason data and UI filters/badges. |
@@ -125,6 +125,9 @@ ChokaQ is in **active development / production-preview hardening**.
 - **Graceful shutdown:** hosted worker shutdown observes fetcher and processor
   loops, completes prefetch buffers, releases unstarted jobs, and waits for
   active tasks to finish cancellation/finalization.
+- **Shutdown caveat:** started `Processing` jobs are not blindly returned to
+  `Pending` because handler side effects may already have happened; cooperative
+  cancellation, idempotency, and zombie recovery define the safe paths.
 - **Prefetch release:** jobs fetched but never started can be released safely.
 - **Execution gate:** `MarkAsProcessingAsync` verifies persisted ownership before
   user handler dispatch.
