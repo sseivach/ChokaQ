@@ -19,6 +19,7 @@ public class IdempotencyMiddlewareTests
     {
         var ctx = Substitute.For<IJobContext>();
         ctx.JobId.Returns("job-123");
+        ctx.CancellationToken.Returns(CancellationToken.None);
         _context = ctx;
     }
 
@@ -171,6 +172,29 @@ public class IdempotencyMiddlewareTests
     }
 
     [Fact]
+    public async Task InvokeAsync_ShouldPassExecutionCancellationToken_ToClaimStore()
+    {
+        var ctx = Substitute.For<IJobContext>();
+        using var cts = new CancellationTokenSource();
+        ctx.JobId.Returns("job-cancel");
+        ctx.CancellationToken.Returns(cts.Token);
+        cts.Cancel();
+
+        var middleware = CreateMiddleware();
+        var job = new PaymentJob();
+        var callCount = 0;
+
+        await middleware.Invoking(m => m.InvokeAsync(ctx, job, () =>
+            {
+                callCount++;
+                return Task.CompletedTask;
+            }))
+            .Should().ThrowAsync<OperationCanceledException>();
+
+        callCount.Should().Be(0);
+    }
+
+    [Fact]
     public async Task InMemoryIdempotencyStore_ShouldAllowClaimAfterInProgressLeaseExpires()
     {
         var store = new InMemoryIdempotencyStore();
@@ -181,6 +205,23 @@ public class IdempotencyMiddlewareTests
 
         first.Status.Should().Be(IdempotencyBeginStatus.Claimed);
         second.Status.Should().Be(IdempotencyBeginStatus.Claimed);
+    }
+
+    [Fact]
+    public async Task InMemoryIdempotencyStore_ShouldCleanupExpiredEntries_WhenDifferentKeysAreUsed()
+    {
+        var store = new InMemoryIdempotencyStore();
+        await store.StoreResultAsync("expired-1", "{}", ttl: TimeSpan.FromMilliseconds(1));
+        await store.StoreResultAsync("expired-2", "{}", ttl: TimeSpan.FromMilliseconds(1));
+
+        await Task.Delay(50);
+
+        for (var i = 0; i < 64; i++)
+        {
+            await store.TryBeginAsync($"active-{i}", $"job-{i}", TimeSpan.FromMinutes(1));
+        }
+
+        store.Count.Should().Be(64);
     }
 
     [Fact]

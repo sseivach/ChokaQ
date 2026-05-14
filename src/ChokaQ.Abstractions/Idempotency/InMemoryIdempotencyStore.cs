@@ -14,6 +14,8 @@ namespace ChokaQ.Abstractions.Idempotency;
 /// </summary>
 internal sealed class InMemoryIdempotencyStore : IIdempotencyStore, IIdempotencyClaimStore
 {
+    private const int CleanupIntervalOperations = 64;
+
     private enum EntryState
     {
         InProgress,
@@ -28,11 +30,18 @@ internal sealed class InMemoryIdempotencyStore : IIdempotencyStore, IIdempotency
 
     private readonly ConcurrentDictionary<string, CacheEntry> _cache = new();
     private readonly object _gate = new();
+    private int _operationsSinceCleanup;
+
+    internal int Count => _cache.Count;
 
     public ValueTask<string?> TryGetResultAsync(string idempotencyKey, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         lock (_gate)
         {
+            CleanupExpiredIfNeeded(force: false);
+
             if (_cache.TryGetValue(idempotencyKey, out var entry))
             {
                 if (entry.State == EntryState.Completed && !IsExpired(entry))
@@ -48,9 +57,12 @@ internal sealed class InMemoryIdempotencyStore : IIdempotencyStore, IIdempotency
 
     public ValueTask StoreResultAsync(string idempotencyKey, string resultPayload, TimeSpan? ttl = null, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         var expiresAt = ttl.HasValue ? DateTimeOffset.UtcNow.Add(ttl.Value) : (DateTimeOffset?)null;
         lock (_gate)
         {
+            CleanupExpiredIfNeeded(force: false);
             _cache[idempotencyKey] = new CacheEntry(EntryState.Completed, null, resultPayload, expiresAt);
         }
 
@@ -63,10 +75,14 @@ internal sealed class InMemoryIdempotencyStore : IIdempotencyStore, IIdempotency
         TimeSpan inProgressTtl,
         CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         var expiresAt = DateTimeOffset.UtcNow.Add(inProgressTtl);
 
         lock (_gate)
         {
+            CleanupExpiredIfNeeded(force: false);
+
             if (_cache.TryGetValue(idempotencyKey, out var entry))
             {
                 if (entry.State == EntryState.Completed && !IsExpired(entry))
@@ -93,12 +109,16 @@ internal sealed class InMemoryIdempotencyStore : IIdempotencyStore, IIdempotency
         TimeSpan? completedTtl = null,
         CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         var expiresAt = completedTtl.HasValue
             ? DateTimeOffset.UtcNow.Add(completedTtl.Value)
             : (DateTimeOffset?)null;
 
         lock (_gate)
         {
+            CleanupExpiredIfNeeded(force: false);
+
             if (!_cache.TryGetValue(idempotencyKey, out var entry) ||
                 entry.State != EntryState.InProgress ||
                 !string.Equals(entry.OwnerJobId, jobId, StringComparison.Ordinal))
@@ -116,8 +136,12 @@ internal sealed class InMemoryIdempotencyStore : IIdempotencyStore, IIdempotency
         string jobId,
         CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         lock (_gate)
         {
+            CleanupExpiredIfNeeded(force: false);
+
             if (!_cache.TryGetValue(idempotencyKey, out var entry) ||
                 entry.State != EntryState.InProgress ||
                 !string.Equals(entry.OwnerJobId, jobId, StringComparison.Ordinal))
@@ -127,6 +151,24 @@ internal sealed class InMemoryIdempotencyStore : IIdempotencyStore, IIdempotency
 
             _cache.TryRemove(idempotencyKey, out _);
             return ValueTask.FromResult(true);
+        }
+    }
+
+    private void CleanupExpiredIfNeeded(bool force)
+    {
+        _operationsSinceCleanup++;
+        if (!force && _operationsSinceCleanup < CleanupIntervalOperations)
+        {
+            return;
+        }
+
+        _operationsSinceCleanup = 0;
+        foreach (var pair in _cache)
+        {
+            if (IsExpired(pair.Value))
+            {
+                _cache.TryRemove(pair.Key, out _);
+            }
         }
     }
 

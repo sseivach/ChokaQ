@@ -5,6 +5,7 @@ using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Observability;
 using ChokaQ.Abstractions.Serialization;
 using ChokaQ.Abstractions.Storage;
+using ChokaQ.Core;
 using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
 using ChokaQ.Core.Processing;
@@ -271,6 +272,135 @@ public class JobWorkerTests
         await storage.Received(1).ResurrectAsync("job-1", null, "Admin restart");
     }
 
+    [Fact]
+    public async Task RestartJobsAsync_ShouldBatchRequeueWithRegistryOrAssemblyQualifiedKeys()
+    {
+        var registry = new JobTypeRegistry();
+        registry.Register("registered_test_job", typeof(TestJob));
+
+        var storage = Substitute.For<IJobStorage>();
+        var processor = Substitute.For<IJobProcessor>();
+        var queue = CreateQueue(storage, registry);
+        var worker = CreateWorker(queue, storage, processor, registry);
+
+        storage.ResurrectBatchAsync(
+                Arg.Any<string[]>(),
+                Arg.Any<string?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<int>(3));
+
+        storage.GetJobAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var jobId = call.ArgAt<string>(0);
+                var job = jobId switch
+                {
+                    "job-1" => CreateHotJob(
+                        "job-1",
+                        "registered_test_job",
+                        """{"Id":"job-1","Message":"registered"}"""),
+                    "job-2" => CreateHotJob(
+                        "job-2",
+                        typeof(TestJob).AssemblyQualifiedName!,
+                        """{"Id":"job-2","Message":"assembly-qualified"}"""),
+                    "job-3" => CreateHotJob(
+                        "job-3",
+                        nameof(TestJob),
+                        """{"Id":"job-3","Message":"short-name"}"""),
+                    _ => null
+                };
+
+                return new ValueTask<JobHotEntity?>(job);
+            });
+
+        await worker.RestartJobsAsync(new[] { "job-1", "job-2", "job-3" });
+
+        queue.Reader.TryRead(out var first).Should().BeTrue();
+        queue.Reader.TryRead(out var second).Should().BeTrue();
+        queue.Reader.TryRead(out _).Should().BeFalse();
+
+        var messages = new[] { first, second }
+            .Cast<TestJob>()
+            .Select(job => job.Message);
+
+        messages.Should().BeEquivalentTo("registered", "assembly-qualified");
+
+        // Batch resurrection must not fall back to CLR short-name scans. The third row
+        // uses a legacy short name and is deliberately skipped instead of guessing a type.
+        await storage.Received(1).ResurrectBatchAsync(
+            Arg.Is<string[]>(ids => ids.SequenceEqual(new[] { "job-1", "job-2", "job-3" })),
+            "Admin restart",
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StopAsync_ShouldCancelAndAwaitInMemoryWorkerLoops()
+    {
+        var registry = new JobTypeRegistry();
+        registry.Register("registered_test_job", typeof(TestJob));
+
+        var storage = Substitute.For<IJobStorage>();
+        var processor = Substitute.For<IJobProcessor>();
+        var queue = CreateQueue(storage, registry);
+        var worker = CreateWorker(
+            queue,
+            storage,
+            processor,
+            registry,
+            new ChokaQOptions
+            {
+                Worker = { ShutdownGracePeriod = TimeSpan.FromSeconds(2) }
+            });
+
+        var job = new TestJob { Id = "job-1", Message = "shutdown" };
+        var processingStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var processorObservedCancellation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        storage.GetJobAsync(job.Id, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<JobHotEntity?>(CreateHotJob(
+                job.Id,
+                "registered_test_job",
+                """{"Id":"job-1","Message":"shutdown"}""")));
+        storage.GetQueuesAsync(Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IEnumerable<QueueEntity>>(new[] { CreateQueueEntity() }));
+
+        processor.ProcessJobAsync(
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<string?>(),
+                Arg.Any<int>(),
+                Arg.Any<string?>(),
+                Arg.Any<DateTime?>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                var ct = call.ArgAt<CancellationToken>(8);
+                processingStarted.SetResult();
+
+                try
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    processorObservedCancellation.SetResult();
+                }
+            });
+
+        worker.UpdateWorkerCount(1);
+        await queue.RequeueAsync(job);
+        await processingStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        await worker.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(3));
+
+        await processorObservedCancellation.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        worker.IsRunning.Should().BeFalse();
+        worker.ActiveWorkers.Should().Be(0);
+        worker.TotalWorkers.Should().Be(0);
+    }
+
     private static InMemoryQueue CreateQueue(IJobStorage storage, JobTypeRegistry registry) =>
         new(
             storage,
@@ -284,7 +414,8 @@ public class JobWorkerTests
         InMemoryQueue queue,
         IJobStorage storage,
         IJobProcessor processor,
-        JobTypeRegistry registry) =>
+        JobTypeRegistry registry,
+        ChokaQOptions? options = null) =>
         new(
             queue,
             storage,
@@ -292,7 +423,8 @@ public class JobWorkerTests
             Substitute.For<IJobStateManager>(),
             processor,
             registry,
-            CreateSerializer());
+            CreateSerializer(),
+            options);
 
     private static IChokaQJobSerializer CreateSerializer() =>
         new SystemTextJsonChokaQJobSerializer(new ChokaQ.Core.ChokaQSerializationOptions());

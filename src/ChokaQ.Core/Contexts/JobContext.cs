@@ -10,6 +10,8 @@ internal class JobContext : IJobContext
     // Will be set by the Worker before the handler starts
     public string JobId { get; set; } = string.Empty;
 
+    public CancellationToken CancellationToken { get; set; }
+
     public JobContext(IChokaQNotifier notifier)
     {
         _notifier = notifier;

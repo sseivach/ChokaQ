@@ -42,6 +42,7 @@ internal class BusJobDispatcher : IJobDispatcher
         // 1. Setup Context
         var jobContext = serviceProvider.GetRequiredService<JobContext>();
         jobContext.JobId = jobId;
+        jobContext.CancellationToken = ct;
 
         // 2. Resolve Type from Registry or assembly-qualified compatibility fallback.
         var clrType = _registry.ResolvePersistedType(jobType);

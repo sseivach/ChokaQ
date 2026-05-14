@@ -28,11 +28,7 @@ High means at least one of these is true:
 
 Current high roadmaps:
 
-- `high/core-execution-hardening-roadmap.md`
-- `high/idempotency-hardening-roadmap.md`
-- `high/resilience-recovery-hardening-roadmap.md`
-- `high/type-resolution-hardening-roadmap.md`
-- `high/worker-processor-hardening-roadmap.md`
+None.
 
 ## Middle
 

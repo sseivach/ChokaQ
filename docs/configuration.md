@@ -293,6 +293,9 @@ The built-in in-memory idempotency store is claim-based: the first execution
 writes an `InProgress` claim, concurrent duplicates see `AlreadyInProgress` and
 skip handler execution, and successful completion writes a completion marker.
 Handler failure releases the claim so a later retry can execute.
+Expired in-memory claim and completion entries are removed opportunistically in
+bounded cleanup passes as the store is used, but this store is still process-local
+development infrastructure, not durable production state.
 
 For production multi-instance deployments, use a shared store. A Redis strategy
 should use atomic `SET ... NX ... EX` or Lua scripts for begin/complete/release

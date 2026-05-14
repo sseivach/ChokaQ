@@ -9,6 +9,12 @@ public interface IJobContext
     string JobId { get; }
 
     /// <summary>
+    /// Token for the current job execution, cancelled on timeout, admin cancellation,
+    /// or worker shutdown.
+    /// </summary>
+    CancellationToken CancellationToken { get; }
+
+    /// <summary>
     /// Reports execution progress (0-100) to the dashboard.
     /// </summary>
     Task ReportProgressAsync(int percentage);

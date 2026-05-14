@@ -56,7 +56,7 @@ internal sealed class IdempotencyMiddleware : IChokaQMiddleware
             key,
             context.JobId,
             _options.InProgressTtl,
-            CancellationToken.None);
+            context.CancellationToken);
 
         if (begin.Status == IdempotencyBeginStatus.AlreadyCompleted)
         {
@@ -86,7 +86,7 @@ internal sealed class IdempotencyMiddleware : IChokaQMiddleware
         }
         catch
         {
-            await _store.ReleaseAsync(key, context.JobId, CancellationToken.None);
+            await _store.ReleaseAsync(key, context.JobId, context.CancellationToken);
             _metrics?.RecordIdempotencyOutcome("released");
             _logger.LogDebug(
                 "[Idempotency] Released in-progress claim for key '{Key}' after handler failure.",
@@ -100,7 +100,7 @@ internal sealed class IdempotencyMiddleware : IChokaQMiddleware
             context.JobId,
             completionPayload,
             ResolveResultTtl(idempotentJob),
-            CancellationToken.None);
+            context.CancellationToken);
 
         if (!completed)
         {

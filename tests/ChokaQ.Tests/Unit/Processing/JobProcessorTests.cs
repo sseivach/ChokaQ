@@ -4,6 +4,7 @@ using ChokaQ.Abstractions.Storage;
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Exceptions;
 using ChokaQ.Core;
+using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
 using ChokaQ.Core.Processing;
 using ChokaQ.Core.State;
@@ -486,6 +487,109 @@ public class JobProcessorTests
         await _stateManager.DidNotReceive().ArchiveSucceededAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double?>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
         _breaker.Received(1).ReleaseExecutionPermit("TestJob");
+    }
+
+    [Fact]
+    public async Task ProcessJobAsync_WithHalfOpenCircuit_WhenProcessingLeaseIsLost_ShouldReleaseProbe()
+    {
+        // Arrange
+        var fakeTime = new ChokaQ.Tests.Unit.Resilience.FakeTimeProvider();
+        var breaker = new InMemoryCircuitBreaker(fakeTime);
+        breaker.RegisterPolicy("TestJob", new CircuitPolicy(
+            FailureThreshold: 1,
+            BreakDurationSeconds: 1,
+            HalfOpenMaxCalls: 1));
+        breaker.ReportFailure("TestJob");
+        fakeTime.Advance(TimeSpan.FromSeconds(2));
+
+        var processor = new JobProcessor(
+            _storage,
+            NullLogger<JobProcessor>.Instance,
+            breaker,
+            _dispatcher,
+            _stateManager,
+            Substitute.For<IChokaQMetrics>());
+
+        _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
+        _stateManager.MarkAsProcessingAsync(
+                "job1",
+                "TestJob",
+                "default",
+                10,
+                1,
+                null,
+                Arg.Any<CancellationToken>(),
+                "worker1")
+            .Returns(Task.FromResult(false));
+
+        // Act
+        await processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+
+        // Assert
+        await _dispatcher.DidNotReceive().DispatchAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        ((ICircuitBreakerLeaseProvider)breaker).TryAcquireExecutionPermit("TestJob").Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task ProcessJobAsync_WithHalfOpenCircuit_WhenWorkerShutdownCancelsDispatch_ShouldReleaseProbe()
+    {
+        // Arrange
+        var fakeTime = new ChokaQ.Tests.Unit.Resilience.FakeTimeProvider();
+        var breaker = new InMemoryCircuitBreaker(fakeTime);
+        breaker.RegisterPolicy("TestJob", new CircuitPolicy(
+            FailureThreshold: 1,
+            BreakDurationSeconds: 1,
+            HalfOpenMaxCalls: 1));
+        breaker.ReportFailure("TestJob");
+        fakeTime.Advance(TimeSpan.FromSeconds(2));
+
+        var processor = new JobProcessor(
+            _storage,
+            NullLogger<JobProcessor>.Instance,
+            breaker,
+            _dispatcher,
+            _stateManager,
+            Substitute.For<IChokaQMetrics>());
+
+        _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
+
+        using var workerCts = new CancellationTokenSource();
+        var dispatchStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _dispatcher.DispatchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                dispatchStarted.SetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, call.Arg<CancellationToken>());
+            });
+
+        // Act
+        var processTask = processor.ProcessJobAsync(
+            "job1",
+            "TestJob",
+            "{}",
+            "worker1",
+            0,
+            null,
+            DateTime.UtcNow,
+            DateTime.UtcNow,
+            workerCts.Token);
+        await dispatchStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await workerCts.CancelAsync();
+        await processTask.WaitAsync(TimeSpan.FromSeconds(2));
+
+        // Assert
+        await _stateManager.Received(1).RescheduleForRetryAsync(
+            "job1",
+            "TestJob",
+            "default",
+            10,
+            Arg.Any<DateTime>(),
+            1,
+            "Worker Shutdown",
+            Arg.Any<CancellationToken>(),
+            "worker1");
+        ((ICircuitBreakerLeaseProvider)breaker).TryAcquireExecutionPermit("TestJob").Should().NotBeNull();
     }
 
     [Fact]
