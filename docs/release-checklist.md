@@ -119,6 +119,10 @@ Checklist:
 Why this exists: unit tests are the fast correctness net. They should catch
 contract regressions before slower SQL and Docker checks spend time.
 
+Use [Release Verification Matrix](/release-verification-matrix) to map focused
+test groups to the high-risk runtime guarantees before relying on the full
+suite result.
+
 ## 5. SQL Integration Gate
 
 Docker must be available for this gate.
@@ -215,11 +219,11 @@ Checklist:
 Why this exists: The Deck is not just a UI. It is an administrative control
 plane that can edit, requeue, purge, pause, and cancel work.
 
-## 10. Future NuGet Gate
+## 10. NuGet Gate
 
-This gate is frozen until NuGet publishing becomes active work.
+This gate validates the package artifact before any public publish.
 
-When unfrozen, require:
+Require:
 
 - explicit version decision;
 - package metadata;
@@ -230,8 +234,8 @@ When unfrozen, require:
 - install smoke test from a local package folder into a clean sample app;
 - final human approval before publish.
 
-Do not use this gate as a reason to publish early. It is a placeholder for the
-future, not a current release task.
+Do not use a successful local pack as a reason to publish early. It proves the
+artifact shape, not release approval.
 
 ## Sign-Off Record
 

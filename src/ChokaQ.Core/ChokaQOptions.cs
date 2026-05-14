@@ -76,6 +76,22 @@ public class ChokaQOptions
     public ChokaQMetricsOptions Metrics { get; set; } = new();
 
     /// <summary>
+    /// Serialization contract and payload size boundaries.
+    /// </summary>
+    public ChokaQSerializationOptions Serialization { get; set; } = new();
+
+    /// <summary>
+    /// Optional idempotency middleware policy.
+    /// </summary>
+    public ChokaQIdempotencyOptions Idempotency { get; set; } = new();
+
+    /// <summary>
+    /// Bus-mode type identity policy. Explicit profile keys are the production path;
+    /// fallback identities exist only for compatibility and local experiments.
+    /// </summary>
+    public ChokaQTypeResolutionOptions TypeResolution { get; set; } = new();
+
+    /// <summary>
     /// Per-queue runtime overrides.
     /// </summary>
     /// <remarks>
@@ -235,6 +251,24 @@ public class ChokaQOptions
             errors.Add("Execution.HeartbeatFailureThreshold must be at least 1.");
         }
 
+        RequirePositive(Execution.PendingCancellationRetention, "Execution.PendingCancellationRetention", errors);
+        if (Serialization.MaxPayloadBytes < 1)
+        {
+            errors.Add("Serialization.MaxPayloadBytes must be at least 1.");
+        }
+
+        RequirePositive(Idempotency.InProgressTtl, "Idempotency.InProgressTtl", errors);
+        RequirePositiveIfSet(Idempotency.DefaultResultTtl, "Idempotency.DefaultResultTtl", errors);
+        RequirePositiveIfSet(Idempotency.MinResultTtl, "Idempotency.MinResultTtl", errors);
+        RequirePositiveIfSet(Idempotency.MaxResultTtl, "Idempotency.MaxResultTtl", errors);
+
+        if (Idempotency.MinResultTtl.HasValue &&
+            Idempotency.MaxResultTtl.HasValue &&
+            Idempotency.MinResultTtl.Value > Idempotency.MaxResultTtl.Value)
+        {
+            errors.Add("Idempotency.MinResultTtl must be less than or equal to Idempotency.MaxResultTtl.");
+        }
+
         if (Retry.MaxAttempts < 1)
         {
             errors.Add("Retry.MaxAttempts must be at least 1.");
@@ -243,6 +277,7 @@ public class ChokaQOptions
         RequirePositive(Retry.BaseDelay, "Retry.BaseDelay", errors);
         RequirePositive(Retry.MaxDelay, "Retry.MaxDelay", errors);
         RequirePositive(Retry.CircuitBreakerDelay, "Retry.CircuitBreakerDelay", errors);
+        RequirePositiveIfSet(Retry.MaxJobAge, "Retry.MaxJobAge", errors);
         RequireNotNegative(Retry.JitterMaxDelay, "Retry.JitterMaxDelay", errors);
 
         if (Retry.BackoffMultiplier < 1)
@@ -264,6 +299,7 @@ public class ChokaQOptions
         RequirePositive(Recovery.ProcessingZombieTimeout, "Recovery.ProcessingZombieTimeout", errors);
         RequirePositive(Recovery.ScanInterval, "Recovery.ScanInterval", errors);
         RequirePositive(Worker.PausedQueuePollingDelay, "Worker.PausedQueuePollingDelay", errors);
+        RequirePositive(Worker.ShutdownGracePeriod, "Worker.ShutdownGracePeriod", errors);
         RequirePositive(InMemoryOptions.MaxCapacity, "InMemory.MaxCapacity", errors);
         errors.AddRange(Metrics.Validate());
 
@@ -306,6 +342,14 @@ public class ChokaQOptions
             errors.Add($"{name} must not be negative.");
         }
     }
+
+    private static void RequirePositiveIfSet(TimeSpan? value, string name, ICollection<string> errors)
+    {
+        if (value.HasValue)
+        {
+            RequirePositive(value.Value, name, errors);
+        }
+    }
 }
 
 /// <summary>
@@ -335,10 +379,27 @@ public sealed class ChokaQExecutionOptions
     public TimeSpan HeartbeatIntervalMax { get; set; } = TimeSpan.FromSeconds(12);
 
     /// <summary>
-    /// Consecutive heartbeat write failures allowed before the running job is cancelled.
-    /// Default: 3.
+    /// Consecutive heartbeat write failures allowed before the job is marked heartbeat-degraded.
+    /// Default: 10.
     /// </summary>
-    public int HeartbeatFailureThreshold { get; set; } = 3;
+    public int HeartbeatFailureThreshold { get; set; } = 10;
+
+    /// <summary>
+    /// If true, a job is cancelled when heartbeat failures reach the configured threshold.
+    /// Default: false.
+    /// </summary>
+    /// <remarks>
+    /// Heartbeat failures usually mean storage or network pressure, not proof that user code is
+    /// corrupt. The default is therefore degraded telemetry plus zombie recovery as the final
+    /// authority. Hosts that prefer fail-fast behavior can opt into cancellation.
+    /// </remarks>
+    public bool CancelOnHeartbeatFailure { get; set; }
+
+    /// <summary>
+    /// How long a direct processor cancellation request may wait for a matching execution to start.
+    /// Default: 30 seconds.
+    /// </summary>
+    public TimeSpan PendingCancellationRetention { get; set; } = TimeSpan.FromSeconds(30);
 }
 
 /// <summary>
@@ -376,6 +437,16 @@ public sealed class ChokaQRetryOptions
     /// Delay used when the circuit breaker blocks execution. Default: 5 seconds.
     /// </summary>
     public TimeSpan CircuitBreakerDelay { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Maximum wall-clock age of a job before ChokaQ stops scheduling more retries.
+    /// Default: 1 day. Set to null to disable the lifetime budget.
+    /// </summary>
+    /// <remarks>
+    /// Attempt count and lifetime answer different safety questions. MaxAttempts bounds repeated
+    /// execution; MaxJobAge bounds how long stale work may keep coming back through retry.
+    /// </remarks>
+    public TimeSpan? MaxJobAge { get; set; } = TimeSpan.FromDays(1);
 }
 
 /// <summary>
@@ -410,6 +481,12 @@ public sealed class ChokaQWorkerOptions
     /// Delay used by the in-memory worker before rechecking a paused queue. Default: 1 second.
     /// </summary>
     public TimeSpan PausedQueuePollingDelay { get; set; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// Maximum time in-memory worker shutdown waits for worker loops to observe cancellation.
+    /// Default: 30 seconds.
+    /// </summary>
+    public TimeSpan ShutdownGracePeriod { get; set; } = TimeSpan.FromSeconds(30);
 }
 
 /// <summary>

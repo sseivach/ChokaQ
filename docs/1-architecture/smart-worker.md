@@ -145,6 +145,11 @@ catch (Exception ex)
 }
 ```
 
+If circuit permission is granted but user code never starts, ChokaQ releases
+the execution permit instead of reporting success or failure. This matters in
+HalfOpen state: stale storage leases, admin cancellation before dispatch, or
+shutdown should not leave all probe slots consumed forever.
+
 **The synergy:**
 - Smart Worker handles **individual job failures** (fatal vs transient)
 - Circuit Breaker handles **systemic failures** (if ALL jobs of type X are failing, stop trying)

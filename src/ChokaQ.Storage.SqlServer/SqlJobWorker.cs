@@ -21,7 +21,7 @@ namespace ChokaQ.Storage.SqlServer;
 /// - Fetches from JobsHot table
 /// - Archives to JobsArchive or JobsDLQ via StateManager
 /// </summary>
-public class SqlJobWorker : BackgroundService, IWorkerManager
+internal class SqlJobWorker : BackgroundService, IWorkerManager
 {
     private const int PrefetchBufferCapacity = 100;
 
@@ -304,6 +304,9 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
 
     private async Task ReleasePrefetchedJobAsync(JobHotEntity job, string reason, CancellationToken ct)
     {
+        using var cleanupCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cleanupCts.CancelAfter(_options.PrefetchedJobReleaseTimeout);
+
         try
         {
             _logger.LogDebug(
@@ -314,11 +317,16 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
             // Prefetched jobs are still only claimed, not executing. Releasing them during
             // pause/shutdown shortens recovery time and teaches a key queue invariant:
             // do not start new work when the worker can no longer own its completion.
-            await _storage.ReleaseJobAsync(job.Id, ct);
+            await _storage.ReleaseJobAsync(job.Id, cleanupCts.Token);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (OperationCanceledException)
         {
-            throw;
+            _logger.LogWarning(
+                ChokaQLogEvents.PrefetchedJobReleaseFailed,
+                "Timed out after {Timeout} while releasing prefetched job {JobId}. It will be recovered by abandoned-job rescue.",
+                _options.PrefetchedJobReleaseTimeout,
+                job.Id);
         }
         catch (Exception ex)
         {
@@ -391,6 +399,8 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
 
     private async Task WaitForProcessingTasksAsync()
     {
+        using var shutdownCts = new CancellationTokenSource(_options.WorkerShutdownGracePeriod);
+
         while (true)
         {
             Task[] tasks;
@@ -406,7 +416,20 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
                 ChokaQLogEvents.ProcessingTaskDrainStarted,
                 "Waiting for {Count} active SQL processing task(s) to finish.",
                 tasks.Length);
-            await Task.WhenAll(tasks);
+
+            try
+            {
+                await Task.WhenAll(tasks).WaitAsync(shutdownCts.Token);
+            }
+            catch (OperationCanceledException) when (shutdownCts.IsCancellationRequested)
+            {
+                _logger.LogWarning(
+                    ChokaQLogEvents.ProcessingTaskDrainTimedOut,
+                    "SQL worker shutdown grace period {Timeout} elapsed with {Count} active processing task(s). Jobs still in Processing rely on heartbeat zombie recovery if the process exits.",
+                    _options.WorkerShutdownGracePeriod,
+                    tasks.Count(task => !task.IsCompleted));
+                return;
+            }
         }
     }
 
@@ -425,14 +448,13 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
 
     public async Task CancelJobAsync(string jobId, string? actor = null)
     {
-        // Try to cancel if running
-        if (_processor is JobProcessor concreteProcessor)
-        {
-            concreteProcessor.CancelJob(jobId);
-        }
-
         // Also archive to DLQ if still in Hot and Pending/Fetched
         var job = await _storage.GetJobAsync(jobId);
+        if (job != null && job.Status == JobStatus.Processing && _processor is JobProcessor concreteProcessor)
+        {
+            concreteProcessor.CancelRunningJob(jobId);
+        }
+
         if (job != null && (job.Status == JobStatus.Pending || job.Status == JobStatus.Fetched))
         {
             // The worker manager is the write boundary for operator actions. Passing the actor
@@ -510,7 +532,7 @@ public class SqlJobWorker : BackgroundService, IWorkerManager
         {
             foreach (var id in ids)
             {
-                concreteProcessor.CancelJob(id);
+                concreteProcessor.CancelRunningJob(id);
             }
         }
 

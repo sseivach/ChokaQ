@@ -23,6 +23,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>ChokaQ.Storage.SqlServer</PackageId>
+    <Title>ChokaQ SQL Server Storage</Title>
+    <Description>SQL Server storage, worker, schema provisioning, and health checks for ChokaQ.</Description>
   </PropertyGroup>
 
   <ItemGroup>

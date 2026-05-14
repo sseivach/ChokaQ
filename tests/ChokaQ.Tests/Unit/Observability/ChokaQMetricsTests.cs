@@ -23,6 +23,10 @@ public class ChokaQMetricsTests
         metrics.RecordDlq(queue, jobType, "MetricsContractReason");
         metrics.RecordRetry(queue, jobType, 2);
         metrics.RecordActiveWorkerDelta(queue, 1);
+        metrics.RecordHeartbeatFailure(queue, jobType);
+        metrics.RecordStateTransitionConflict(queue, jobType, "ArchiveSucceeded");
+        metrics.RecordIdempotencyOutcome("claimed");
+        metrics.RecordCircuitEvent(jobType, "Open", "opened");
 
         // Instrument names are the public OpenTelemetry contract. Dashboards, alerts, and
         // Prometheus recording rules depend on these names staying stable across releases.
@@ -36,7 +40,11 @@ public class ChokaQMetricsTests
                 "chokaq.jobs.queue_lag",
                 "chokaq.jobs.dlq",
                 "chokaq.jobs.retried",
-                "chokaq.workers.active"
+                "chokaq.workers.active",
+                "chokaq.jobs.heartbeat_failures",
+                "chokaq.jobs.state_transition_conflicts",
+                "chokaq.idempotency.claims",
+                "chokaq.circuits.events"
             });
 
         collector.Instruments.Where(instrument => instrument.Name == "chokaq.jobs.processing_duration")
@@ -59,6 +67,21 @@ public class ChokaQMetricsTests
         collector.Measurements.Any(measurement =>
             measurement.InstrumentName == "chokaq.jobs.retried"
             && GetTag(measurement, "attempt") == "2").Should().BeTrue();
+        collector.Measurements.Any(measurement =>
+            measurement.InstrumentName == "chokaq.jobs.heartbeat_failures"
+            && GetTag(measurement, "queue") == queue
+            && GetTag(measurement, "type") == jobType).Should().BeTrue();
+        collector.Measurements.Any(measurement =>
+            measurement.InstrumentName == "chokaq.jobs.state_transition_conflicts"
+            && GetTag(measurement, "transition") == "ArchiveSucceeded").Should().BeTrue();
+        collector.Measurements.Any(measurement =>
+            measurement.InstrumentName == "chokaq.idempotency.claims"
+            && GetTag(measurement, "outcome") == "claimed").Should().BeTrue();
+        collector.Measurements.Any(measurement =>
+            measurement.InstrumentName == "chokaq.circuits.events"
+            && GetTag(measurement, "type") == jobType
+            && GetTag(measurement, "state") == "Open"
+            && GetTag(measurement, "event") == "opened").Should().BeTrue();
     }
 
     [Fact]

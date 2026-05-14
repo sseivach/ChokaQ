@@ -105,6 +105,103 @@ public class JobProcessorTests
     }
 
     [Fact]
+    public async Task ProcessJobAsync_Failure_WhenNextRetryExceedsMaxJobAge_ShouldArchiveWithLifetimeReason()
+    {
+        // Arrange
+        var options = new ChokaQOptions
+        {
+            Retry =
+            {
+                MaxAttempts = 3,
+                BaseDelay = TimeSpan.FromSeconds(3),
+                JitterMaxDelay = TimeSpan.Zero,
+                MaxJobAge = TimeSpan.FromMinutes(10)
+            }
+        };
+        var processor = new JobProcessor(
+            _storage,
+            NullLogger<JobProcessor>.Instance,
+            _breaker,
+            _dispatcher,
+            _stateManager,
+            Substitute.For<IChokaQMetrics>(),
+            options);
+
+        _breaker.IsExecutionPermitted("TestJob").Returns(true);
+        _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
+        _dispatcher.DispatchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Throws(new Exception("still failing"));
+
+        var createdAtUtc = DateTime.UtcNow.AddMinutes(-9).AddSeconds(-59);
+
+        // Act
+        await processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, null, createdAtUtc, CancellationToken.None);
+
+        // Assert
+        await _stateManager.Received(1).ArchiveFailedAsync(
+            "job1",
+            "TestJob",
+            "default",
+            Arg.Is<string>(s => s.Contains("Retry lifetime expired") && s.Contains("still failing")),
+            Arg.Any<CancellationToken>(),
+            "worker1",
+            FailureReason.RetryLifetimeExpired);
+        await _stateManager.DidNotReceive().RescheduleForRetryAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<int>(),
+            Arg.Any<DateTime>(),
+            Arg.Any<int>(),
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>(),
+            Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task ProcessJobAsync_ThrottledRetry_WhenRetryAfterExceedsMaxJobAge_ShouldArchiveWithLifetimeReason()
+    {
+        // Arrange
+        var options = new ChokaQOptions
+        {
+            Retry =
+            {
+                MaxAttempts = 3,
+                MaxDelay = TimeSpan.FromHours(1),
+                MaxJobAge = TimeSpan.FromMinutes(10)
+            }
+        };
+        var processor = new JobProcessor(
+            _storage,
+            NullLogger<JobProcessor>.Instance,
+            _breaker,
+            _dispatcher,
+            _stateManager,
+            Substitute.For<IChokaQMetrics>(),
+            options);
+
+        _breaker.IsExecutionPermitted("TestJob").Returns(true);
+        _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
+        _dispatcher.DispatchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Throws(new TestThrottledException());
+
+        var createdAtUtc = DateTime.UtcNow.AddMinutes(-9).AddSeconds(-45);
+
+        // Act
+        await processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, null, createdAtUtc, CancellationToken.None);
+
+        // Assert
+        await _stateManager.Received(1).ArchiveFailedAsync(
+            "job1",
+            "TestJob",
+            "default",
+            Arg.Is<string>(s => s.Contains("Retry lifetime expired")),
+            Arg.Any<CancellationToken>(),
+            "worker1",
+            FailureReason.RetryLifetimeExpired);
+    }
+
+    [Fact]
     public async Task ProcessJobAsync_Failure_AtMaxRetries_ShouldArchiveToDLQ()
     {
         // Arrange
@@ -210,7 +307,7 @@ public class JobProcessorTests
 
         // Assert
         await _stateManager.Received(1).ArchiveCancelledAsync(
-            "job1", "TestJob", "default", ChokaQ.Abstractions.Enums.JobCancellationReason.Timeout, "Execution Timeout or Admin Cancellation", Arg.Any<CancellationToken>(), "worker1");
+            "job1", "TestJob", "default", JobCancellationReason.Timeout, "Unknown execution cancellation", Arg.Any<CancellationToken>(), "worker1");
     }
 
     [Fact]
@@ -280,9 +377,61 @@ public class JobProcessorTests
             "TestJob",
             "slow-reports",
             JobCancellationReason.Timeout,
-            "Execution Timeout or Admin Cancellation",
+            "Execution Timeout",
             Arg.Any<CancellationToken>(),
             "worker1");
+    }
+
+    [Fact]
+    public async Task CancelJob_BeforeTokenRegistration_ShouldCancelBeforeDispatch()
+    {
+        // Arrange
+        _processor.CancelJob("job1");
+        _breaker.IsExecutionPermitted("TestJob").Returns(true);
+        _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
+
+        // Act
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+
+        // Assert
+        await _dispatcher.DidNotReceive().DispatchAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _stateManager.Received(1).ArchiveCancelledAsync(
+            "job1",
+            "TestJob",
+            "default",
+            JobCancellationReason.Admin,
+            "Admin",
+            Arg.Any<CancellationToken>(),
+            "worker1");
+    }
+
+    [Fact]
+    public async Task CancelJob_AfterCompletedJob_ShouldNotGhostCancelLaterExecution()
+    {
+        // Arrange
+        _breaker.IsExecutionPermitted("TestJob").Returns(true);
+        _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
+        _dispatcher.DispatchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+        _processor.CancelRunningJob("job1");
+
+        // Act
+        await _processor.ProcessJobAsync("job1", "TestJob", "{}", "worker2", 1, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+
+        // Assert
+        await _stateManager.Received(2).ArchiveSucceededAsync(
+            "job1", "TestJob", "default", Arg.Any<double>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
+        await _stateManager.DidNotReceive().ArchiveCancelledAsync(
+            "job1",
+            "TestJob",
+            "default",
+            JobCancellationReason.Admin,
+            Arg.Any<string?>(),
+            Arg.Any<CancellationToken>(),
+            Arg.Any<string?>());
     }
 
     [Fact]
@@ -336,6 +485,7 @@ public class JobProcessorTests
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _stateManager.DidNotReceive().ArchiveSucceededAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double?>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
+        _breaker.Received(1).ReleaseExecutionPermit("TestJob");
     }
 
     [Fact]
@@ -369,6 +519,63 @@ public class JobProcessorTests
         // Assert - Should complete without hanging
         await processTask;
         cancellationDetected.Should().BeTrue();
+        await _stateManager.Received(1).ArchiveCancelledAsync(
+            "job1",
+            "TestJob",
+            "default",
+            JobCancellationReason.Admin,
+            "Admin",
+            Arg.Any<CancellationToken>(),
+            "worker1");
+        _breaker.Received(1).ReleaseExecutionPermit("TestJob");
+    }
+
+    [Fact]
+    public async Task HeartbeatFailureThreshold_ByDefault_ShouldRecordDegradedTelemetryWithoutCancelling()
+    {
+        // Arrange
+        var metrics = Substitute.For<IChokaQMetrics>();
+        var options = new ChokaQOptions
+        {
+            Execution =
+            {
+                HeartbeatIntervalMin = TimeSpan.FromMilliseconds(1),
+                HeartbeatIntervalMax = TimeSpan.FromMilliseconds(1),
+                HeartbeatFailureThreshold = 1,
+                CancelOnHeartbeatFailure = false
+            }
+        };
+        var processor = new JobProcessor(
+            _storage,
+            NullLogger<JobProcessor>.Instance,
+            _breaker,
+            _dispatcher,
+            _stateManager,
+            metrics,
+            options);
+
+        _breaker.IsExecutionPermitted("TestJob").Returns(true);
+        _dispatcher.ParseMetadata(Arg.Any<string>()).Returns(new JobMetadata("default", 10));
+        _storage.KeepAliveAsync("job1", Arg.Any<CancellationToken>())
+            .Returns<ValueTask>(_ => throw new InvalidOperationException("storage pressure"));
+        _dispatcher.DispatchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(async _ => await Task.Delay(30));
+
+        // Act
+        await processor.ProcessJobAsync("job1", "TestJob", "{}", "worker1", 0, null, DateTime.UtcNow, DateTime.UtcNow, CancellationToken.None);
+
+        // Assert
+        metrics.Received().RecordHeartbeatFailure("default", "TestJob");
+        await _stateManager.Received(1).ArchiveSucceededAsync(
+            "job1", "TestJob", "default", Arg.Any<double>(), Arg.Any<CancellationToken>(), "worker1");
+        await _stateManager.DidNotReceive().ArchiveCancelledAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            JobCancellationReason.HeartbeatFailure,
+            Arg.Any<string?>(),
+            Arg.Any<CancellationToken>(),
+            Arg.Any<string?>());
     }
 
     [Fact]

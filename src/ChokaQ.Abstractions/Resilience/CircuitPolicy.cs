@@ -6,4 +6,6 @@ namespace ChokaQ.Abstractions.Resilience;
 public record CircuitPolicy(
     int FailureThreshold = 5,
     int BreakDurationSeconds = 30,
-    int HalfOpenMaxCalls = 1);
+    int HalfOpenMaxCalls = 1,
+    int HalfOpenProbeTimeoutSeconds = 30,
+    int FailureWindowSeconds = 60);

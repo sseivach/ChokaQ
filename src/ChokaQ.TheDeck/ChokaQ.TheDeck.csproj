@@ -4,6 +4,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>true</IsPackable>
+    <PackageId>ChokaQ.TheDeck</PackageId>
+    <Title>ChokaQ The Deck</Title>
+    <Description>Blazor Server dashboard and SignalR operator surface for ChokaQ.</Description>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>true</IsPackable>
+    <PackageId>ChokaQ</PackageId>
+    <Title>ChokaQ</Title>
+    <Description>SQL-backed background job processor for .NET with at-least-once execution, in-memory development mode, The Deck dashboard, health checks, and OpenTelemetry metrics.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ChokaQ.Storage.SqlServer\ChokaQ.Storage.SqlServer.csproj" />
+    <ProjectReference Include="..\ChokaQ.TheDeck\ChokaQ.TheDeck.csproj" />
+  </ItemGroup>
+
+</Project>

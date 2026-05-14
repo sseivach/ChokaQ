@@ -11,7 +11,7 @@ namespace ChokaQ.Core.Execution;
 /// Implementation of IJobDispatcher for the "Pipe" strategy.
 /// Delegates all jobs to a single registered IChokaQPipeHandler.
 /// </summary>
-public class PipeJobDispatcher : IJobDispatcher
+internal class PipeJobDispatcher : IJobDispatcher
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PipeJobDispatcher> _logger;

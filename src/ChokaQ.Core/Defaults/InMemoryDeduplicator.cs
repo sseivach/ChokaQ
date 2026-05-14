@@ -8,7 +8,7 @@ namespace ChokaQ.Core.Defaults;
 /// It uses only BCL primitives because active-key deduplication is intentionally simple here:
 /// a ConcurrentDictionary tracks active keys and a background timer removes expired entries.
 /// </summary>
-public class InMemoryDeduplicator : IDeduplicator, IDisposable
+internal class InMemoryDeduplicator : IDeduplicator, IDisposable
 {
     private readonly ConcurrentDictionary<string, DateTime> _locks = new();
     private readonly Timer _cleanupTimer;

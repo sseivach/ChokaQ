@@ -4,6 +4,7 @@ using ChokaQ.Abstractions.Middleware;
 using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Observability;
 using ChokaQ.Abstractions.Resilience;
+using ChokaQ.Abstractions.Serialization;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Abstractions.Workers;
 using ChokaQ.Core.Contexts;
@@ -12,6 +13,7 @@ using ChokaQ.Core.Execution;
 using ChokaQ.Core.Observability;
 using ChokaQ.Core.Processing;
 using ChokaQ.Core.Resilience;
+using ChokaQ.Core.Serialization;
 using ChokaQ.Core.State;
 using ChokaQ.Core.Workers;
 using Microsoft.Extensions.Configuration;
@@ -152,6 +154,7 @@ public static class ChokaQCoreExtensions
         services.TryAddSingleton<IDeduplicator, InMemoryDeduplicator>();
         services.TryAddSingleton<ICircuitBreaker, InMemoryCircuitBreaker>();
         services.TryAddSingleton<IChokaQMetrics>(_ => new ChokaQMetrics(options.Metrics));
+        services.TryAddSingleton<IChokaQJobSerializer>(_ => new SystemTextJsonChokaQJobSerializer(options.Serialization));
 
         // Register InMemoryJobStorage with the configured options (Three Pillars)
         services.TryAddSingleton<IJobStorage>(sp => new InMemoryJobStorage(options.InMemoryOptions));

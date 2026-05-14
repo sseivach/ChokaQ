@@ -11,7 +11,7 @@ namespace ChokaQ.Storage.SqlServer;
 /// Handles database schema provisioning.
 /// Reads embedded SQL scripts, replaces schema placeholders, and executes them against the target database.
 /// </summary>
-public class SqlInitializer
+internal class SqlInitializer
 {
     private readonly string _connectionString;
     private readonly string _schemaName;

@@ -1,5 +1,7 @@
 using ChokaQ.Abstractions.Enums;
+using ChokaQ.Abstractions.Entities;
 using ChokaQ.Abstractions.Jobs;
+using ChokaQ.Abstractions.Serialization;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Abstractions.Workers;
 using ChokaQ.Core.Defaults;
@@ -9,7 +11,6 @@ using ChokaQ.Core.Processing;
 using ChokaQ.Core.State;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Text.Json;
 
 namespace ChokaQ.Core.Workers;
 
@@ -22,7 +23,7 @@ namespace ChokaQ.Core.Workers;
 /// - Cancellation archives to DLQ
 /// - Resurrection happens via storage.ResurrectAsync
 /// </summary>
-public class JobWorker : BackgroundService, IWorkerManager
+internal class JobWorker : BackgroundService, IWorkerManager
 {
     private readonly InMemoryQueue _queue;
     private readonly IJobStorage _storage;
@@ -30,7 +31,9 @@ public class JobWorker : BackgroundService, IWorkerManager
     private readonly IJobStateManager _stateManager;
     private readonly IJobProcessor _processor;
     private readonly JobTypeRegistry _registry;
+    private readonly IChokaQJobSerializer _serializer;
     private readonly TimeSpan _pausedQueuePollingDelay;
+    private readonly TimeSpan _shutdownGracePeriod;
     private readonly List<(Task Task, CancellationTokenSource Cts)> _workers = new();
     private readonly object _lock = new();
 
@@ -60,6 +63,7 @@ public class JobWorker : BackgroundService, IWorkerManager
         IJobStateManager stateManager,
         IJobProcessor processor,
         JobTypeRegistry registry,
+        IChokaQJobSerializer serializer,
         ChokaQOptions? options = null)
     {
         _queue = queue;
@@ -68,17 +72,14 @@ public class JobWorker : BackgroundService, IWorkerManager
         _stateManager = stateManager;
         _processor = processor;
         _registry = registry;
-        _pausedQueuePollingDelay = (options ?? new ChokaQOptions()).Worker.PausedQueuePollingDelay;
+        _serializer = serializer;
+        var resolvedOptions = options ?? new ChokaQOptions();
+        _pausedQueuePollingDelay = resolvedOptions.Worker.PausedQueuePollingDelay;
+        _shutdownGracePeriod = resolvedOptions.Worker.ShutdownGracePeriod;
     }
 
     public async Task CancelJobAsync(string jobId, string? actor = null)
     {
-        // Try to cancel if running
-        if (_processor is JobProcessor concreteProcessor)
-        {
-            concreteProcessor.CancelJob(jobId);
-        }
-
         // Fetch job from Hot table
         var job = await _storage.GetJobAsync(jobId);
         if (job == null)
@@ -88,6 +89,11 @@ public class JobWorker : BackgroundService, IWorkerManager
                 "Cannot cancel job {JobId}: not found in Hot table.",
                 jobId);
             return;
+        }
+
+        if (job.Status == JobStatus.Processing && _processor is JobProcessor concreteProcessor)
+        {
+            concreteProcessor.CancelRunningJob(jobId);
         }
 
         // Only cancel if Pending or Fetched (Processing is handled by CancelJob above)
@@ -110,7 +116,7 @@ public class JobWorker : BackgroundService, IWorkerManager
         var hotJob = await _storage.GetJobAsync(jobId);
         if (hotJob != null)
         {
-            if (hotJob.Status == JobStatus.Processing || hotJob.Status == JobStatus.Pending)
+            if (hotJob.Status == JobStatus.Pending || hotJob.Status == JobStatus.Fetched || hotJob.Status == JobStatus.Processing)
             {
                 _logger.LogWarning(
                     ChokaQLogEvents.AdminCommandRejected,
@@ -131,8 +137,8 @@ public class JobWorker : BackgroundService, IWorkerManager
                 jobId);
             await _storage.ResurrectAsync(jobId, null, actor ?? "Admin restart");
 
-            // Re-queue for processing
-            await RequeueJobFromStorage(jobId);
+            var requeueResult = await RequeueJobFromStorage(jobId);
+            LogSingleRequeueResult(jobId, requeueResult);
             return;
         }
 
@@ -188,8 +194,23 @@ public class JobWorker : BackgroundService, IWorkerManager
             resurrected,
             ids.Length);
 
-        // Re-queue all resurrected jobs for the in-memory channel
-        foreach (var id in ids) await RequeueJobFromStorage(id);
+        var requeueResults = new Dictionary<InMemoryRequeueResult, int>();
+
+        foreach (var id in ids)
+        {
+            var result = await RequeueJobFromStorage(id);
+            requeueResults[result] = requeueResults.GetValueOrDefault(result) + 1;
+        }
+
+        _logger.LogInformation(
+            ChokaQLogEvents.AdminCommandCompleted,
+            "Bulk restart in-memory requeue results: {Requeued} requeued, {MissingHotRow} missing Hot row, {NotPending} not Pending, {UnknownType} unknown type, {EmptyPayload} empty payload, {Failed} failed.",
+            requeueResults.GetValueOrDefault(InMemoryRequeueResult.Requeued),
+            requeueResults.GetValueOrDefault(InMemoryRequeueResult.HotRowMissing),
+            requeueResults.GetValueOrDefault(InMemoryRequeueResult.NotPending),
+            requeueResults.GetValueOrDefault(InMemoryRequeueResult.UnknownType),
+            requeueResults.GetValueOrDefault(InMemoryRequeueResult.EmptyPayload),
+            requeueResults.GetValueOrDefault(InMemoryRequeueResult.Failed));
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -203,6 +224,27 @@ public class JobWorker : BackgroundService, IWorkerManager
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         IsRunning = false;
+        List<(Task Task, CancellationTokenSource Cts)> workers;
+        lock (_lock)
+        {
+            workers = _workers.ToList();
+            _workers.Clear();
+            ActiveWorkers = 0;
+            _targetWorkerCount = 0;
+        }
+
+        foreach (var worker in workers)
+        {
+            worker.Cts.Cancel();
+        }
+
+        await WaitForWorkerTasksAsync(workers.Select(worker => worker.Task).ToArray(), cancellationToken);
+
+        foreach (var worker in workers)
+        {
+            worker.Cts.Dispose();
+        }
+
         await base.StopAsync(cancellationToken);
     }
 
@@ -260,7 +302,21 @@ public class JobWorker : BackgroundService, IWorkerManager
                         var storageJob = await _storage.GetJobAsync(job.Id, workerCt);
                         if (storageJob == null) continue;
 
-                        // Check if queue is paused
+                        // In-memory execution is channel-driven, with Hot storage acting as the
+                        // control row. A buffered channel item is safe to execute only while the
+                        // persisted row is still the same Pending job accepted by enqueue/restart.
+                        // If an admin cancel, DLQ move, edit, or earlier duplicate already changed
+                        // the row, this item is stale and must not dispatch user code.
+                        var typeKey = _registry.GetPersistedTypeKey(job.GetType());
+                        var payload = _serializer.Serialize(job, job.GetType());
+
+                        if (!CanExecuteChannelItem(job.Id, storageJob, typeKey, payload))
+                        {
+                            continue;
+                        }
+
+                        // Check if queue is paused. This is intentionally a low-throughput
+                        // development-mode check; SQL mode owns high-throughput queue policy.
                         var queues = await _storage.GetQueuesAsync(workerCt);
                         var targetQueue = queues.FirstOrDefault(q => q.Name == storageJob.Queue);
 
@@ -275,18 +331,11 @@ public class JobWorker : BackgroundService, IWorkerManager
                             continue;
                         }
 
-                        // The persisted Type column and the dispatcher key must be the same value.
-                        // Profiles often map a CLR type to a stable public key such as "email_v1";
-                        // using the class name here would make in-memory Bus mode behave differently
-                        // from SQL mode and break dispatch for registered custom keys.
-                        var typeKey = _registry.GetKeyByType(job.GetType()) ?? job.GetType().Name;
-                        var payload = JsonSerializer.Serialize(job, job.GetType());
-
                         await _processor.ProcessJobAsync(
                             job.Id,
                             typeKey,
                             payload,
-                            workerId,
+                            null,
                             storageJob.AttemptCount,
                             storageJob.CreatedBy,
                             storageJob.ScheduledAtUtc,
@@ -309,38 +358,153 @@ public class JobWorker : BackgroundService, IWorkerManager
         }
     }
 
-    private async Task RequeueJobFromStorage(string jobId)
+    private bool CanExecuteChannelItem(string jobId, JobHotEntity storageJob, string typeKey, string payload)
+    {
+        if (storageJob.Status != JobStatus.Pending)
+        {
+            _logger.LogInformation(
+                ChokaQLogEvents.StateTransitionNotApplied,
+                "Skipped stale in-memory channel item {JobId}: Hot row status is {Status}, not Pending.",
+                jobId,
+                storageJob.Status);
+            return false;
+        }
+
+        if (!string.Equals(storageJob.Type, typeKey, StringComparison.Ordinal))
+        {
+            _logger.LogWarning(
+                ChokaQLogEvents.StateTransitionNotApplied,
+                "Skipped stale in-memory channel item {JobId}: channel type key {ChannelType} does not match Hot row type key {StorageType}.",
+                jobId,
+                typeKey,
+                storageJob.Type);
+            return false;
+        }
+
+        if (!string.Equals(storageJob.Payload, payload, StringComparison.Ordinal))
+        {
+            _logger.LogWarning(
+                ChokaQLogEvents.StateTransitionNotApplied,
+                "Skipped stale in-memory channel item {JobId}: channel payload no longer matches the Hot row payload.",
+                jobId);
+            return false;
+        }
+
+        return true;
+    }
+
+    private async Task<InMemoryRequeueResult> RequeueJobFromStorage(string jobId)
     {
         var job = await _storage.GetJobAsync(jobId);
-        if (job == null) return;
+        if (job == null) return InMemoryRequeueResult.HotRowMissing;
+
+        if (job.Status != JobStatus.Pending)
+        {
+            return InMemoryRequeueResult.NotPending;
+        }
 
         // Try to reconstruct job object for channel
         // Stored job.Type is the public dispatch key, not necessarily a CLR type name.
         // Resolve through the registry first so DLQ resurrection works for profile keys
         // exactly the same way as fresh enqueue and SQL polling.
-        var jobType = _registry.GetTypeByKey(job.Type) ?? Type.GetType(job.Type);
+        var jobType = _registry.ResolvePersistedType(job.Type);
+
         if (jobType == null)
         {
-            jobType = AppDomain.CurrentDomain.GetAssemblies()
-                .SelectMany(a => a.GetTypes())
-                .FirstOrDefault(t => t.Name == job.Type);
+            _logger.LogWarning(
+                ChokaQLogEvents.StateTransitionNotApplied,
+                "Could not requeue job {JobId}: unknown job type key '{JobType}'. Register the type or store an assembly-qualified fallback identity.",
+                jobId,
+                job.Type);
+            return InMemoryRequeueResult.UnknownType;
         }
 
-        if (jobType != null && job.Payload != null)
+        if (string.IsNullOrWhiteSpace(job.Payload))
         {
-            var jobObject = JsonSerializer.Deserialize(job.Payload, jobType) as IChokaQJob;
-            if (jobObject != null)
+            return InMemoryRequeueResult.EmptyPayload;
+        }
+
+        try
+        {
+            var jobObject = _serializer.Deserialize(job.Payload, jobType);
+            if (jobObject == null)
             {
-                await _queue.RequeueAsync(jobObject);
-                return;
+                return InMemoryRequeueResult.EmptyPayload;
             }
+
+            await _queue.RequeueAsync(jobObject);
+            return InMemoryRequeueResult.Requeued;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ChokaQLogEvents.StateTransitionNotApplied,
+                ex,
+                "Could not requeue job {JobId}: payload deserialization failed for type key '{JobType}'.",
+                jobId,
+                job.Type);
+            return InMemoryRequeueResult.Failed;
+        }
+    }
+
+    private void LogSingleRequeueResult(string jobId, InMemoryRequeueResult result)
+    {
+        if (result == InMemoryRequeueResult.Requeued)
+        {
+            _logger.LogInformation(
+                ChokaQLogEvents.AdminCommandCompleted,
+                "Requeued resurrected in-memory job {JobId}.",
+                jobId);
+            return;
         }
 
         _logger.LogWarning(
-            ChokaQLogEvents.StateTransitionNotApplied,
-            "Could not requeue job {JobId}: type resolution failed.",
-            jobId);
+            ChokaQLogEvents.AdminCommandRejected,
+            "Resurrected job {JobId}, but in-memory channel requeue did not complete. Result: {Result}.",
+            jobId,
+            result);
     }
 
     private void RecordHeartbeat() => LastHeartbeatUtc = DateTimeOffset.UtcNow;
+
+    private async Task WaitForWorkerTasksAsync(Task[] tasks, CancellationToken cancellationToken)
+    {
+        if (tasks.Length == 0)
+        {
+            return;
+        }
+
+        using var shutdownCts = new CancellationTokenSource(_shutdownGracePeriod);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, shutdownCts.Token);
+
+        try
+        {
+            await Task.WhenAll(tasks).WaitAsync(linkedCts.Token);
+        }
+        catch (OperationCanceledException) when (shutdownCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ChokaQLogEvents.WorkerShutdownTimedOut,
+                "In-memory worker shutdown timed out after {Timeout}. {Count} worker loop(s) may still be stopping.",
+                _shutdownGracePeriod,
+                tasks.Count(task => !task.IsCompleted));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ChokaQLogEvents.WorkerShutdownTimedOut,
+                "In-memory worker shutdown was interrupted by the host cancellation token. {Count} worker loop(s) may still be stopping.",
+                tasks.Count(task => !task.IsCompleted));
+        }
+    }
+
+    private enum InMemoryRequeueResult
+    {
+        Requeued,
+        HotRowMissing,
+        NotPending,
+        UnknownType,
+        EmptyPayload,
+        Failed
+    }
 }

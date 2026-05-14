@@ -4,9 +4,11 @@ using ChokaQ.Abstractions.Idempotency;
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Observability;
+using ChokaQ.Abstractions.Serialization;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
+using ChokaQ.Core.Serialization;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ChokaQ.Tests.Unit.Defaults;
@@ -20,6 +22,7 @@ public class InMemoryQueueTests
     private readonly IJobStorage _storage;
     private readonly IChokaQNotifier _notifier;
     private readonly JobTypeRegistry _registry;
+    private readonly IChokaQJobSerializer _serializer;
     private readonly InMemoryQueue _queue;
 
     public InMemoryQueueTests()
@@ -27,7 +30,8 @@ public class InMemoryQueueTests
         _storage = Substitute.For<IJobStorage>();
         _notifier = Substitute.For<IChokaQNotifier>();
         _registry = new JobTypeRegistry();
-        _queue = new InMemoryQueue(_storage, _notifier, _registry, Substitute.For<IChokaQMetrics>(), NullLogger<InMemoryQueue>.Instance);
+        _serializer = new SystemTextJsonChokaQJobSerializer(new ChokaQ.Core.ChokaQSerializationOptions());
+        _queue = new InMemoryQueue(_storage, _notifier, _registry, Substitute.For<IChokaQMetrics>(), _serializer, NullLogger<InMemoryQueue>.Instance);
 
         _storage.EnqueueAsync(
                 Arg.Any<string>(),
@@ -210,7 +214,7 @@ public class InMemoryQueueTests
     }
 
     [Fact]
-    public async Task EnqueueAsync_ShouldFallbackToTypeName_WhenNotInRegistry()
+    public async Task EnqueueAsync_ShouldFallbackToAssemblyQualifiedName_WhenNotInRegistry()
     {
         // Arrange - Don't register
         var job = new TestJob { Id = "job1" };
@@ -222,7 +226,7 @@ public class InMemoryQueueTests
         await _storage.Received(1).EnqueueAsync(
             Arg.Any<string>(),
             Arg.Any<string>(),
-            nameof(TestJob), // Fallback
+            typeof(TestJob).AssemblyQualifiedName!,
             Arg.Any<string>(),
             Arg.Any<int>(),
             Arg.Any<string>(),
@@ -231,6 +235,59 @@ public class InMemoryQueueTests
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>()
         );
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_WhenStrictTypeResolutionAndNotRegistered_ShouldThrow()
+    {
+        // Arrange
+        var queue = new InMemoryQueue(
+            _storage,
+            _notifier,
+            _registry,
+            Substitute.For<IChokaQMetrics>(),
+            _serializer,
+            NullLogger<InMemoryQueue>.Instance,
+            new ChokaQ.Core.ChokaQOptions
+            {
+                TypeResolution = { RequireRegisteredJobTypes = true }
+            });
+
+        var job = new TestJob { Id = "job1" };
+
+        // Act
+        var act = () => queue.EnqueueAsync(job);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*not registered*");
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_WhenPayloadExceedsLimit_ShouldThrowBeforeStorageMutation()
+    {
+        // Arrange
+        var queue = new InMemoryQueue(
+            _storage,
+            _notifier,
+            _registry,
+            Substitute.For<IChokaQMetrics>(),
+            _serializer,
+            NullLogger<InMemoryQueue>.Instance,
+            new ChokaQ.Core.ChokaQOptions
+            {
+                Serialization = { MaxPayloadBytes = 20 }
+            });
+
+        var job = new TestJob { Id = "job1", Message = new string('x', 100) };
+
+        // Act
+        var act = () => queue.EnqueueAsync(job);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*exceeds the configured maximum*");
+        await _storage.DidNotReceiveWithAnyArgs().EnqueueAsync(default!, default!, default!, default!, default);
     }
 
     [Fact]

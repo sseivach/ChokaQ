@@ -80,19 +80,27 @@ app.Run();
 {
   "ChokaQ": {
     "Execution": {
-      "DefaultTimeout": "00:15:00"
+      "DefaultTimeout": "00:15:00",
+      "HeartbeatFailureThreshold": 10,
+      "CancelOnHeartbeatFailure": false,
+      "PendingCancellationRetention": "00:00:30"
     },
     "Retry": {
       "MaxAttempts": 3,
       "BaseDelay": "00:00:03",
       "MaxDelay": "01:00:00",
       "BackoffMultiplier": 2.0,
-      "JitterMaxDelay": "00:00:01"
+      "JitterMaxDelay": "00:00:01",
+      "CircuitBreakerDelay": "00:00:05",
+      "MaxJobAge": "1.00:00:00"
     },
     "Recovery": {
       "FetchedJobTimeout": "00:10:00",
       "ProcessingZombieTimeout": "00:10:00",
       "ScanInterval": "00:01:00"
+    },
+    "Worker": {
+      "ShutdownGracePeriod": "00:00:30"
     },
     "Health": {
       "WorkerHeartbeatTimeout": "00:00:30",
@@ -108,6 +116,18 @@ app.Run();
       "UnknownTagValue": "unknown",
       "OverflowTagValue": "other"
     },
+    "Serialization": {
+      "MaxPayloadBytes": 1000000
+    },
+    "Idempotency": {
+      "InProgressTtl": "00:30:00",
+      "DefaultResultTtl": null,
+      "MinResultTtl": null,
+      "MaxResultTtl": null
+    },
+    "TypeResolution": {
+      "RequireRegisteredJobTypes": true
+    },
     "Queues": {
       "reports": {
         "ExecutionTimeout": "01:00:00"
@@ -120,13 +140,21 @@ app.Run();
       "PollingInterval": "00:00:01",
       "NoQueuesSleepInterval": "00:00:05",
       "CommandTimeoutSeconds": 30,
-      "CleanupBatchSize": 1000
+      "CleanupBatchSize": 1000,
+      "WorkerShutdownGracePeriod": "00:00:30",
+      "PrefetchedJobReleaseTimeout": "00:00:05"
     }
   }
 }
 ```
 
 The full configuration reference is in [Runtime Configuration](/configuration). ChokaQ validates unsafe values at startup, so bad timeouts, empty SQL connection strings, or non-positive cleanup batch sizes fail before workers can claim production jobs.
+
+Read [Delivery Guarantees](/delivery-guarantees) before running side-effecting
+work. ChokaQ provides at-least-once execution, not exactly-once external side
+effects. Handlers that send email, charge cards, call APIs, publish messages, or
+update other systems should use stable idempotency keys, unique constraints,
+outbox patterns, or provider-supported idempotency.
 
 `/health` is a normal ASP.NET Core health-check endpoint. In SQL Server mode it reports SQL schema reachability, worker liveness, and queue saturation. Keep the endpoint protected or network-scoped in production if your health payloads are visible outside trusted infrastructure.
 
@@ -142,10 +170,47 @@ With `AutoCreateSqlTable = true`, ChokaQ will automatically create the `chokaq` 
 
 ### 3. Define a Job & Handler
 
-```csharp
-// Job DTO (the contract)
-public record SendEmailJob(string To, string Subject) : ChokaQBaseJob;
+Every typed ChokaQ job is a DTO that implements `IChokaQJob`. You have two
+supported shapes:
 
+- Inherit from `ChokaQBaseJob` for a compact immutable contract with an
+  automatically generated `Id`.
+- Implement `IChokaQJob` directly when you want a normal class, mutable
+  properties, or custom ID generation.
+
+`ChokaQBaseJob` is itself a C# `record`, so any DTO that inherits from it must
+also be a `record`. This is a C# language rule, not a ChokaQ runtime
+restriction. Do not write `class MyJob : ChokaQBaseJob`; the compiler will
+reject it. If you want a class, implement `IChokaQJob` directly.
+
+```csharp
+// Job DTO (the contract). ChokaQBaseJob is a record, so this DTO is a record.
+public record SendEmailJob(string To, string Subject) : ChokaQBaseJob;
+```
+
+The inherited `Id` is generated when the job object is created. Put only your
+business fields in the positional record constructor.
+
+Equivalent class-based contract:
+
+```csharp
+public sealed class SendEmailJob : IChokaQJob
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string To { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+}
+```
+
+Use the class form if your existing application already uses mutable DTOs, if
+your serializer or mapper expects a parameterless constructor, or if the job ID
+must come from your own correlation/idempotency scheme. Handlers, queueing,
+storage, retries, and The Deck work the same way for both forms.
+
+For deeper guidance on serialization, type-key versioning, and idempotency
+keys, see [Job Contracts](/job-contracts).
+
+```csharp
 // Handler (the business logic)
 public class EmailHandler : IChokaQJobHandler<SendEmailJob>
 {
@@ -170,10 +235,14 @@ public class MailingProfile : ChokaQJobProfile
 {
     public MailingProfile()
     {
-        CreateJob<SendEmailJob, EmailHandler>("email_v1");
+        CreateJob<SendEmailJob, EmailHandler>("email.send.v1");
     }
 }
 ```
+
+The `typeKey` is persisted with the job. Prefer stable semantic keys such as
+`email.send.v1` over CLR class names so refactors do not change the stored
+message contract.
 
 ### 5. Enqueue a Job
 
@@ -196,6 +265,16 @@ public class OrderController : ControllerBase
             priority: 10
         );
 
+        // If SendEmailJob is the class-based DTO shape instead:
+        // await _queue.EnqueueAsync(
+        //     new SendEmailJob
+        //     {
+        //         To = order.Email,
+        //         Subject = "Order Confirmed"
+        //     },
+        //     priority: 10
+        // );
+
         return Ok();
     }
 }
@@ -213,7 +292,10 @@ builder.Services.AddChokaQ(options =>
 });
 ```
 
-Jobs are stored in `ConcurrentDictionary` and processed via `System.Threading.Channels`. No database needed.
+Jobs are stored in process memory and processed via `System.Threading.Channels`.
+No database is needed, but this mode is not durable. If the process exits,
+in-memory jobs and history are lost. Use SQL Server mode for restart-safe
+production work.
 
 ## Pipe Mode (High-Throughput)
 

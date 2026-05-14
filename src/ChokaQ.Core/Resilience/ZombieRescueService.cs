@@ -15,7 +15,7 @@ namespace ChokaQ.Core.Resilience;
 /// Step 2 (Zombie Kill): Finds "Zombie" jobs (stuck in Processing state with an expired heartbeat).
 /// In Three Pillars architecture, zombies are moved to DLQ with FailureReason.Zombie.
 /// </summary>
-public class ZombieRescueService : BackgroundService
+internal class ZombieRescueService : BackgroundService
 {
     private readonly IJobStorage _storage;
     private readonly IChokaQNotifier _notifier;

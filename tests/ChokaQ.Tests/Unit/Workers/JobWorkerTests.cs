@@ -3,10 +3,12 @@ using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Observability;
+using ChokaQ.Abstractions.Serialization;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Defaults;
 using ChokaQ.Core.Execution;
 using ChokaQ.Core.Processing;
+using ChokaQ.Core.Serialization;
 using ChokaQ.Core.State;
 using ChokaQ.Core.Workers;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -39,7 +41,7 @@ public class JobWorkerTests
                 Arg.Is(job.Id),
                 Arg.Is("registered_test_job"),
                 Arg.Is<string>(payload => payload.Contains("hello")),
-                Arg.Any<string>(),
+                Arg.Any<string?>(),
                 Arg.Is(1),
                 Arg.Any<string?>(),
                 Arg.Any<DateTime?>(),
@@ -70,8 +72,108 @@ public class JobWorkerTests
             Arg.Is(job.Id),
             Arg.Is("registered_test_job"),
             Arg.Any<string>(),
-            Arg.Any<string>(),
+            Arg.Any<string?>(),
             Arg.Is(1),
+            Arg.Any<string?>(),
+            Arg.Any<DateTime?>(),
+            Arg.Any<DateTime>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task WorkerLoop_WhenHotRowIsNotPending_ShouldSkipStaleChannelItem()
+    {
+        var registry = new JobTypeRegistry();
+        registry.Register("registered_test_job", typeof(TestJob));
+
+        var storage = Substitute.For<IJobStorage>();
+        var processor = Substitute.For<IJobProcessor>();
+        var queue = CreateQueue(storage, registry);
+        var worker = CreateWorker(queue, storage, processor, registry);
+
+        var job = new TestJob { Id = "job-1", Message = "hello" };
+        var lookupObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        storage.GetJobAsync(job.Id, Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                lookupObserved.SetResult();
+                return new ValueTask<JobHotEntity?>(CreateHotJob(
+                    job.Id,
+                    "registered_test_job",
+                    status: JobStatus.Processing));
+            });
+
+        try
+        {
+            worker.UpdateWorkerCount(1);
+            await queue.RequeueAsync(job);
+
+            await lookupObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            await Task.Delay(100);
+        }
+        finally
+        {
+            worker.UpdateWorkerCount(0);
+            worker.Dispose();
+        }
+
+        await processor.DidNotReceive().ProcessJobAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<string?>(),
+            Arg.Any<DateTime?>(),
+            Arg.Any<DateTime>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task WorkerLoop_WhenPayloadDiffersFromHotRow_ShouldSkipStaleChannelItem()
+    {
+        var registry = new JobTypeRegistry();
+        registry.Register("registered_test_job", typeof(TestJob));
+
+        var storage = Substitute.For<IJobStorage>();
+        var processor = Substitute.For<IJobProcessor>();
+        var queue = CreateQueue(storage, registry);
+        var worker = CreateWorker(queue, storage, processor, registry);
+
+        var staleChannelJob = new TestJob { Id = "job-1", Message = "old-channel-copy" };
+        var lookupObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        storage.GetJobAsync(staleChannelJob.Id, Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                lookupObserved.SetResult();
+                return new ValueTask<JobHotEntity?>(CreateHotJob(
+                    staleChannelJob.Id,
+                    "registered_test_job",
+                    """{"Id":"job-1","Message":"edited-hot-row"}"""));
+            });
+
+        try
+        {
+            worker.UpdateWorkerCount(1);
+            await queue.RequeueAsync(staleChannelJob);
+
+            await lookupObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            await Task.Delay(100);
+        }
+        finally
+        {
+            worker.UpdateWorkerCount(0);
+            worker.Dispose();
+        }
+
+        await processor.DidNotReceive().ProcessJobAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
             Arg.Any<string?>(),
             Arg.Any<DateTime?>(),
             Arg.Any<DateTime>(),
@@ -127,12 +229,55 @@ public class JobWorkerTests
         await storage.Received(1).ResurrectAsync("job-1", null, "Admin restart");
     }
 
+    [Fact]
+    public async Task RestartJobAsync_WithShortNameType_ShouldNotRequeueByAssemblyScan()
+    {
+        var registry = new JobTypeRegistry();
+        var storage = Substitute.For<IJobStorage>();
+        var processor = Substitute.For<IJobProcessor>();
+        var queue = CreateQueue(storage, registry);
+        var worker = CreateWorker(queue, storage, processor, registry);
+
+        var hotLookupCount = 0;
+        storage.GetJobAsync("job-1", Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                var call = Interlocked.Increment(ref hotLookupCount);
+                return new ValueTask<JobHotEntity?>(
+                    call == 1
+                        ? null
+                        : CreateHotJob("job-1", nameof(TestJob), """{"Id":"job-1","Message":"legacy-short-name"}"""));
+            });
+
+        storage.GetDLQJobAsync("job-1", Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<JobDLQEntity?>(new JobDLQEntity(
+                Id: "job-1",
+                Queue: "default",
+                Type: nameof(TestJob),
+                Payload: """{"Id":"job-1","Message":"legacy-short-name"}""",
+                Tags: null,
+                FailureReason: FailureReason.MaxRetriesExceeded,
+                ErrorDetails: "failed",
+                AttemptCount: 1,
+                WorkerId: null,
+                CreatedBy: null,
+                LastModifiedBy: null,
+                CreatedAtUtc: DateTime.UtcNow,
+                FailedAtUtc: DateTime.UtcNow)));
+
+        await worker.RestartJobAsync("job-1");
+
+        queue.Reader.TryRead(out _).Should().BeFalse();
+        await storage.Received(1).ResurrectAsync("job-1", null, "Admin restart");
+    }
+
     private static InMemoryQueue CreateQueue(IJobStorage storage, JobTypeRegistry registry) =>
         new(
             storage,
             Substitute.For<IChokaQNotifier>(),
             registry,
             Substitute.For<IChokaQMetrics>(),
+            CreateSerializer(),
             NullLogger<InMemoryQueue>.Instance);
 
     private static JobWorker CreateWorker(
@@ -146,7 +291,11 @@ public class JobWorkerTests
             NullLogger<JobWorker>.Instance,
             Substitute.For<IJobStateManager>(),
             processor,
-            registry);
+            registry,
+            CreateSerializer());
+
+    private static IChokaQJobSerializer CreateSerializer() =>
+        new SystemTextJsonChokaQJobSerializer(new ChokaQ.Core.ChokaQSerializationOptions());
 
     private static QueueEntity CreateQueueEntity() =>
         new(
@@ -160,7 +309,8 @@ public class JobWorkerTests
     private static JobHotEntity CreateHotJob(
         string id,
         string type,
-        string payload = """{"Id":"job-1","Message":"hello"}""") =>
+        string payload = """{"Id":"job-1","Message":"hello"}""",
+        JobStatus status = JobStatus.Pending) =>
         new(
             Id: id,
             Queue: "default",
@@ -169,9 +319,9 @@ public class JobWorkerTests
             Tags: null,
             IdempotencyKey: null,
             Priority: 10,
-            Status: JobStatus.Fetched,
+            Status: status,
             AttemptCount: 1,
-            WorkerId: "worker-1",
+            WorkerId: status == JobStatus.Pending ? null : "worker-1",
             HeartbeatUtc: null,
             ScheduledAtUtc: null,
             CreatedAtUtc: DateTime.UtcNow,

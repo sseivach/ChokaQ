@@ -4,6 +4,11 @@ ChokaQ is designed for future NuGet packaging, so production hosts should be abl
 
 The code defaults are intentionally conservative. They make a local demo work without configuration, but every important timeout and retry policy can be made explicit by the host application.
 
+Configuration does not change ChokaQ's delivery contract. ChokaQ provides
+at-least-once execution; it does not provide exactly-once external side effects.
+Review [Delivery Guarantees](/delivery-guarantees) before tuning production
+queues, retries, timeouts, or shutdown behavior.
+
 ## Recommended Program.cs
 
 ```csharp
@@ -44,7 +49,9 @@ This order lets platform teams keep environment policy in configuration while ap
       "DefaultTimeout": "00:15:00",
       "HeartbeatIntervalMin": "00:00:08",
       "HeartbeatIntervalMax": "00:00:12",
-      "HeartbeatFailureThreshold": 3
+      "HeartbeatFailureThreshold": 10,
+      "CancelOnHeartbeatFailure": false,
+      "PendingCancellationRetention": "00:00:30"
     },
     "Retry": {
       "MaxAttempts": 3,
@@ -52,7 +59,8 @@ This order lets platform teams keep environment policy in configuration while ap
       "MaxDelay": "01:00:00",
       "BackoffMultiplier": 2.0,
       "JitterMaxDelay": "00:00:01",
-      "CircuitBreakerDelay": "00:00:05"
+      "CircuitBreakerDelay": "00:00:05",
+      "MaxJobAge": "1.00:00:00"
     },
     "Recovery": {
       "FetchedJobTimeout": "00:10:00",
@@ -60,7 +68,8 @@ This order lets platform teams keep environment policy in configuration while ap
       "ScanInterval": "00:01:00"
     },
     "Worker": {
-      "PausedQueuePollingDelay": "00:00:01"
+      "PausedQueuePollingDelay": "00:00:01",
+      "ShutdownGracePeriod": "00:00:30"
     },
     "InMemory": {
       "MaxCapacity": 100000
@@ -79,6 +88,18 @@ This order lets platform teams keep environment policy in configuration while ap
       "UnknownTagValue": "unknown",
       "OverflowTagValue": "other"
     },
+    "Serialization": {
+      "MaxPayloadBytes": 1000000
+    },
+    "Idempotency": {
+      "InProgressTtl": "00:30:00",
+      "DefaultResultTtl": null,
+      "MinResultTtl": null,
+      "MaxResultTtl": null
+    },
+    "TypeResolution": {
+      "RequireRegisteredJobTypes": true
+    },
     "Queues": {
       "reports": {
         "ExecutionTimeout": "01:00:00"
@@ -92,6 +113,8 @@ This order lets platform teams keep environment policy in configuration while ap
       "NoQueuesSleepInterval": "00:00:05",
       "CommandTimeoutSeconds": 30,
       "CleanupBatchSize": 1000,
+      "WorkerShutdownGracePeriod": "00:00:30",
+      "PrefetchedJobReleaseTimeout": "00:00:05",
       "MaxTransientRetries": 3,
       "TransientRetryBaseDelayMs": 200
     }
@@ -105,7 +128,27 @@ This order lets platform teams keep environment policy in configuration while ap
 
 Why this exists: a stuck handler can hold a worker lease forever. That hides queue saturation, prevents other jobs from running, and forces operators to fix the system by hand. A background processor should have an explicit execution boundary.
 
+Timeout is not the same operational intent as admin cancellation. Timeout means
+the execution boundary was exceeded. Admin cancellation means an operator or API
+asked ChokaQ to stop or remove work. Treat those outcomes separately in
+runbooks, dashboards, and application logic.
+
 `Queues:{queueName}:ExecutionTimeout` overrides the global timeout for one queue. Use it for real workload differences. For example, a `reports` queue might need one hour, while the default queue should still fail fast after fifteen minutes.
+
+`Execution.HeartbeatFailureThreshold` controls when repeated heartbeat write
+failures become a degraded execution signal. The default is 10 consecutive
+failures. ChokaQ records `chokaq.jobs.heartbeat_failures` and logs degraded
+heartbeat state; it does not cancel user code by default because heartbeat
+failure often points to SQL/network pressure rather than a bad handler.
+
+Set `Execution.CancelOnHeartbeatFailure` to `true` only when your deployment
+prefers fail-fast cancellation over letting zombie recovery make the final
+abandoned-job decision.
+
+`Execution.PendingCancellationRetention` closes the small race where an admin
+cancellation reaches the processor just before an execution token is registered.
+Expired pending cancels are ignored so a later resurrection with the same job ID
+does not inherit stale cancellation.
 
 ## Retry
 
@@ -116,6 +159,12 @@ Why this exists: a stuck handler can hold a worker lease forever. That hides que
 `Retry.JitterMaxDelay` adds randomness to retry scheduling. Jitter prevents thousands of jobs from retrying at the same millisecond after a downstream outage. The jitter is clipped by `Retry.MaxDelay`, so the max delay remains a true operational cap.
 
 `Retry.CircuitBreakerDelay` is used when the circuit breaker blocks a job type. The job is rescheduled instead of executed immediately, which reduces pressure on a dependency that is already unhealthy.
+
+`Retry.MaxJobAge` is the wall-clock lifetime budget for retrying a job. The
+default is one day. If the next retry would be scheduled after
+`CreatedAtUtc + MaxJobAge`, ChokaQ moves the job to DLQ with
+`FailureReason.RetryLifetimeExpired` instead of keeping old work alive forever.
+Set it to `null` only when the application owns another lifetime boundary.
 
 ## Recovery
 
@@ -138,6 +187,18 @@ historical rows from growing without bound while making the tradeoff explicit:
 SQL Server mode is the production choice when backlog durability and restart
 survival matter.
 
+The in-memory worker is channel-driven. The bounded `Channel<IChokaQJob>` is the
+volatile execution notification source, while the in-process Hot row is a
+control/audit row that lets the worker reject stale channel items. The worker
+executes only when the Hot row is still `Pending` and the persisted type key and
+payload match the channel item. Orphaned Hot rows can remain after a process
+crash between enqueue/resurrection and channel drain; they are not recovered
+across process restart. Use SQL Server mode for durable backlog and restart-safe
+admin restart.
+
+`Worker.ShutdownGracePeriod` bounds how long in-memory worker shutdown waits
+for worker loops to observe cancellation.
+
 For the full policy, see [Backpressure Policy](/3-deep-dives/backpressure-policy).
 
 ## SQL Server
@@ -153,6 +214,15 @@ For the full policy, see [Backpressure Policy](/3-deep-dives/backpressure-policy
 Why this exists: retention cleanup is operational maintenance, not user work. A single huge `DELETE` can hold locks, grow the transaction log, and make workers or dashboard queries wait. Batching cleanup gives administrators a simple pressure valve while keeping purge APIs easy to use.
 
 `SqlServer.MaxTransientRetries` and `SqlServer.TransientRetryBaseDelayMs` configure retries around transient SQL failures such as deadlocks or short network blips. These retries protect storage operations, not user job handlers.
+
+`SqlServer.WorkerShutdownGracePeriod` bounds how long the SQL worker waits for
+active processing tasks during shutdown. A handler that ignores cancellation can
+outlive this budget; if the host then kills the process, the `Processing` row is
+handled later by zombie recovery.
+
+`SqlServer.PrefetchedJobReleaseTimeout` bounds the cleanup call used to release
+prefetched but unstarted `Fetched` jobs back to `Pending` during pause or
+shutdown.
 
 When `AutoCreateSqlTable` is enabled, ChokaQ also creates `[schema].[SchemaMigrations]`. This table records the applied ChokaQ SQL schema version. Version `1` represents the initial Three Pillars schema, version `2` records hot-path index hardening, and version `3` adds rolling `MetricBuckets` for materialized throughput and failure-rate windows. Future SQL migrations should append one row after they successfully apply, which gives operators a database-side audit trail during upgrades.
 
@@ -170,12 +240,80 @@ ChokaQ emits OpenTelemetry instruments through `System.Diagnostics.Metrics` usin
 | `chokaq.jobs.dlq` | Counter | none | `queue`, `type`, `reason` | Jobs moved to DLQ. |
 | `chokaq.jobs.retried` | Counter | none | `queue`, `type`, `attempt` | Jobs scheduled for another attempt. |
 | `chokaq.workers.active` | UpDownCounter | none | `queue` | Active worker delta by queue. |
+| `chokaq.jobs.heartbeat_failures` | Counter | none | `queue`, `type` | Failed per-job heartbeat writes. |
+| `chokaq.jobs.state_transition_conflicts` | Counter | none | `queue`, `type`, `transition` | Worker-owned state transitions that affected no rows. |
+| `chokaq.idempotency.claims` | Counter | none | `outcome` | Idempotency claim-store outcomes such as claimed, duplicate, released, or completion conflict. |
+| `chokaq.circuits.events` | Counter | none | `type`, `state`, `event` | Circuit breaker open, close, reject, half-open probe, release, and timeout events. |
 
 `Metrics.MaxQueueTagValues`, `Metrics.MaxJobTypeTagValues`, `Metrics.MaxErrorTagValues`, and `Metrics.MaxFailureReasonTagValues` cap the number of distinct tag values one process emits for each tag family. Once a budget is exhausted, new values are reported as `Metrics.OverflowTagValue` instead of creating new time series.
 
 `Metrics.UnknownTagValue` replaces blank tag values. `Metrics.MaxTagValueLength` trims long values before cardinality tracking. The defaults preserve useful operator dimensions while preventing accidental unbounded cardinality.
 
 Why this exists: labels are the dangerous part of metrics. A stable counter name is cheap; a tag that contains tenant IDs, generated queue names, exception messages, or user data can create thousands of time series and make the monitoring backend slow or expensive. ChokaQ keeps high-value dimensions but puts a hard ceiling on the damage one process can cause.
+
+Operational runbooks:
+
+- [Heartbeat Pressure](/5-operations/heartbeat-pressure)
+- [Idempotent Handlers](/5-operations/idempotent-handlers)
+- [Type-Key Troubleshooting](/5-operations/type-key-troubleshooting)
+- [Worker Autoscaling](/5-operations/autoscaling)
+
+## Serialization
+
+`Serialization.MaxPayloadBytes` is the maximum UTF-8 byte size for a serialized
+job payload accepted by enqueue. Oversized payloads fail before storage mutation,
+so producers see a clear boundary violation instead of a provider-specific SQL
+or memory failure.
+
+The default Bus-mode serializer uses shared `System.Text.Json` options through
+ChokaQ's serializer contract. Its default casing matches ordinary
+`System.Text.Json` serialization rather than ASP.NET Core Web defaults, so
+existing PascalCase payloads remain compatible. Hosts that need different JSON
+behavior can replace `IChokaQJobSerializer` in DI before ChokaQ creates jobs,
+but changing serializer behavior affects old rows already stored in SQL,
+Archive, or DLQ.
+
+Treat persisted payloads as message contracts. Additive DTO changes are usually
+safer than renames or removals; breaking schema changes should use a new
+profile type key such as `email.send.v2`.
+
+## Idempotency
+
+`Idempotency.InProgressTtl` controls how long the optional idempotency middleware
+keeps an active execution claim before another worker may claim the same
+idempotency key. Set it longer than the normal execution time for the protected
+operation.
+
+`Idempotency.DefaultResultTtl` is used when an `IIdempotentJob` returns null from
+`ResultTtl`. `MinResultTtl` and `MaxResultTtl` can enforce business retention
+bounds so one job cannot accidentally keep completion markers for too little or
+too much time.
+
+The built-in in-memory idempotency store is claim-based: the first execution
+writes an `InProgress` claim, concurrent duplicates see `AlreadyInProgress` and
+skip handler execution, and successful completion writes a completion marker.
+Handler failure releases the claim so a later retry can execute.
+
+For production multi-instance deployments, use a shared store. A Redis strategy
+should use atomic `SET ... NX ... EX` or Lua scripts for begin/complete/release
+state transitions. A SQL strategy should use a unique key plus atomic
+insert/update transactions. Stores that only implement the older
+`IIdempotencyStore` interface are adapted for source compatibility, but they do
+not provide the same atomic in-progress claim semantics.
+
+## Type Resolution
+
+`TypeResolution.RequireRegisteredJobTypes` controls whether Bus-mode enqueue
+requires every job DTO to be registered through a `ChokaQJobProfile`.
+
+Set it to `true` for production. Registered profile keys, such as
+`email.send.v1`, are stable persisted message-contract names and survive CLR
+renames or namespace refactors.
+
+When it is `false`, unregistered Bus jobs use an assembly-qualified CLR fallback
+identity for compatibility. ChokaQ does not persist or resolve unregistered jobs
+by CLR short name, because two different namespaces can contain classes with the
+same short name.
 
 ## Structured Log Events
 

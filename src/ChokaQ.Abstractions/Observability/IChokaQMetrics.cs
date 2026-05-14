@@ -45,4 +45,24 @@ public interface IChokaQMetrics
     /// Tracks the active worker count (traffic). Delta is usually +1 or -1.
     /// </summary>
     void RecordActiveWorkerDelta(string queue, int delta);
+
+    /// <summary>
+    /// Records a failed heartbeat write separately from handler failures.
+    /// </summary>
+    void RecordHeartbeatFailure(string queue, string jobType);
+
+    /// <summary>
+    /// Records that a worker-owned state transition affected no rows.
+    /// </summary>
+    void RecordStateTransitionConflict(string queue, string jobType, string transition);
+
+    /// <summary>
+    /// Records an idempotency claim-store outcome such as claimed, completed duplicate, or released.
+    /// </summary>
+    void RecordIdempotencyOutcome(string outcome);
+
+    /// <summary>
+    /// Records a circuit-breaker state event such as opened, closed, rejected, or probe released.
+    /// </summary>
+    void RecordCircuitEvent(string circuitKey, string state, string @event);
 }

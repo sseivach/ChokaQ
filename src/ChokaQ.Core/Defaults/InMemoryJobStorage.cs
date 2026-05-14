@@ -10,7 +10,7 @@ namespace ChokaQ.Core.Defaults;
 /// Thread-safe in-memory implementation of the Three Pillars storage.
 /// Suitable for "Pipe Mode" (Rocket Speed) or local development.
 /// </summary>
-public class InMemoryJobStorage : IJobStorage
+internal class InMemoryJobStorage : IJobStorage
 {
     private const int ErrorPrefixLength = 160;
     private const int MetricOutcomeSucceeded = 0;

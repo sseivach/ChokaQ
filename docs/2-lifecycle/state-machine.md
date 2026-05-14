@@ -71,7 +71,7 @@ Scope note:
 - Built-in enqueue idempotency is `JobsHot`-only.
 - It prevents duplicate active work with the same business key.
 - Once the original job moves to Archive or DLQ, the same key can be enqueued again as a new logical attempt.
-- Long-lived "already completed" memory belongs to the optional result-idempotency middleware, not to the Hot queue index.
+- Long-lived "already completed" memory belongs to the optional idempotency middleware's completion marker, not to the Hot queue index. This marker is not handler result replay and does not create exactly-once side effects.
 
 ## Phase 2: Fetch (Pending → Fetched)
 

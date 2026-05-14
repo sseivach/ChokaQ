@@ -31,6 +31,8 @@ public static class ChokaQLogEvents
     public static readonly EventId ProcessingTaskDrainStarted = new(1012, nameof(ProcessingTaskDrainStarted));
     public static readonly EventId ProcessingTaskShutdownObserved = new(1013, nameof(ProcessingTaskShutdownObserved));
     public static readonly EventId ProcessingTaskWrapperFailed = new(1014, nameof(ProcessingTaskWrapperFailed));
+    public static readonly EventId WorkerShutdownTimedOut = new(1015, nameof(WorkerShutdownTimedOut));
+    public static readonly EventId ProcessingTaskDrainTimedOut = new(1016, nameof(ProcessingTaskDrainTimedOut));
 
     public static readonly EventId JobCancellationRequested = new(2000, nameof(JobCancellationRequested));
     public static readonly EventId CircuitBreakerRejected = new(2001, nameof(CircuitBreakerRejected));
@@ -40,6 +42,7 @@ public static class ChokaQLogEvents
     public static readonly EventId JobTimedOutOrCancelled = new(2005, nameof(JobTimedOutOrCancelled));
     public static readonly EventId JobHeartbeatWriteFailed = new(2006, nameof(JobHeartbeatWriteFailed));
     public static readonly EventId JobHeartbeatThresholdReached = new(2007, nameof(JobHeartbeatThresholdReached));
+    public static readonly EventId JobHeartbeatDegraded = new(2008, nameof(JobHeartbeatDegraded));
     public static readonly EventId JobFatalErrorDlq = new(2020, nameof(JobFatalErrorDlq));
     public static readonly EventId JobThrottledRetryScheduled = new(2021, nameof(JobThrottledRetryScheduled));
     public static readonly EventId JobTransientRetryScheduled = new(2022, nameof(JobTransientRetryScheduled));
@@ -79,6 +82,8 @@ public static class ChokaQLogEvents
         ProcessingTaskDrainStarted,
         ProcessingTaskShutdownObserved,
         ProcessingTaskWrapperFailed,
+        WorkerShutdownTimedOut,
+        ProcessingTaskDrainTimedOut,
         JobCancellationRequested,
         CircuitBreakerRejected,
         JobExecutionLeaseRejected,
@@ -87,6 +92,7 @@ public static class ChokaQLogEvents
         JobTimedOutOrCancelled,
         JobHeartbeatWriteFailed,
         JobHeartbeatThresholdReached,
+        JobHeartbeatDegraded,
         JobFatalErrorDlq,
         JobThrottledRetryScheduled,
         JobTransientRetryScheduled,

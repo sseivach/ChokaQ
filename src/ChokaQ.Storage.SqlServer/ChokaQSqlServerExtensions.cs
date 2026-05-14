@@ -2,6 +2,7 @@ using ChokaQ.Abstractions.Storage;
 using ChokaQ.Abstractions.Workers;
 using ChokaQ.Core;
 using ChokaQ.Core.Defaults;
+using ChokaQ.Core.Resilience;
 using ChokaQ.Core.Workers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -117,6 +118,8 @@ public static class ChokaQSqlServerExtensions
             opt.TransientRetryBaseDelayMs = options.TransientRetryBaseDelayMs;
             opt.CommandTimeoutSeconds = options.CommandTimeoutSeconds;
             opt.CleanupBatchSize = options.CleanupBatchSize;
+            opt.WorkerShutdownGracePeriod = options.WorkerShutdownGracePeriod;
+            opt.PrefetchedJobReleaseTimeout = options.PrefetchedJobReleaseTimeout;
         });
 
         // =========================================================
@@ -166,22 +169,19 @@ public static class ChokaQSqlServerExtensions
         // Remove IWorkerManager registration
         services.RemoveAll<IWorkerManager>();
 
-        // Register SqlJobWorker
-        services.AddSingleton<SqlJobWorker>(sp =>
-        {
-            var sqlOptions = sp.GetRequiredService<IOptions<SqlJobStorageOptions>>().Value;
-            return new SqlJobWorker(
-                sp.GetRequiredService<IJobStorage>(),
-                sp.GetRequiredService<ChokaQ.Core.Processing.IJobProcessor>(),
-                sp.GetRequiredService<ChokaQ.Core.State.IJobStateManager>(),
-                sp.GetRequiredService<ILogger<SqlJobWorker>>(),
-                sqlOptions
-            );
-        });
+        // SQL storage may need to provision its schema before any hosted service queries it.
+        // AddChokaQ registers ZombieRescueService before UseSqlServer can know whether SQL
+        // auto-provisioning is enabled, so SQL mode removes and re-adds it after migrations.
+        var zombieDescriptors = services.Where(d =>
+            d.ServiceType == typeof(IHostedService) &&
+            (d.ImplementationType == typeof(ZombieRescueService) ||
+             d.ImplementationFactory?.Method.ReturnType == typeof(ZombieRescueService)))
+            .ToList();
 
-        // Bind interfaces to SqlJobWorker
-        services.AddSingleton<IWorkerManager>(sp => sp.GetRequiredService<SqlJobWorker>());
-        services.AddHostedService(sp => sp.GetRequiredService<SqlJobWorker>());
+        foreach (var descriptor in zombieDescriptors)
+        {
+            services.Remove(descriptor);
+        }
 
         // =========================================================
         // 3. AUTO-PROVISIONING (MIGRATIONS)
@@ -201,5 +201,28 @@ public static class ChokaQSqlServerExtensions
 
             services.AddHostedService<DbMigrationWorker>();
         }
+
+        // Register SqlJobWorker
+        services.AddSingleton<SqlJobWorker>(sp =>
+        {
+            var sqlOptions = sp.GetRequiredService<IOptions<SqlJobStorageOptions>>().Value;
+            return new SqlJobWorker(
+                sp.GetRequiredService<IJobStorage>(),
+                sp.GetRequiredService<ChokaQ.Core.Processing.IJobProcessor>(),
+                sp.GetRequiredService<ChokaQ.Core.State.IJobStateManager>(),
+                sp.GetRequiredService<ILogger<SqlJobWorker>>(),
+                sqlOptions
+            );
+        });
+
+        // Bind interfaces to SqlJobWorker
+        services.AddSingleton<IWorkerManager>(sp => sp.GetRequiredService<SqlJobWorker>());
+        services.AddHostedService(sp => sp.GetRequiredService<SqlJobWorker>());
+
+        services.AddHostedService(sp => new ZombieRescueService(
+            sp.GetRequiredService<IJobStorage>(),
+            sp.GetRequiredService<ChokaQ.Abstractions.Notifications.IChokaQNotifier>(),
+            sp.GetRequiredService<ILogger<ZombieRescueService>>(),
+            sp.GetRequiredService<ChokaQOptions>()));
     }
 }

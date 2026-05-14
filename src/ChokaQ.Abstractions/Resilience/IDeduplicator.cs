@@ -4,7 +4,7 @@
 /// Defines a contract for a lightweight deduplication mechanism.
 /// Used to prevent "retry storms" or double-clicks from hitting the database.
 /// </summary>
-public interface IDeduplicator
+internal interface IDeduplicator
 {
     /// <summary>
     /// Attempts to acquire a lock for a specific key for a given duration.

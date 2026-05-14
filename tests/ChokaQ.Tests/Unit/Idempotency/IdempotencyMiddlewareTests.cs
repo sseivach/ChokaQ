@@ -2,7 +2,9 @@ using ChokaQ.Abstractions.Contexts;
 using ChokaQ.Abstractions.Idempotency;
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Middleware;
+using ChokaQ.Abstractions.Observability;
 using ChokaQ.Core.Idempotency;
+using ChokaQ.Core.Serialization;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ChokaQ.Tests.Unit.Idempotency;
@@ -10,7 +12,7 @@ namespace ChokaQ.Tests.Unit.Idempotency;
 [Trait(TestCategories.Category, TestCategories.Unit)]
 public class IdempotencyMiddlewareTests
 {
-    private readonly IIdempotencyStore _store = new InMemoryIdempotencyStore();
+    private readonly InMemoryIdempotencyStore _store = new();
     private readonly IJobContext _context;
 
     public IdempotencyMiddlewareTests()
@@ -20,8 +22,13 @@ public class IdempotencyMiddlewareTests
         _context = ctx;
     }
 
-    private IdempotencyMiddleware CreateMiddleware() =>
-        new(_store, NullLogger<IdempotencyMiddleware>.Instance);
+    private IdempotencyMiddleware CreateMiddleware(IChokaQMetrics? metrics = null) =>
+        new(
+            _store,
+            new SystemTextJsonChokaQJobSerializer(new ChokaQ.Core.ChokaQSerializationOptions()),
+            new ChokaQ.Core.ChokaQOptions(),
+            NullLogger<IdempotencyMiddleware>.Instance,
+            metrics);
 
     // ── Helper jobs ──────────────────────────────────────────────────────────────
 
@@ -88,6 +95,92 @@ public class IdempotencyMiddlewareTests
         // Second call (duplicate — should be short-circuited)
         await middleware.InvokeAsync(_context, job, next);
         callCount.Should().Be(1); // Handler NOT invoked again
+    }
+
+    [Fact]
+    public async Task InvokeAsync_ConcurrentDuplicates_ShouldExecuteHandlerOnce()
+    {
+        var middleware = CreateMiddleware();
+        var job = new PaymentJob();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callCount = 0;
+
+        JobDelegate next = async () =>
+        {
+            Interlocked.Increment(ref callCount);
+            entered.SetResult();
+            await release.Task;
+        };
+
+        var first = middleware.InvokeAsync(_context, job, next);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var second = middleware.InvokeAsync(_context, job, next);
+        await second;
+
+        callCount.Should().Be(1);
+        release.SetResult();
+        await first;
+    }
+
+    [Fact]
+    public async Task InvokeAsync_WhenHandlerFails_ShouldReleaseClaim()
+    {
+        var middleware = CreateMiddleware();
+        var job = new PaymentJob();
+        var attempts = 0;
+
+        await middleware.Invoking(m => m.InvokeAsync(_context, job, () =>
+            {
+                attempts++;
+                throw new InvalidOperationException("boom");
+            }))
+            .Should().ThrowAsync<InvalidOperationException>();
+
+        await middleware.InvokeAsync(_context, job, () =>
+        {
+            attempts++;
+            return Task.CompletedTask;
+        });
+
+        attempts.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_ShouldRecordIdempotencyOutcomes()
+    {
+        var metrics = Substitute.For<IChokaQMetrics>();
+        var middleware = CreateMiddleware(metrics);
+        var job = new PaymentJob();
+
+        await middleware.InvokeAsync(_context, job, () => Task.CompletedTask);
+        await middleware.InvokeAsync(_context, job, () => Task.CompletedTask);
+
+        var failingJob = new PaymentJob { OrderId = "order-fails" };
+        await middleware.Invoking(m => m.InvokeAsync(_context, failingJob, () =>
+            {
+                throw new InvalidOperationException("boom");
+            }))
+            .Should().ThrowAsync<InvalidOperationException>();
+
+        metrics.Received().RecordIdempotencyOutcome("claimed");
+        metrics.Received().RecordIdempotencyOutcome("completed");
+        metrics.Received().RecordIdempotencyOutcome("completed_duplicate");
+        metrics.Received().RecordIdempotencyOutcome("released");
+    }
+
+    [Fact]
+    public async Task InMemoryIdempotencyStore_ShouldAllowClaimAfterInProgressLeaseExpires()
+    {
+        var store = new InMemoryIdempotencyStore();
+
+        var first = await store.TryBeginAsync("payment:42", "job-1", TimeSpan.FromMilliseconds(1));
+        await Task.Delay(50);
+        var second = await store.TryBeginAsync("payment:42", "job-2", TimeSpan.FromMinutes(1));
+
+        first.Status.Should().Be(IdempotencyBeginStatus.Claimed);
+        second.Status.Should().Be(IdempotencyBeginStatus.Claimed);
     }
 
     [Fact]

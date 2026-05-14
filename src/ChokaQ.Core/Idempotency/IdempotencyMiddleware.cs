@@ -2,44 +2,39 @@ using ChokaQ.Abstractions.Contexts;
 using ChokaQ.Abstractions.Idempotency;
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Middleware;
+using ChokaQ.Abstractions.Observability;
+using ChokaQ.Abstractions.Serialization;
 using Microsoft.Extensions.Logging;
-using System.Text.Json;
 
 namespace ChokaQ.Core.Idempotency;
 
 /// <summary>
-/// Middleware that short-circuits job execution if a cached result exists for the job's idempotency key.
-///
-/// [ARCHITECTURE PATTERN - "Level 2 Idempotency"]:
-/// This middleware sits at the FRONT of the execution pipeline:
-///
-///   [IdempotencyMiddleware] → [LoggingMiddleware] → [Handler]
-///
-/// Execution flow:
-///   1. Check IIdempotencyStore for a cached result using the job's idempotency key.
-///   2. CACHE HIT:  Return the cached result immediately. Handler is NEVER invoked.
-///   3. CACHE MISS: Invoke the rest of the pipeline (handler executes).
-///                  Store the result in IIdempotencyStore for future duplicate requests.
-///
-/// Design decisions:
-///   - This is an opt-in plugin. Core pipeline has zero knowledge of idempotency.
-///   - The job itself provides its key via IIdempotentJob (user-defined contract).
-///   - Only jobs implementing IIdempotentJob are intercepted; others pass through unchanged.
+/// Middleware that atomically claims an idempotency key before running a handler.
 /// </summary>
-public sealed class IdempotencyMiddleware : IChokaQMiddleware
+internal sealed class IdempotencyMiddleware : IChokaQMiddleware
 {
-    private readonly IIdempotencyStore _store;
+    private readonly IIdempotencyClaimStore _store;
+    private readonly IChokaQJobSerializer _serializer;
+    private readonly ChokaQIdempotencyOptions _options;
     private readonly ILogger<IdempotencyMiddleware> _logger;
+    private readonly IChokaQMetrics? _metrics;
 
-    public IdempotencyMiddleware(IIdempotencyStore store, ILogger<IdempotencyMiddleware> logger)
+    public IdempotencyMiddleware(
+        IIdempotencyClaimStore store,
+        IChokaQJobSerializer serializer,
+        ChokaQOptions options,
+        ILogger<IdempotencyMiddleware> logger,
+        IChokaQMetrics? metrics = null)
     {
         _store = store;
+        _serializer = serializer;
+        _options = options.Idempotency;
         _logger = logger;
+        _metrics = metrics;
     }
 
     public async Task InvokeAsync(IJobContext context, object? job, JobDelegate next)
     {
-        // Only intercept jobs that explicitly opt-in to result idempotency
         if (job is not IIdempotentJob idempotentJob)
         {
             await next();
@@ -49,30 +44,97 @@ public sealed class IdempotencyMiddleware : IChokaQMiddleware
         var key = idempotentJob.IdempotencyKey;
         if (string.IsNullOrWhiteSpace(key))
         {
-            _logger.LogWarning("[Idempotency] Job {JobId} implements IIdempotentJob but IdempotencyKey is null. Skipping cache.", context.JobId);
+            _metrics?.RecordIdempotencyOutcome("empty_key");
+            _logger.LogWarning(
+                "[Idempotency] Job {JobId} implements IIdempotentJob but IdempotencyKey is null. Skipping claim.",
+                context.JobId);
             await next();
             return;
         }
 
-        // ── CACHE CHECK ──────────────────────────────────────────────────────────
-        var cached = await _store.TryGetResultAsync(key, CancellationToken.None);
-        if (cached != null)
+        var begin = await _store.TryBeginAsync(
+            key,
+            context.JobId,
+            _options.InProgressTtl,
+            CancellationToken.None);
+
+        if (begin.Status == IdempotencyBeginStatus.AlreadyCompleted)
         {
+            _metrics?.RecordIdempotencyOutcome("completed_duplicate");
             _logger.LogInformation(
-                "[Idempotency] CACHE HIT for key '{Key}'. Job {JobId} skipped — returning stored result.",
-                key, context.JobId);
-            return; // Short-circuit: handler is never invoked
+                "[Idempotency] Completed marker hit for key '{Key}'. Job {JobId} skipped.",
+                key,
+                context.JobId);
+            return;
         }
 
-        // ── CACHE MISS: Execute handler, then store result ───────────────────────
-        await next();
+        if (begin.Status == IdempotencyBeginStatus.AlreadyInProgress)
+        {
+            _metrics?.RecordIdempotencyOutcome("in_progress_duplicate");
+            _logger.LogInformation(
+                "[Idempotency] In-progress claim hit for key '{Key}'. Job {JobId} skipped.",
+                key,
+                context.JobId);
+            return;
+        }
 
-        // Store a minimal "completed" marker so future duplicates are short-circuited.
-        // If the job produces a meaningful return value, a custom IIdempotencyStore
-        // implementation can capture and serialize it here.
-        var resultPayload = JsonSerializer.Serialize(new { CompletedAt = DateTimeOffset.UtcNow, JobId = context.JobId });
-        await _store.StoreResultAsync(key, resultPayload, idempotentJob.ResultTtl, CancellationToken.None);
+        _metrics?.RecordIdempotencyOutcome("claimed");
 
-        _logger.LogDebug("[Idempotency] Result stored for key '{Key}' (TTL: {Ttl}).", key, idempotentJob.ResultTtl);
+        try
+        {
+            await next();
+        }
+        catch
+        {
+            await _store.ReleaseAsync(key, context.JobId, CancellationToken.None);
+            _metrics?.RecordIdempotencyOutcome("released");
+            _logger.LogDebug(
+                "[Idempotency] Released in-progress claim for key '{Key}' after handler failure.",
+                key);
+            throw;
+        }
+
+        var completionPayload = _serializer.SerializeCompletionMarker(context.JobId, DateTimeOffset.UtcNow);
+        var completed = await _store.CompleteAsync(
+            key,
+            context.JobId,
+            completionPayload,
+            ResolveResultTtl(idempotentJob),
+            CancellationToken.None);
+
+        if (!completed)
+        {
+            _metrics?.RecordIdempotencyOutcome("complete_conflict");
+            throw new InvalidOperationException(
+                $"Idempotency completion failed for key '{key}' and job '{context.JobId}'.");
+        }
+
+        _metrics?.RecordIdempotencyOutcome("completed");
+        _logger.LogDebug(
+            "[Idempotency] Completed marker stored for key '{Key}' (TTL: {Ttl}).",
+            key,
+            ResolveResultTtl(idempotentJob));
+    }
+
+    private TimeSpan? ResolveResultTtl(IIdempotentJob job)
+    {
+        var ttl = job.ResultTtl ?? _options.DefaultResultTtl;
+
+        if (ttl.HasValue)
+        {
+            if (_options.MinResultTtl.HasValue && ttl.Value < _options.MinResultTtl.Value)
+            {
+                throw new InvalidOperationException(
+                    "Idempotency result TTL is smaller than Idempotency.MinResultTtl.");
+            }
+
+            if (_options.MaxResultTtl.HasValue && ttl.Value > _options.MaxResultTtl.Value)
+            {
+                throw new InvalidOperationException(
+                    "Idempotency result TTL exceeds Idempotency.MaxResultTtl.");
+            }
+        }
+
+        return ttl;
     }
 }

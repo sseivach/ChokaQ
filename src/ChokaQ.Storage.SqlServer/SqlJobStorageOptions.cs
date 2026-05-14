@@ -69,6 +69,18 @@ public class SqlJobStorageOptions
     public int CleanupBatchSize { get; set; } = 1000;
 
     /// <summary>
+    /// Maximum time SQL worker shutdown waits for active processing tasks to finish.
+    /// Default: 30 seconds.
+    /// </summary>
+    public TimeSpan WorkerShutdownGracePeriod { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Maximum time spent releasing one prefetched but unstarted job during pause or shutdown.
+    /// Default: 5 seconds.
+    /// </summary>
+    public TimeSpan PrefetchedJobReleaseTimeout { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
     /// Throws a startup exception when SQL storage configuration is unsafe or incomplete.
     /// </summary>
     /// <remarks>
@@ -132,6 +144,16 @@ public class SqlJobStorageOptions
         if (CleanupBatchSize <= 0)
         {
             errors.Add("CleanupBatchSize must be greater than zero.");
+        }
+
+        if (WorkerShutdownGracePeriod <= TimeSpan.Zero)
+        {
+            errors.Add("WorkerShutdownGracePeriod must be greater than zero.");
+        }
+
+        if (PrefetchedJobReleaseTimeout <= TimeSpan.Zero)
+        {
+            errors.Add("PrefetchedJobReleaseTimeout must be greater than zero.");
         }
 
         return errors;

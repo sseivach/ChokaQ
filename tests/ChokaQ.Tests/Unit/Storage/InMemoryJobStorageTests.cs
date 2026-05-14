@@ -125,6 +125,22 @@ public class InMemoryJobStorageTests
     }
 
     [Fact]
+    public async Task FetchNextBatchAsync_WithSamePriority_ShouldReturnOldestDueWorkFirst()
+    {
+        // Arrange
+        var storage = new InMemoryJobStorage(new InMemoryStorageOptions { MaxCapacity = 1000 });
+        await storage.EnqueueAsync("newer-due", "default", "NewerDueJob", "{}", priority: 5, delay: TimeSpan.FromMilliseconds(-100));
+        await storage.EnqueueAsync("older-due", "default", "OlderDueJob", "{}", priority: 5, delay: TimeSpan.FromMinutes(-5));
+        await storage.EnqueueAsync("future", "default", "FutureJob", "{}", priority: 5, delay: TimeSpan.FromMinutes(5));
+
+        // Act
+        var jobs = (await storage.FetchNextBatchAsync("worker1", 10)).ToList();
+
+        // Assert
+        jobs.Select(job => job.Id).Should().Equal("older-due", "newer-due");
+    }
+
+    [Fact]
     public async Task FetchNextBatchAsync_ShouldSkipScheduledJobs_NotYetDue()
     {
         // Arrange

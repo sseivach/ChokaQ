@@ -5,7 +5,7 @@ namespace ChokaQ.Core.Workers;
 /// <summary>
 /// Hosts the default in-memory worker while keeping the worker manager as the same singleton instance.
 /// </summary>
-public sealed class JobWorkerHostedService : IHostedService
+internal sealed class JobWorkerHostedService : IHostedService
 {
     private readonly JobWorker _worker;
 

@@ -31,6 +31,17 @@ public interface ICircuitBreaker
     bool IsExecutionPermitted(string circuitKey);
 
     /// <summary>
+    /// Releases a previously permitted execution that never produced a success or failure result.
+    /// </summary>
+    /// <remarks>
+    /// This is mainly for HalfOpen probes. A worker can acquire permission and then skip
+    /// handler execution because the job lease was stale, the host shut down, or an admin
+    /// cancelled the job before dispatch. Releasing the permit prevents the circuit from
+    /// staying stuck in HalfOpen.
+    /// </remarks>
+    void ReleaseExecutionPermit(string circuitKey);
+
+    /// <summary>
     /// Reports a successful execution, resetting failure counters.
     /// </summary>
     void ReportSuccess(string circuitKey);
@@ -50,4 +61,29 @@ public interface ICircuitBreaker
     /// Used for monitoring/dashboard.
     /// </summary>
     IEnumerable<CircuitStatsDto> GetCircuitStats();
+}
+
+/// <summary>
+/// Optional lease-aware circuit API for components that can keep permit ownership until outcome.
+/// </summary>
+public interface ICircuitBreakerLeaseProvider
+{
+    /// <summary>
+    /// Attempts to acquire an execution permit and returns a lease that owns the eventual outcome.
+    /// </summary>
+    ICircuitBreakerExecutionLease? TryAcquireExecutionPermit(string circuitKey);
+}
+
+/// <summary>
+/// Owns one circuit execution permit until success, failure, or release.
+/// </summary>
+public interface ICircuitBreakerExecutionLease : IDisposable
+{
+    string CircuitKey { get; }
+
+    void ReportSuccess();
+
+    void ReportFailure(CircuitFailureSeverity severity = CircuitFailureSeverity.Transient);
+
+    void Release();
 }

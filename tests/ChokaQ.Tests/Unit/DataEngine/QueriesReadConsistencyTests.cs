@@ -55,6 +55,19 @@ public class QueriesReadConsistencyTests
             "operator-facing lists, previews, and capacity decisions should read committed data");
     }
 
+    [Fact]
+    public void FetchNextBatch_ShouldDocumentPriorityAndDueTimeOrdering()
+    {
+        var queries = new Queries("chokaq");
+
+        queries.FetchNextBatch.Should().Contain(
+            "ORDER BY h.[Priority] DESC, ISNULL(h.[ScheduledAtUtc], h.[CreatedAtUtc]) ASC",
+            because: "workers should prefer higher priority, then the oldest due scheduled/created time inside each queue");
+        queries.FetchNextBatch.Should().Contain(
+            "ORDER BY [Priority] DESC, [SortUtc] ASC",
+            because: "the final picked batch must use the same public ordering contract");
+    }
+
     private static IEnumerable<(string Name, string Sql)> GetStringQueries(Queries queries)
     {
         return typeof(Queries)

@@ -170,10 +170,14 @@ ORDER BY h.[Priority] DESC,
          ISNULL(h.[ScheduledAtUtc], h.[CreatedAtUtc]) ASC
 ```
 
-1. **Priority DESC** — Higher number = processed first. A `Priority = 100` job always runs before `Priority = 10`
-2. **ScheduledAt ASC** — Within the same priority, oldest-scheduled jobs run first (FIFO within priority class)
+1. **Priority DESC** — Higher number is selected before lower priority work when both are eligible.
+2. **ScheduledAt ASC** — Within the same priority, older eligible work is selected before newer work.
 
-The `ISNULL` handles the common case where `ScheduledAtUtc` is NULL (immediate execution) — falls back to creation time for FIFO ordering.
+The `ISNULL` handles the common case where `ScheduledAtUtc` is NULL (immediate execution) and falls back to creation time for the selection order.
+
+This is a fetch ordering policy, not a strict end-to-end FIFO guarantee. Multiple
+workers, per-queue limits, retries, pause/resume, cancellation, and operator
+actions can change completion order.
 
 ## Concurrency Proof
 

@@ -7,10 +7,9 @@
 public abstract class ChokaQJobProfile
 {
     /// <summary>
-    /// The list of configured job mappings. 
-    /// Must be public so ChokaQ.Core can read it during startup.
+    /// The list of configured job mappings.
     /// </summary>
-    public List<JobRegistration> Registrations { get; } = new();
+    internal List<JobRegistration> Registrations { get; } = new();
 
     /// <summary>
     /// Registers a job type and its corresponding handler with a specific key.

@@ -4,7 +4,7 @@ namespace ChokaQ.Core.State;
 /// Manages the state transitions of jobs in Three Pillars architecture.
 /// Coordinates storage operations and real-time notifications.
 /// </summary>
-public interface IJobStateManager
+internal interface IJobStateManager
 {
     /// <summary>
     /// Archives a succeeded job: Hot → Archive.

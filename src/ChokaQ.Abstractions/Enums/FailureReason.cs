@@ -59,5 +59,17 @@ public enum FailureReason
     /// Job exhausted retries after ordinary retryable failures.
     /// This keeps standard transient exhaustion distinct from fatal, timeout, and throttling paths.
     /// </summary>
-    Transient = 8
+    Transient = 8,
+
+    /// <summary>
+    /// Job execution was cancelled because ChokaQ could not persist heartbeat updates.
+    /// This points to storage/network pressure rather than an administrator action.
+    /// </summary>
+    HeartbeatFailure = 9,
+
+    /// <summary>
+    /// Job exceeded its wall-clock retry lifetime budget before another attempt could be scheduled.
+    /// This is distinct from exhausting the configured attempt count.
+    /// </summary>
+    RetryLifetimeExpired = 10
 }

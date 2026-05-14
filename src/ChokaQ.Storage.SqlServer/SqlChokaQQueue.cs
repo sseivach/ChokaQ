@@ -3,34 +3,44 @@ using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Idempotency;
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Notifications;
+using ChokaQ.Abstractions.Serialization;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Execution;
 using ChokaQ.Core.Observability;
+using ChokaQ.Core.Validation;
 using Microsoft.Extensions.Logging;
-using System.Text.Json;
 
 namespace ChokaQ.Storage.SqlServer;
 
 /// <summary>
 /// Durable queue producer for SQL Server mode.
 /// </summary>
-public sealed class SqlChokaQQueue : IChokaQQueue
+internal sealed class SqlChokaQQueue : IChokaQQueue
 {
     private readonly IJobStorage _storage;
     private readonly IChokaQNotifier _notifier;
     private readonly JobTypeRegistry _registry;
+    private readonly IChokaQJobSerializer _serializer;
     private readonly ILogger<SqlChokaQQueue> _logger;
+    private readonly bool _requireRegisteredJobTypes;
+    private readonly int _maxPayloadBytes;
 
     public SqlChokaQQueue(
         IJobStorage storage,
         IChokaQNotifier notifier,
         JobTypeRegistry registry,
-        ILogger<SqlChokaQQueue> logger)
+        IChokaQJobSerializer serializer,
+        ILogger<SqlChokaQQueue> logger,
+        ChokaQ.Core.ChokaQOptions? options = null)
     {
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _notifier = notifier ?? throw new ArgumentNullException(nameof(notifier));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        var resolvedOptions = options ?? new ChokaQ.Core.ChokaQOptions();
+        _requireRegisteredJobTypes = resolvedOptions.TypeResolution.RequireRegisteredJobTypes;
+        _maxPayloadBytes = resolvedOptions.Serialization.MaxPayloadBytes;
     }
 
     public async Task EnqueueAsync<TJob>(
@@ -46,14 +56,14 @@ public sealed class SqlChokaQQueue : IChokaQQueue
         if (job is null)
             throw new ArgumentNullException(nameof(job));
 
-        ValidateEnvelope(queue, createdBy, tags);
+        ChokaQEnvelopeLimits.ValidateEnvelope(queue, createdBy, tags);
         var resolvedIdempotencyKey = ResolveIdempotencyKey(job, idempotencyKey);
 
-        var jobTypeName = _registry.GetKeyByType(job.GetType()) ?? job.GetType().Name;
-        if (jobTypeName.Length > 255)
-            throw new InvalidOperationException($"Job Type Key '{jobTypeName}' exceeds maximum length of 255 characters.");
+        var jobTypeName = _registry.GetPersistedTypeKey(job.GetType(), _requireRegisteredJobTypes);
+        ChokaQEnvelopeLimits.ValidateTypeKey(jobTypeName);
 
-        var payload = JsonSerializer.Serialize(job, job.GetType());
+        var payload = _serializer.Serialize(job, job.GetType());
+        ChokaQEnvelopeLimits.ValidatePayloadSize(payload, _maxPayloadBytes);
 
         // SQL mode has a different producer/consumer boundary than in-memory mode:
         // the producer commits the job to durable storage and then stops. It must not
@@ -111,21 +121,6 @@ public sealed class SqlChokaQQueue : IChokaQQueue
         }
     }
 
-    private static void ValidateEnvelope(string queue, string? createdBy, string? tags)
-    {
-        if (string.IsNullOrWhiteSpace(queue))
-            throw new ArgumentException("Queue name cannot be null or empty.", nameof(queue));
-
-        if (queue.Length > 255)
-            throw new ArgumentException($"Queue name '{queue}' exceeds maximum length of 255 characters.", nameof(queue));
-
-        if (createdBy != null && createdBy.Length > 100)
-            throw new ArgumentException($"CreatedBy '{createdBy}' exceeds maximum length of 100 characters.", nameof(createdBy));
-
-        if (tags != null && tags.Length > 1000)
-            throw new ArgumentException("Tags exceed maximum length of 1000 characters.", nameof(tags));
-    }
-
     private static string? ResolveIdempotencyKey<TJob>(TJob job, string? explicitKey)
         where TJob : IChokaQJob
     {
@@ -133,15 +128,6 @@ public sealed class SqlChokaQQueue : IChokaQQueue
             ? explicitKey
             : (job as IIdempotentJob)?.IdempotencyKey;
 
-        if (string.IsNullOrWhiteSpace(key))
-            return null;
-
-        key = key.Trim();
-        if (key.Length > 255)
-        {
-            throw new ArgumentException("IdempotencyKey exceeds maximum length of 255 characters.", nameof(explicitKey));
-        }
-
-        return key;
+        return ChokaQEnvelopeLimits.NormalizeIdempotencyKey(key, nameof(explicitKey));
     }
 }

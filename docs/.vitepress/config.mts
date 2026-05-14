@@ -30,10 +30,14 @@ export default defineConfig({
         text: 'Introduction',
         items: [
           { text: 'Getting Started', link: '/getting-started' },
+          { text: 'Job Contracts', link: '/job-contracts' },
           { text: 'Docker Compose Sample', link: '/samples/docker-compose' },
+          { text: 'Delivery Guarantees', link: '/delivery-guarantees' },
           { text: 'Runtime Configuration', link: '/configuration' },
           { text: 'Release Strategy', link: '/release-strategy' },
           { text: 'Release Checklist', link: '/release-checklist' },
+          { text: 'Verification Matrix', link: '/release-verification-matrix' },
+          { text: '0.1.0-preview.1 Notes', link: '/release-notes/0.1.0-preview.1' },
           { text: 'Study Guide', link: '/study-guide' },
           { text: 'Why ChokaQ?', link: '/why-chokaq' }
         ]
@@ -75,6 +79,16 @@ export default defineConfig({
           { text: 'Real-time SignalR', link: '/4-the-deck/realtime-signalr' },
           { text: 'Rolling Observability', link: '/4-the-deck/rolling-observability' },
           { text: 'Edit + Resurrect', link: '/4-the-deck/resurrect-dlq' }
+        ]
+      },
+      {
+        text: 'Operations',
+        collapsed: false,
+        items: [
+          { text: 'Heartbeat Pressure', link: '/5-operations/heartbeat-pressure' },
+          { text: 'Idempotent Handlers', link: '/5-operations/idempotent-handlers' },
+          { text: 'Type-Key Troubleshooting', link: '/5-operations/type-key-troubleshooting' },
+          { text: 'Worker Autoscaling', link: '/5-operations/autoscaling' }
         ]
       }
     ],

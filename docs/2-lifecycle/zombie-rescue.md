@@ -134,9 +134,15 @@ Heartbeat:       ↑    ↑    ↑    ↑    ↑    ↑    ↑ (every ~10 second
 
 **The formula:**
 - `Execution.HeartbeatIntervalMin/Max` = jittered heartbeat window used by the worker (~8-12s by default)
+- `Execution.HeartbeatFailureThreshold` = consecutive heartbeat write failures before degraded heartbeat state is logged and counted (~10 by default)
 - `Recovery.FetchedJobTimeout` = how long a Fetched-but-not-started reservation may sit before it is returned to Pending
 - `Recovery.ProcessingZombieTimeout` = how long a Processing job may miss heartbeats before it is declared dead (~600s)
 - `Recovery.ProcessingZombieTimeout` must be **significantly larger** than the heartbeat interval
+
+Heartbeat write failures are reported through `chokaq.jobs.heartbeat_failures`
+separately from handler failures. By default they do not cancel user code; set
+`Execution.CancelOnHeartbeatFailure` only when the deployment wants heartbeat
+storage pressure to fail running work fast.
 
 If `HeartbeatUtc` hasn't been updated in `Recovery.ProcessingZombieTimeout`, the job is either:
 - Genuinely stuck (infinite loop, deadlock)

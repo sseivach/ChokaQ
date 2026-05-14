@@ -1,6 +1,7 @@
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Core.Execution;
+using ChokaQ.Core.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -43,7 +44,11 @@ public class BusJobDispatcherTests
     private BusJobDispatcher CreateDispatcher()
     {
         SetupJobContext();
-        return new BusJobDispatcher(_scopeFactory, _registry, NullLogger<BusJobDispatcher>.Instance);
+        return new BusJobDispatcher(
+            _scopeFactory,
+            _registry,
+            new SystemTextJsonChokaQJobSerializer(new ChokaQ.Core.ChokaQSerializationOptions()),
+            NullLogger<BusJobDispatcher>.Instance);
     }
 
     [Fact]

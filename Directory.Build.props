@@ -1,0 +1,27 @@
+<Project>
+  <PropertyGroup>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <VersionSuffix>preview.1</VersionSuffix>
+    <Authors>Sergei Seivach</Authors>
+    <Company>ChokaQ</Company>
+    <Product>ChokaQ</Product>
+    <PackageProjectUrl>https://github.com/sseivach/ChokaQ</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/sseivach/ChokaQ</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>logo.png</PackageIcon>
+    <PackageTags>background-jobs;queue;sql-server;blazor;signalr;observability;dotnet</PackageTags>
+    <PackageReleaseNotes>Preview package for local NuGet smoke validation. ChokaQ provides at-least-once execution, SQL Server storage, in-memory development mode, The Deck dashboard, health checks, and OpenTelemetry metrics.</PackageReleaseNotes>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)docs\public\logo.png" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+</Project>

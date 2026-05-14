@@ -103,4 +103,61 @@ public class JobTypeRegistryTests
         keys.Should().Contain("email_v1");
         keys.Should().Contain("sms_v1");
     }
+
+    [Fact]
+    public void GetPersistedTypeKey_UnregisteredFallback_ShouldUseAssemblyQualifiedName()
+    {
+        // Arrange
+        var registry = new JobTypeRegistry();
+
+        // Act
+        var key = registry.GetPersistedTypeKey(typeof(UnregisteredJob));
+
+        // Assert
+        key.Should().Be(typeof(UnregisteredJob).AssemblyQualifiedName);
+        key.Should().NotBe(nameof(UnregisteredJob));
+    }
+
+    [Fact]
+    public void GetPersistedTypeKey_WhenStrictModeAndUnregistered_ShouldThrow()
+    {
+        // Arrange
+        var registry = new JobTypeRegistry();
+
+        // Act & Assert
+        registry.Invoking(r => r.GetPersistedTypeKey(typeof(UnregisteredJob), requireRegisteredJobTypes: true))
+            .Should().Throw<InvalidOperationException>()
+            .WithMessage("*not registered*");
+    }
+
+    [Fact]
+    public void ResolvePersistedType_ShouldNotResolveByShortName()
+    {
+        // Arrange
+        var registry = new JobTypeRegistry();
+
+        // Act
+        var result = registry.ResolvePersistedType(nameof(UnregisteredJob));
+
+        // Assert
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void ResolvePersistedType_ShouldResolveAssemblyQualifiedFallback()
+    {
+        // Arrange
+        var registry = new JobTypeRegistry();
+        var key = typeof(UnregisteredJob).AssemblyQualifiedName!;
+
+        // Act
+        var result = registry.ResolvePersistedType(key);
+
+        // Assert
+        result.Should().Be(typeof(UnregisteredJob));
+    }
+
+    private sealed class UnregisteredJob
+    {
+    }
 }

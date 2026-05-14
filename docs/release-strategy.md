@@ -8,7 +8,12 @@ work that would create churn.
 
 ## Current Decision
 
-ChokaQ is not packaged or published as NuGet yet.
+ChokaQ is not published as NuGet yet.
+
+The repository now contains NuGet package metadata and a top-level `ChokaQ`
+package project for local validation. This exists to test the install shape
+before publish; public docs should still avoid telling users to install from
+nuget.org until an actual package is published.
 
 The preview line targets `net10.0` only. Older target frameworks are explicitly
 out of scope for the current development line. Supporting `net8.0` or other LTS
@@ -17,14 +22,15 @@ framework-specific edge cases before the product surface is stable.
 
 ## Intended Package Shape
 
-When the project is ready to publish, the first public package should be a single
-package:
+When the project is ready to publish, the first public install target should be
+a single package:
 
 ```text
 ChokaQ
 ```
 
-The package should include the current complete product surface:
+The top-level package should include or depend on the current complete product
+surface:
 
 - abstractions;
 - core engine;
@@ -37,7 +43,8 @@ The package should include the current complete product surface:
 This is a user-experience decision. ChokaQ is currently one product, not an
 ecosystem of optional providers. Installing one package should give the host app
 the full supported experience instead of forcing users to discover missing
-pieces by trial and error.
+pieces by trial and error. Runtime subpackages may exist as implementation
+dependencies, but users should start from `ChokaQ`.
 
 ## Deferred Split
 
@@ -78,4 +85,6 @@ Before publishing any NuGet package, ChokaQ should have:
 - sample app smoke test;
 - documented upgrade and schema migration story.
 
-Actual pack/publish work is intentionally deferred until those gates are closer.
+Pack validation is now part of the release gate. Public publish remains
+deferred until the checklist, verification matrix, package smoke, release notes,
+and human approval are all complete.

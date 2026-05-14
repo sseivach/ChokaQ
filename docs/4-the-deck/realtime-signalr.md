@@ -117,6 +117,7 @@ data, not inferred from exception text:
 | `Throttled` | Downstream rate limit or quota pressure |
 | `Timeout` | Execution exceeded runtime budget |
 | `Transient` | Retryable failure exhausted retry budget |
+| `RetryLifetimeExpired` | Retry wall-clock lifetime budget expired |
 | `Cancelled` | Explicit operator cancellation |
 | `Zombie` | Worker heartbeat expired |
 

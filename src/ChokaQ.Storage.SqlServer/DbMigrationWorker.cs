@@ -7,7 +7,7 @@ namespace ChokaQ.Storage.SqlServer;
 /// <summary>
 /// Background worker that triggers database initialization at application startup.
 /// </summary>
-public class DbMigrationWorker : IHostedService
+internal class DbMigrationWorker : IHostedService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<DbMigrationWorker> _logger;

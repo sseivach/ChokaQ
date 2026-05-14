@@ -18,7 +18,7 @@ namespace ChokaQ.Core.Processing;
 /// Orchestrates the entire lifecycle: Fetch -> Circuit Check -> Execute -> Archive (Success/DLQ).
 /// Includes Smart Worker capabilities to fast-fail on non-transient errors.
 /// </summary>
-public class JobProcessor : IJobProcessor
+internal class JobProcessor : IJobProcessor
 {
     private readonly IJobStorage _storage;
     private readonly ILogger<JobProcessor> _logger;
@@ -29,8 +29,9 @@ public class JobProcessor : IJobProcessor
     private readonly TimeProvider _timeProvider;
     private readonly ChokaQOptions _options;
 
-    // Registry of tokens for currently running jobs to allow real-time cancellation.
-    private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeJobTokens = new();
+    // Registry of tokens for currently running or lease-acquiring jobs to allow real-time cancellation.
+    private readonly ConcurrentDictionary<string, ActiveJobCancellation> _activeJobTokens = new();
+    private readonly ConcurrentDictionary<string, PendingJobCancellation> _pendingCancels = new();
 
     public int MaxRetries
     {
@@ -77,13 +78,49 @@ public class JobProcessor : IJobProcessor
     /// <param name="jobId">The unique identifier of the job to cancel.</param>
     public void CancelJob(string jobId)
     {
-        if (_activeJobTokens.TryGetValue(jobId, out var cts))
+        CancelJob(jobId, JobCancellationReason.Admin);
+    }
+
+    /// <summary>
+    /// Triggers immediate cancellation for a specific running job with a typed reason.
+    /// </summary>
+    /// <param name="jobId">The unique identifier of the job to cancel.</param>
+    /// <param name="reason">The cancellation reason persisted if execution observes cancellation.</param>
+    public void CancelJob(string jobId, JobCancellationReason reason)
+    {
+        RequestJobCancellation(jobId, reason, rememberIfNotActive: true);
+    }
+
+    /// <summary>
+    /// Cancels a job only if this processor currently owns an execution token for it.
+    /// </summary>
+    public void CancelRunningJob(string jobId, JobCancellationReason reason = JobCancellationReason.Admin)
+    {
+        RequestJobCancellation(jobId, reason, rememberIfNotActive: false);
+    }
+
+    private void RequestJobCancellation(string jobId, JobCancellationReason reason, bool rememberIfNotActive)
+    {
+        if (_activeJobTokens.TryGetValue(jobId, out var activeCancellation))
         {
             _logger.LogInformation(
                 ChokaQLogEvents.JobCancellationRequested,
-                "Requesting cancellation for running job {JobId}.",
-                jobId);
-            cts.Cancel();
+                "Requesting cancellation for running job {JobId}. Reason: {Reason}.",
+                jobId,
+                reason);
+            activeCancellation.Cancel(reason);
+            return;
+        }
+
+        if (rememberIfNotActive)
+        {
+            var now = _timeProvider.GetUtcNow();
+            _pendingCancels.AddOrUpdate(
+                jobId,
+                new PendingJobCancellation(reason, now),
+                (_, existing) => now - existing.RequestedAtUtc <= _options.Execution.PendingCancellationRetention
+                    ? existing with { Reason = PreferCancellationReason(existing.Reason, reason), RequestedAtUtc = now }
+                    : new PendingJobCancellation(reason, now));
         }
     }
 
@@ -95,7 +132,7 @@ public class JobProcessor : IJobProcessor
         string jobId,
         string jobType,
         string payload,
-        string workerId,
+        string? workerId,
         int attemptCount,
         string? createdBy,
         DateTime? scheduledAtUtc,
@@ -123,7 +160,44 @@ public class JobProcessor : IJobProcessor
             var storedAttemptCount = attemptCount;
 
         // 1. Circuit Breaker Check: Prevent cascading failures if external service is down
-        if (!_breaker.IsExecutionPermitted(jobType))
+        ICircuitBreakerExecutionLease? circuitLease = null;
+        var circuitPermitAcquired = _breaker is ICircuitBreakerLeaseProvider leaseProvider
+            ? (circuitLease = leaseProvider.TryAcquireExecutionPermit(jobType)) is not null
+            : _breaker.IsExecutionPermitted(jobType);
+        var circuitPermitResolved = false;
+
+        void ReleaseCircuitPermit()
+        {
+            if (circuitPermitAcquired && !circuitPermitResolved)
+            {
+                if (circuitLease is not null)
+                {
+                    circuitLease.Release();
+                }
+                else
+                {
+                    _breaker.ReleaseExecutionPermit(jobType);
+                }
+
+                circuitPermitResolved = true;
+            }
+        }
+
+        void ReportCircuitSuccess()
+        {
+            if (circuitLease is not null)
+            {
+                circuitLease.ReportSuccess();
+            }
+            else
+            {
+                _breaker.ReportSuccess(jobType);
+            }
+
+            circuitPermitResolved = true;
+        }
+
+        if (!circuitPermitAcquired)
         {
             _logger.LogWarning(
                 ChokaQLogEvents.CircuitBreakerRejected,
@@ -143,6 +217,20 @@ public class JobProcessor : IJobProcessor
 
         var executionAttempt = storedAttemptCount + 1;
 
+        var activeCancellation = new ActiveJobCancellation();
+        var activeCancellationRegistered = _activeJobTokens.TryAdd(jobId, activeCancellation);
+        if (activeCancellationRegistered)
+        {
+            ApplyPendingCancellation(jobId, activeCancellation);
+        }
+        else
+        {
+            _logger.LogWarning(
+                ChokaQLogEvents.JobCancellationRequested,
+                "Job {JobId} already has an active cancellation token. Continuing with a local token; stale finalization is still guarded by storage ownership.",
+                jobId);
+        }
+
         // 2. Mark as Processing and Start Heartbeat (Zombie prevention)
         // ----------------------------------------------------------------------------------
         // CRITICAL (LEASE GATE): SQL workers prefetch jobs into an in-memory buffer. Between
@@ -151,35 +239,57 @@ public class JobProcessor : IJobProcessor
         // MarkAsProcessing is therefore the final ownership check before user code runs.
         // If it returns false, this worker is holding a stale copy and must not dispatch it.
         // ----------------------------------------------------------------------------------
-        var executionLeaseAcquired = await _stateManager.MarkAsProcessingAsync(
-            jobId, jobType, meta.Queue, meta.Priority, executionAttempt, createdBy, workerCt, workerId);
+        bool executionLeaseAcquired;
+        try
+        {
+            executionLeaseAcquired = await _stateManager.MarkAsProcessingAsync(
+                jobId, jobType, meta.Queue, meta.Priority, executionAttempt, createdBy, workerCt, workerId);
+        }
+        catch
+        {
+            ReleaseCircuitPermit();
+            ReleaseActiveCancellation(jobId, activeCancellation, activeCancellationRegistered);
+            throw;
+        }
         if (!executionLeaseAcquired)
         {
             _logger.LogWarning(
                 ChokaQLogEvents.JobExecutionLeaseRejected,
                 "[Worker {ID}] Job {JobId} was not started because the execution lease is no longer valid.",
                 workerId, jobId);
+            ReleaseCircuitPermit();
+            ReleaseActiveCancellation(jobId, activeCancellation, activeCancellationRegistered);
             return;
         }
 
-        var context = new JobExecutionContext(jobId, jobType, createdBy, meta.Queue, meta.Priority, executionAttempt);
+        var context = new JobExecutionContext(jobId, jobType, createdBy, meta.Queue, meta.Priority, executionAttempt, createdAtUtc);
 
-        using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(workerCt);
+        using var timeoutCts = new CancellationTokenSource();
+        using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(
+            workerCt,
+            timeoutCts.Token,
+            activeCancellation.Token);
         var executionTimeout = _options.GetExecutionTimeoutForQueue(meta.Queue);
 
         // Every background processor needs a hard execution boundary. Without it, a handler
         // that hangs on I/O can hold a worker lease forever, hide saturation, and force humans
         // to repair the system manually. Per-queue overrides let long-running workloads be
         // explicit instead of weakening the default timeout for the whole installation.
-        jobCts.CancelAfter(executionTimeout);
-        _activeJobTokens.TryAdd(jobId, jobCts);
+        timeoutCts.CancelAfter(executionTimeout);
 
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(workerCt);
-        var heartbeatTask = StartHeartbeatLoopAsync(jobId, heartbeatCts.Token);
+        var heartbeatTask = StartHeartbeatLoopAsync(jobId, jobType, meta.Queue, activeCancellation, heartbeatCts.Token);
 
         var sw = Stopwatch.StartNew();
         try
         {
+            if (activeCancellation.TryGetReason(out var preDispatchCancellationReason))
+            {
+                throw new OperationCanceledException(
+                    $"Job execution was cancelled before dispatch. Reason: {preDispatchCancellationReason}.",
+                    jobCts.Token);
+            }
+
             // 3. Dispatch execution to the actual handler via compiled expression trees
             await _dispatcher.DispatchAsync(jobId, jobType, payload, jobCts.Token);
             sw.Stop();
@@ -195,7 +305,7 @@ public class JobProcessor : IJobProcessor
             // the job will be picked up again by the zombie reclaimer and retried.
             // 👉 Handlers MUST be implemented idempotently (e.g., using idempotency keys).
             // ----------------------------------------------------------------------------------
-            _breaker.ReportSuccess(jobType);
+            ReportCircuitSuccess();
             _metrics.RecordSuccess(meta.Queue, jobType, sw.Elapsed.TotalMilliseconds);
 
             await _stateManager.ArchiveSucceededAsync(
@@ -218,8 +328,40 @@ public class JobProcessor : IJobProcessor
                 jobId);
 
             // Shutdown: Reschedule immediately so it isn't orphaned
+            ReleaseCircuitPermit();
             await _stateManager.RescheduleForRetryAsync(
                 jobId, jobType, meta.Queue, meta.Priority, _timeProvider.GetUtcNow().UtcDateTime, context.AttemptCount, "Worker Shutdown", CancellationToken.None, workerId);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        {
+            sw.Stop();
+            heartbeatCts.Cancel();
+
+            _logger.LogWarning(
+                ChokaQLogEvents.JobTimedOutOrCancelled,
+                "[Worker {ID}] Job {JobId} exceeded its execution timeout.",
+                workerId,
+                jobId);
+
+            ReleaseCircuitPermit();
+            await _stateManager.ArchiveCancelledAsync(
+                jobId, jobType, meta.Queue, JobCancellationReason.Timeout, "Execution Timeout", workerCt, workerId);
+        }
+        catch (OperationCanceledException) when (activeCancellation.TryGetReason(out var cancellationReason))
+        {
+            sw.Stop();
+            heartbeatCts.Cancel();
+
+            _logger.LogWarning(
+                ChokaQLogEvents.JobTimedOutOrCancelled,
+                "[Worker {ID}] Job {JobId} was cancelled. Reason: {Reason}.",
+                workerId,
+                jobId,
+                cancellationReason);
+
+            ReleaseCircuitPermit();
+            await _stateManager.ArchiveCancelledAsync(
+                jobId, jobType, meta.Queue, cancellationReason, cancellationReason.ToString(), workerCt, workerId);
         }
         catch (OperationCanceledException)
         {
@@ -228,13 +370,13 @@ public class JobProcessor : IJobProcessor
 
             _logger.LogWarning(
                 ChokaQLogEvents.JobTimedOutOrCancelled,
-                "[Worker {ID}] Job {JobId} timed out or was explicitly cancelled by admin.",
+                "[Worker {ID}] Job {JobId} was cancelled by an unknown execution token.",
                 workerId,
                 jobId);
 
-            // Timeout or Admin Cancel -> DLQ
+            ReleaseCircuitPermit();
             await _stateManager.ArchiveCancelledAsync(
-                jobId, jobType, meta.Queue, ChokaQ.Abstractions.Enums.JobCancellationReason.Timeout, "Execution Timeout or Admin Cancellation", workerCt, workerId);
+                jobId, jobType, meta.Queue, JobCancellationReason.Timeout, "Unknown execution cancellation", workerCt, workerId);
         }
         catch (Exception ex)
         {
@@ -244,16 +386,14 @@ public class JobProcessor : IJobProcessor
             _metrics.RecordFailure(meta.Queue, jobType, ex.GetType().Name);
 
             // 5. FAILURE HANDLING: Determine if we should retry or fast-fail
-            await HandleErrorAsync(ex, context, workerId, workerCt);
+            circuitPermitResolved = true;
+            await HandleErrorAsync(ex, context, workerId, workerCt, circuitLease);
         }
         finally
         {
             // Always remove and dispose the per-job CTS. A long-lived worker processes many
             // jobs; leaking even small token registrations would become a slow operational bug.
-            if (_activeJobTokens.TryRemove(jobId, out var cts))
-            {
-                cts.Dispose();
-            }
+            ReleaseActiveCancellation(jobId, activeCancellation, activeCancellationRegistered);
         }
         }
         finally
@@ -265,7 +405,12 @@ public class JobProcessor : IJobProcessor
     /// <summary>
     /// Continuously updates the job's heartbeat timestamp in storage to prevent it from being marked as a Zombie.
     /// </summary>
-    private async Task StartHeartbeatLoopAsync(string jobId, CancellationToken ct)
+    private async Task StartHeartbeatLoopAsync(
+        string jobId,
+        string jobType,
+        string queue,
+        ActiveJobCancellation activeCancellation,
+        CancellationToken ct)
     {
         int consecutiveFailures = 0;
         try
@@ -284,6 +429,7 @@ public class JobProcessor : IJobProcessor
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     consecutiveFailures++;
+                    _metrics.RecordHeartbeatFailure(queue, jobType);
                     _logger.LogWarning(
                         ChokaQLogEvents.JobHeartbeatWriteFailed,
                         ex,
@@ -293,13 +439,23 @@ public class JobProcessor : IJobProcessor
                     
                     if (consecutiveFailures >= _options.Execution.HeartbeatFailureThreshold)
                     {
-                        _logger.LogError(
-                            ChokaQLogEvents.JobHeartbeatThresholdReached,
-                            "Heartbeat failed {Threshold} times for job {JobId}. Cancelling job execution.",
+                        if (_options.Execution.CancelOnHeartbeatFailure)
+                        {
+                            _logger.LogError(
+                                ChokaQLogEvents.JobHeartbeatThresholdReached,
+                                "Heartbeat failed {Threshold} times for job {JobId}. Cancelling job execution.",
+                                _options.Execution.HeartbeatFailureThreshold,
+                                jobId);
+                            activeCancellation.Cancel(JobCancellationReason.HeartbeatFailure);
+                            break;
+                        }
+
+                        _logger.LogWarning(
+                            ChokaQLogEvents.JobHeartbeatDegraded,
+                            "Heartbeat failed {Threshold} times for job {JobId}. Marking execution heartbeat-degraded and continuing.",
                             _options.Execution.HeartbeatFailureThreshold,
                             jobId);
-                        CancelJob(jobId);
-                        break;
+                        consecutiveFailures = 0;
                     }
                 }
             }
@@ -315,8 +471,9 @@ public class JobProcessor : IJobProcessor
     private async Task HandleErrorAsync(
         Exception ex,
         JobExecutionContext context,
-        string workerId,
-        CancellationToken ct)
+        string? workerId,
+        CancellationToken ct,
+        ICircuitBreakerExecutionLease? circuitLease)
     {
         // ==============================================================================================
         // PHASE 2: FAILURE TAXONOMY & POISON PILL PROTECTION
@@ -328,7 +485,17 @@ public class JobProcessor : IJobProcessor
         bool isFatal = IsFatalException(ex);
 
         // Notify Circuit Breaker about the failure with severity
-        _breaker.ReportFailure(context.JobType, isFatal ? ChokaQ.Abstractions.Enums.CircuitFailureSeverity.Fatal : ChokaQ.Abstractions.Enums.CircuitFailureSeverity.Transient);
+        var circuitSeverity = isFatal
+            ? ChokaQ.Abstractions.Enums.CircuitFailureSeverity.Fatal
+            : ChokaQ.Abstractions.Enums.CircuitFailureSeverity.Transient;
+        if (circuitLease is not null)
+        {
+            circuitLease.ReportFailure(circuitSeverity);
+        }
+        else
+        {
+            _breaker.ReportFailure(context.JobType, circuitSeverity);
+        }
 
         // --- SMART WORKER LOGIC: FAST FAIL FOR NON-TRANSIENT ERRORS ---
         if (isFatal)
@@ -384,6 +551,30 @@ public class JobProcessor : IJobProcessor
             }
 
             var scheduledAt = _timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(delayMs);
+
+            if (WouldExceedRetryLifetime(context, scheduledAt))
+            {
+                _logger.LogError(
+                    ChokaQLogEvents.JobRetriesExhaustedDlq,
+                    ex,
+                    "[Worker {WorkerId}] Job {JobId} exceeded retry lifetime budget {MaxJobAge} before retry #{Attempt} could be scheduled -> Archived to DLQ.",
+                    workerId,
+                    context.JobId,
+                    _options.Retry.MaxJobAge,
+                    nextAttempt);
+
+                _metrics.RecordDlq(context.Queue, context.JobType, FailureReason.RetryLifetimeExpired.ToString());
+
+                await _stateManager.ArchiveFailedAsync(
+                    context.JobId,
+                    context.JobType,
+                    context.Queue,
+                    $"Retry lifetime expired before next attempt could be scheduled. CreatedAtUtc={context.CreatedAtUtc:O}; NextScheduledAtUtc={scheduledAt:O}; MaxJobAge={_options.Retry.MaxJobAge}. Last error: {ex}",
+                    ct,
+                    workerId,
+                    FailureReason.RetryLifetimeExpired);
+                return;
+            }
 
             _metrics.RecordRetry(context.Queue, context.JobType, nextAttempt);
 
@@ -496,6 +687,18 @@ public class JobProcessor : IJobProcessor
         return (int)Math.Clamp(delayMs, 0, int.MaxValue);
     }
 
+    private bool WouldExceedRetryLifetime(JobExecutionContext context, DateTime scheduledAtUtc)
+    {
+        if (!_options.Retry.MaxJobAge.HasValue)
+        {
+            return false;
+        }
+
+        var deadlineUtc = context.CreatedAtUtc.Add(_options.Retry.MaxJobAge.Value);
+        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        return nowUtc >= deadlineUtc || scheduledAtUtc > deadlineUtc;
+    }
+
     private static TimeSpan GetRandomDelay(TimeSpan min, TimeSpan max)
     {
         if (min == max)
@@ -508,11 +711,97 @@ public class JobProcessor : IJobProcessor
         return TimeSpan.FromMilliseconds(Random.Shared.NextInt64(minMs, maxMs + 1));
     }
 
+    private void ApplyPendingCancellation(string jobId, ActiveJobCancellation activeCancellation)
+    {
+        if (!_pendingCancels.TryRemove(jobId, out var pendingCancellation))
+        {
+            return;
+        }
+
+        if (_timeProvider.GetUtcNow() - pendingCancellation.RequestedAtUtc > _options.Execution.PendingCancellationRetention)
+        {
+            return;
+        }
+
+        activeCancellation.Cancel(pendingCancellation.Reason);
+    }
+
+    private void ReleaseActiveCancellation(
+        string jobId,
+        ActiveJobCancellation activeCancellation,
+        bool activeCancellationRegistered)
+    {
+        if (!activeCancellationRegistered)
+        {
+            activeCancellation.Dispose();
+            return;
+        }
+
+        if (_activeJobTokens.TryGetValue(jobId, out var registeredCancellation)
+            && ReferenceEquals(activeCancellation, registeredCancellation)
+            && _activeJobTokens.TryRemove(jobId, out _))
+        {
+            activeCancellation.Dispose();
+        }
+    }
+
+    private static JobCancellationReason PreferCancellationReason(
+        JobCancellationReason existing,
+        JobCancellationReason requested)
+    {
+        if (existing == JobCancellationReason.Admin || requested == JobCancellationReason.Admin)
+        {
+            return JobCancellationReason.Admin;
+        }
+
+        if (existing == JobCancellationReason.Timeout || requested == JobCancellationReason.Timeout)
+        {
+            return JobCancellationReason.Timeout;
+        }
+
+        return requested;
+    }
+
     private record JobExecutionContext(
         string JobId,
         string JobType,
         string? CreatedBy,
         string Queue,
         int Priority,
-        int AttemptCount);
+        int AttemptCount,
+        DateTime CreatedAtUtc);
+
+    private sealed class ActiveJobCancellation : IDisposable
+    {
+        private readonly CancellationTokenSource _cts = new();
+        private int _reason = NoReason;
+        private const int NoReason = -1;
+
+        public CancellationToken Token => _cts.Token;
+
+        public void Cancel(JobCancellationReason reason)
+        {
+            Interlocked.CompareExchange(ref _reason, (int)reason, NoReason);
+            _cts.Cancel();
+        }
+
+        public bool TryGetReason(out JobCancellationReason reason)
+        {
+            var value = Volatile.Read(ref _reason);
+            if (value == NoReason)
+            {
+                reason = default;
+                return false;
+            }
+
+            reason = (JobCancellationReason)value;
+            return true;
+        }
+
+        public void Dispose() => _cts.Dispose();
+    }
+
+    private sealed record PendingJobCancellation(
+        JobCancellationReason Reason,
+        DateTimeOffset RequestedAtUtc);
 }

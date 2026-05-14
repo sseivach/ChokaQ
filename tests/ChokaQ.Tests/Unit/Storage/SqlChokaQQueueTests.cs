@@ -3,8 +3,10 @@ using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Idempotency;
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Notifications;
+using ChokaQ.Abstractions.Serialization;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Execution;
+using ChokaQ.Core.Serialization;
 using ChokaQ.Storage.SqlServer;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -16,6 +18,7 @@ public class SqlChokaQQueueTests
     private readonly IJobStorage _storage;
     private readonly IChokaQNotifier _notifier;
     private readonly JobTypeRegistry _registry;
+    private readonly IChokaQJobSerializer _serializer;
     private readonly SqlChokaQQueue _queue;
 
     public SqlChokaQQueueTests()
@@ -23,7 +26,8 @@ public class SqlChokaQQueueTests
         _storage = Substitute.For<IJobStorage>();
         _notifier = Substitute.For<IChokaQNotifier>();
         _registry = new JobTypeRegistry();
-        _queue = new SqlChokaQQueue(_storage, _notifier, _registry, NullLogger<SqlChokaQQueue>.Instance);
+        _serializer = new SystemTextJsonChokaQJobSerializer(new ChokaQ.Core.ChokaQSerializationOptions());
+        _queue = new SqlChokaQQueue(_storage, _notifier, _registry, _serializer, NullLogger<SqlChokaQQueue>.Instance);
 
         _storage.EnqueueAsync(
                 Arg.Any<string>(),
@@ -190,6 +194,67 @@ public class SqlChokaQQueueTests
             Arg.Any<TimeSpan?>(),
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_ShouldFallbackToAssemblyQualifiedName_WhenNotRegistered()
+    {
+        var job = new TestJob { Id = "job1", Message = "Fallback" };
+
+        await _queue.EnqueueAsync(job);
+
+        await _storage.Received(1).EnqueueAsync(
+            "job1",
+            Arg.Any<string>(),
+            typeof(TestJob).AssemblyQualifiedName!,
+            Arg.Any<string>(),
+            Arg.Any<int>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<TimeSpan?>(),
+            Arg.Any<string?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_WhenStrictTypeResolutionAndNotRegistered_ShouldThrow()
+    {
+        var queue = new SqlChokaQQueue(
+            _storage,
+            _notifier,
+            _registry,
+            _serializer,
+            NullLogger<SqlChokaQQueue>.Instance,
+            new ChokaQ.Core.ChokaQOptions
+            {
+                TypeResolution = { RequireRegisteredJobTypes = true }
+            });
+
+        var act = () => queue.EnqueueAsync(new TestJob { Id = "job1" });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*not registered*");
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_WhenPayloadExceedsLimit_ShouldThrowBeforeStorageMutation()
+    {
+        var queue = new SqlChokaQQueue(
+            _storage,
+            _notifier,
+            _registry,
+            _serializer,
+            NullLogger<SqlChokaQQueue>.Instance,
+            new ChokaQ.Core.ChokaQOptions
+            {
+                Serialization = { MaxPayloadBytes = 20 }
+            });
+
+        var act = () => queue.EnqueueAsync(new TestJob { Id = "job1", Message = new string('x', 100) });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*exceeds the configured maximum*");
+        await _storage.DidNotReceiveWithAnyArgs().EnqueueAsync(default!, default!, default!, default!, default);
     }
 
     public class TestJob : IChokaQJob

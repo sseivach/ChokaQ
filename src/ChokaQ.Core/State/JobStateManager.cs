@@ -1,6 +1,7 @@
 using ChokaQ.Abstractions.DTOs;
 using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Notifications;
+using ChokaQ.Abstractions.Observability;
 using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.Observability;
 using Microsoft.Extensions.Logging;
@@ -20,20 +21,23 @@ namespace ChokaQ.Core.State;
 /// This separation of concerns allows JobProcessor to focus on execution logic
 /// while JobStateManager handles the persistence and notification plumbing.
 /// </remarks>
-public class JobStateManager : IJobStateManager
+internal class JobStateManager : IJobStateManager
 {
     private readonly IJobStorage _storage;
     private readonly IChokaQNotifier _notifier;
     private readonly ILogger<JobStateManager> _logger;
+    private readonly IChokaQMetrics? _metrics;
 
     public JobStateManager(
         IJobStorage storage,
         IChokaQNotifier notifier,
-        ILogger<JobStateManager> logger)
+        ILogger<JobStateManager> logger,
+        IChokaQMetrics? metrics = null)
     {
         _storage = storage;
         _notifier = notifier;
         _logger = logger;
+        _metrics = metrics;
     }
 
     /// <summary>
@@ -59,6 +63,7 @@ public class JobStateManager : IJobStateManager
                 ChokaQLogEvents.StateTransitionNotApplied,
                 "Skipped success notification for job {JobId}: no row was archived. WorkerId: {WorkerId}",
                 jobId, workerId ?? "<admin>");
+            _metrics?.RecordStateTransitionConflict(queue, jobType, "ArchiveSucceeded");
             return;
         }
 
@@ -89,6 +94,7 @@ public class JobStateManager : IJobStateManager
                 ChokaQLogEvents.StateTransitionNotApplied,
                 "Skipped failure notification for job {JobId}: no row was moved to DLQ. WorkerId: {WorkerId}",
                 jobId, workerId ?? "<admin>");
+            _metrics?.RecordStateTransitionConflict(queue, jobType, "ArchiveFailed");
             return;
         }
 
@@ -117,6 +123,10 @@ public class JobStateManager : IJobStateManager
             // own DLQ taxonomy label instead of being hidden under "Cancelled".
             moveTask = _storage.ArchiveFailedAsync(jobId, cancelledBy, ct, workerId, FailureReason.Timeout);
         }
+        else if (reason == JobCancellationReason.HeartbeatFailure)
+        {
+            moveTask = _storage.ArchiveFailedAsync(jobId, cancelledBy, ct, workerId, FailureReason.HeartbeatFailure);
+        }
         else
         {
             moveTask = _storage.ArchiveCancelledAsync(jobId, cancelledBy, ct, workerId);
@@ -129,11 +139,17 @@ public class JobStateManager : IJobStateManager
                 ChokaQLogEvents.StateTransitionNotApplied,
                 "Skipped cancellation notification for job {JobId}: no row was moved to DLQ. WorkerId: {WorkerId}",
                 jobId, workerId ?? "<admin>");
+            _metrics?.RecordStateTransitionConflict(queue, jobType, "ArchiveCancelled");
             return;
         }
 
         // 2. Notify dashboard
-        var failureReason = reason == JobCancellationReason.Timeout ? FailureReason.Timeout : FailureReason.Cancelled;
+        var failureReason = reason switch
+        {
+            JobCancellationReason.Timeout => FailureReason.Timeout,
+            JobCancellationReason.HeartbeatFailure => FailureReason.HeartbeatFailure,
+            _ => FailureReason.Cancelled
+        };
         await SafeNotifyAsync(() => _notifier.NotifyJobFailedAsync(jobId, queue, failureReason.ToString()));
         await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync());
     }
@@ -157,6 +173,7 @@ public class JobStateManager : IJobStateManager
                 ChokaQLogEvents.StateTransitionNotApplied,
                 "Skipped retry notification for job {JobId}: no row was rescheduled. WorkerId: {WorkerId}",
                 jobId, workerId ?? "<admin>");
+            _metrics?.RecordStateTransitionConflict(queue, jobType, "RescheduleForRetry");
             return;
         }
 
@@ -197,6 +214,7 @@ public class JobStateManager : IJobStateManager
                 ChokaQLogEvents.StateTransitionNotApplied,
                 "Skipped processing notification for job {JobId}: no row was marked as Processing. WorkerId: {WorkerId}",
                 jobId, workerId ?? "<admin>");
+            _metrics?.RecordStateTransitionConflict(queue, jobType, "MarkAsProcessing");
             return false;
         }
 

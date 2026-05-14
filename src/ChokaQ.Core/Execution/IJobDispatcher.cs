@@ -1,12 +1,12 @@
 ﻿namespace ChokaQ.Core.Execution;
 
-public record JobMetadata(string Queue, int Priority);
+internal record JobMetadata(string Queue, int Priority);
 
 /// <summary>
 /// Responsible for dispatching the job execution to the appropriate handler.
 /// This abstraction supports different processing strategies (Bus vs. Pipe).
 /// </summary>
-public interface IJobDispatcher
+internal interface IJobDispatcher
 {
     /// <summary>
     /// Dispatches the job execution.

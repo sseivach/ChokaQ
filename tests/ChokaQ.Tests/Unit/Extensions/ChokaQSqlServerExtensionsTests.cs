@@ -46,6 +46,31 @@ public class ChokaQSqlServerExtensionsTests
     }
 
     [Fact]
+    public void UseSqlServer_WithAutoCreate_ShouldStartMigrationBeforeSqlWorkerAndZombieRescue()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+
+        services.AddChokaQ();
+        services.UseSqlServer(options =>
+        {
+            options.ConnectionString = "Server=localhost;Database=ChokaQ;Trusted_Connection=True;TrustServerCertificate=True;";
+            options.AutoCreateSqlTable = true;
+        });
+
+        using var sp = services.BuildServiceProvider();
+        var hostedServices = sp.GetServices<IHostedService>().ToList();
+
+        var migrationIndex = hostedServices.FindIndex(service => service is DbMigrationWorker);
+        var workerIndex = hostedServices.FindIndex(service => service is SqlJobWorker);
+        var zombieIndex = hostedServices.FindIndex(service => service is ZombieRescueService);
+
+        migrationIndex.Should().BeGreaterThanOrEqualTo(0);
+        workerIndex.Should().BeGreaterThan(migrationIndex);
+        zombieIndex.Should().BeGreaterThan(migrationIndex);
+    }
+
+    [Fact]
     public void UseSqlServer_WithConfiguration_ShouldBindAllSqlRuntimeOptions()
     {
         var services = new ServiceCollection();
@@ -62,7 +87,9 @@ public class ChokaQSqlServerExtensionsTests
                 ["ChokaQ:SqlServer:MaxTransientRetries"] = "7",
                 ["ChokaQ:SqlServer:TransientRetryBaseDelayMs"] = "150",
                 ["ChokaQ:SqlServer:CommandTimeoutSeconds"] = "45",
-                ["ChokaQ:SqlServer:CleanupBatchSize"] = "25"
+                ["ChokaQ:SqlServer:CleanupBatchSize"] = "25",
+                ["ChokaQ:SqlServer:WorkerShutdownGracePeriod"] = "00:00:13",
+                ["ChokaQ:SqlServer:PrefetchedJobReleaseTimeout"] = "00:00:03"
             })
             .Build();
 
@@ -82,6 +109,8 @@ public class ChokaQSqlServerExtensionsTests
         options.TransientRetryBaseDelayMs.Should().Be(150);
         options.CommandTimeoutSeconds.Should().Be(45);
         options.CleanupBatchSize.Should().Be(25);
+        options.WorkerShutdownGracePeriod.Should().Be(TimeSpan.FromSeconds(13));
+        options.PrefetchedJobReleaseTimeout.Should().Be(TimeSpan.FromSeconds(3));
     }
 
     [Fact]
@@ -95,11 +124,13 @@ public class ChokaQSqlServerExtensionsTests
             options.PollingInterval = TimeSpan.Zero;
             options.CommandTimeoutSeconds = 0;
             options.CleanupBatchSize = 0;
+            options.WorkerShutdownGracePeriod = TimeSpan.Zero;
+            options.PrefetchedJobReleaseTimeout = TimeSpan.Zero;
         });
 
         // SQL storage is the durability boundary. Invalid configuration should stop startup
         // before a worker can claim jobs and then fail to persist state transitions.
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*ConnectionString*PollingInterval*CommandTimeoutSeconds*CleanupBatchSize*");
+            .WithMessage("*ConnectionString*PollingInterval*CommandTimeoutSeconds*CleanupBatchSize*WorkerShutdownGracePeriod*PrefetchedJobReleaseTimeout*");
     }
 }

@@ -165,7 +165,7 @@ public bool IsExecutionPermitted(string jobType)
         }
         return false;
     }
-    return true; // Half-Open: allow test execution
+    return entry.TryAcquireHalfOpenPermit(now);
 }
 ```
 
@@ -180,6 +180,17 @@ Three states per job type:
 ::: tip 💡 Performance Insight
 The Status field is marked as `volatile` because `IsExecutionPermitted()` is called on the hot path for every single job. Using `volatile` allows **lock-free reads** — we only acquire the lock for state mutations (reporting success/failure), not for the check itself. This is the same high-performance pattern used in `CancellationToken`.
 :::
+
+Half-open probes are permits, not just booleans. If a worker is allowed through
+the circuit and then skips user code because the job lease was stale, the host
+is shutting down, or an admin cancelled before dispatch, ChokaQ releases that
+permit without opening or closing the circuit. If a probe disappears without a
+success, failure, or release, `CircuitPolicy.HalfOpenProbeTimeoutSeconds` lets a
+later job acquire a fresh probe instead of leaving the circuit stuck HalfOpen.
+
+Failure counts are windowed by `CircuitPolicy.FailureWindowSeconds`. Old
+isolated failures age out before they can combine with a much later failure and
+open the circuit for a dependency that is no longer unhealthy.
 
 ## The Result: Small, Explicit Dependencies
 

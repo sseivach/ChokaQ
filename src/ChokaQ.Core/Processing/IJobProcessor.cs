@@ -4,7 +4,7 @@ namespace ChokaQ.Core.Processing;
 /// Encapsulates the complete lifecycle of processing a single job.
 /// Handles Circuit Breaker checks, execution, success/failure reporting, and retries.
 /// </summary>
-public interface IJobProcessor
+internal interface IJobProcessor
 {
     /// <summary>
     /// Compatibility configuration: maximum total execution attempts.
@@ -37,14 +37,14 @@ public interface IJobProcessor
     /// <param name="jobId">Unique Job ID.</param>
     /// <param name="jobType">Type key or class name.</param>
     /// <param name="payload">JSON payload.</param>
-    /// <param name="workerId">The ID of the worker thread.</param>
+    /// <param name="workerId">The ID of the worker thread, or null for channel-driven in-memory execution.</param>
     /// <param name="attemptCount">Persisted count of attempts that have already started execution.</param>
     /// <param name="workerCt">The worker's cancellation token.</param>
     Task ProcessJobAsync(
         string jobId,
         string jobType,
         string payload,
-        string workerId,
+        string? workerId,
         int attemptCount,
         string? createdBy,
         DateTime? scheduledAtUtc,

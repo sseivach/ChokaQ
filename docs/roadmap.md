@@ -302,7 +302,7 @@ Current state:
 - Public `IChokaQQueue.EnqueueAsync` supports named `delay:` and `idempotencyKey:` options.
 - Jobs implementing `IIdempotentJob` automatically provide the enqueue idempotency key unless an explicit key is supplied.
 - Built-in enqueue dedupe is scoped to active Hot jobs only.
-- Result idempotency after completion remains the responsibility of the optional result-idempotency middleware.
+- Completion-marker idempotency after execution remains the responsibility of the optional idempotency middleware. This is not handler result replay and does not create exactly-once side effects.
 - Runtime policy can be bound from `IConfiguration` through `AddChokaQ(configurationSection, configure)` and `UseSqlServer(configurationSection)`.
 - Execution timeout, retry attempts, exponential backoff, jitter, circuit-breaker delay, heartbeat intervals, zombie scan interval, in-memory pause delay, SQL cleanup batch size, and SQL polling/transient retry policy are configurable.
 - Configuration is validated at startup so unsafe values fail before workers claim jobs.

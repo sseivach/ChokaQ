@@ -69,7 +69,7 @@ namespace ChokaQ.Core.Concurrency;
 /// - background workers
 /// - distributed task runners
 /// </summary>
-public class DynamicConcurrencyLimiter : IDisposable
+internal class DynamicConcurrencyLimiter : IDisposable
 {
     private int _targetCapacity;
     private int _activeWorkers;

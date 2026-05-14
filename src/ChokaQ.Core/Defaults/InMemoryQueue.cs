@@ -4,11 +4,13 @@ using ChokaQ.Abstractions.Idempotency;
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Notifications;
 using ChokaQ.Abstractions.Storage;
+using ChokaQ.Abstractions.Serialization;
+using ChokaQ.Core;
 using ChokaQ.Core.Execution;
 using ChokaQ.Core.Observability;
+using ChokaQ.Core.Validation;
 using Microsoft.Extensions.Logging;
 using ChokaQ.Abstractions.Observability;
-using System.Text.Json;
 using System.Threading.Channels;
 
 namespace ChokaQ.Core.Defaults;
@@ -17,7 +19,7 @@ namespace ChokaQ.Core.Defaults;
 /// High-performance, in-memory implementation of the job queue using System.Threading.Channels.
 /// Acts as a Producer-Consumer buffer between the API and the Worker.
 /// </summary>
-public class InMemoryQueue : IChokaQQueue
+internal class InMemoryQueue : IChokaQQueue
 {
     private const int MaxChannelCapacity = 100_000;
 
@@ -26,20 +28,29 @@ public class InMemoryQueue : IChokaQQueue
     private readonly IChokaQNotifier _notifier;
     private readonly JobTypeRegistry _registry;
     private readonly IChokaQMetrics _metrics;
+    private readonly IChokaQJobSerializer _serializer;
     private readonly ILogger<InMemoryQueue> _logger;
+    private readonly bool _requireRegisteredJobTypes;
+    private readonly int _maxPayloadBytes;
 
     public InMemoryQueue(
         IJobStorage storage,
         IChokaQNotifier notifier,
         JobTypeRegistry registry,
         IChokaQMetrics metrics,
-        ILogger<InMemoryQueue> logger)
+        IChokaQJobSerializer serializer,
+        ILogger<InMemoryQueue> logger,
+        ChokaQOptions? options = null)
     {
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _notifier = notifier ?? throw new ArgumentNullException(nameof(notifier));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
+        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         _logger = logger;
+        var resolvedOptions = options ?? new ChokaQOptions();
+        _requireRegisteredJobTypes = resolvedOptions.TypeResolution.RequireRegisteredJobTypes;
+        _maxPayloadBytes = resolvedOptions.Serialization.MaxPayloadBytes;
 
         // ==============================================================================================
         // SCALABILITY: BURST HANDLING & LAYERED BACKPRESSURE
@@ -82,35 +93,18 @@ public class InMemoryQueue : IChokaQQueue
         TimeSpan? delay = null,
         string? idempotencyKey = null) where TJob : IChokaQJob
     {
-        // --- FAIL FAST VALIDATION ---
-
         if (job is null)
             throw new ArgumentNullException(nameof(job));
 
-        if (string.IsNullOrWhiteSpace(queue))
-            throw new ArgumentException("Queue name cannot be null or empty.", nameof(queue));
-
-        if (queue.Length > 255)
-            throw new ArgumentException($"Queue name '{queue}' exceeds maximum length of 255 characters.", nameof(queue));
-
-        if (createdBy != null && createdBy.Length > 100)
-            throw new ArgumentException($"CreatedBy '{createdBy}' exceeds maximum length of 100 characters.", nameof(createdBy));
-
-        if (tags != null && tags.Length > 1000)
-            throw new ArgumentException("Tags exceed maximum length of 1000 characters.", nameof(tags));
+        ChokaQEnvelopeLimits.ValidateEnvelope(queue, createdBy, tags);
 
         var resolvedIdempotencyKey = ResolveIdempotencyKey(job, idempotencyKey);
 
-        // Resolve Key from Registry first. 
-        var jobTypeName = _registry.GetKeyByType(job.GetType()) ?? job.GetType().Name;
+        var jobTypeName = _registry.GetPersistedTypeKey(job.GetType(), _requireRegisteredJobTypes);
+        ChokaQEnvelopeLimits.ValidateTypeKey(jobTypeName);
 
-        if (jobTypeName.Length > 255)
-            throw new InvalidOperationException($"Job Type Key '{jobTypeName}' exceeds maximum length of 255 characters.");
-
-        // ----------------------------
-
-        // 1. Serialize payload for persistence
-        var payload = JsonSerializer.Serialize(job, job.GetType());
+        var payload = _serializer.Serialize(job, job.GetType());
+        ChokaQEnvelopeLimits.ValidatePayloadSize(payload, _maxPayloadBytes);
 
         // 2. Persist to Storage (Hot table, Status: Pending)
         var enqueuedId = await _storage.EnqueueAsync(
@@ -178,18 +172,7 @@ public class InMemoryQueue : IChokaQQueue
             ? explicitKey
             : (job as IIdempotentJob)?.IdempotencyKey;
 
-        if (string.IsNullOrWhiteSpace(key))
-            return null;
-
-        key = key.Trim();
-        if (key.Length > 255)
-        {
-            // The storage schema uses varchar(255). Failing before serialization and persistence
-            // gives callers a clear contract violation instead of a provider-specific SQL error.
-            throw new ArgumentException("IdempotencyKey exceeds maximum length of 255 characters.", nameof(explicitKey));
-        }
-
-        return key;
+        return ChokaQEnvelopeLimits.NormalizeIdempotencyKey(key, nameof(explicitKey));
     }
 
     public async ValueTask RequeueAsync(IChokaQJob job, CancellationToken ct = default)

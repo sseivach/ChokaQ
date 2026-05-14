@@ -6,12 +6,12 @@ namespace ChokaQ.Core.Execution;
 /// Maintains a bidirectional mapping between string Keys (stored in DB) and C# Types.
 /// Populated at startup via Profiles.
 /// </summary>
-public class JobTypeRegistry
+internal class JobTypeRegistry
 {
-    // Key: "email_v1" -> Value: typeof(EmailJobDto)
+    // Key: "email.send.v1" -> Value: typeof(EmailJobDto)
     private readonly ConcurrentDictionary<string, Type> _keyToTypeMap = new(StringComparer.OrdinalIgnoreCase);
 
-    // Key: typeof(EmailJobDto) -> Value: "email_v1"
+    // Key: typeof(EmailJobDto) -> Value: "email.send.v1"
     private readonly ConcurrentDictionary<Type, string> _typeToKeyMap = new();
 
     /// <summary>
@@ -51,6 +51,42 @@ public class JobTypeRegistry
             return key;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Returns the persisted dispatch key for a runtime job type.
+    /// Registered profile keys are preferred. If compatibility fallback is allowed,
+    /// the fallback is assembly-qualified so later resolution does not require
+    /// scanning all loaded assemblies or matching unsafe CLR short names.
+    /// </summary>
+    public string GetPersistedTypeKey(Type type, bool requireRegisteredJobTypes = false)
+    {
+        if (_typeToKeyMap.TryGetValue(type, out var key))
+        {
+            return key;
+        }
+
+        if (requireRegisteredJobTypes)
+        {
+            throw new InvalidOperationException(
+                $"Job type '{type.FullName}' is not registered. Register it in a ChokaQJobProfile or disable strict type registration.");
+        }
+
+        return type.AssemblyQualifiedName
+            ?? throw new InvalidOperationException($"Job type '{type.FullName}' does not have an assembly-qualified name.");
+    }
+
+    /// <summary>
+    /// Resolves a persisted dispatch key without runtime assembly scans.
+    /// </summary>
+    public Type? ResolvePersistedType(string key)
+    {
+        if (_keyToTypeMap.TryGetValue(key, out var registeredType))
+        {
+            return registeredType;
+        }
+
+        return Type.GetType(key, throwOnError: false, ignoreCase: false);
     }
 
     public IEnumerable<string> GetAllKeys() => _keyToTypeMap.Keys;

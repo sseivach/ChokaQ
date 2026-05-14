@@ -13,6 +13,8 @@ ChokaQ is also becoming a learning project: the codebase and docs are intended t
 
 Use the docs site as both product documentation and a study map. The [Architecture Study Guide](docs/study-guide.md) explains how each production pattern should be read, tested, operated, and discussed in senior/staff architecture interviews.
 
+Before using ChokaQ for side-effecting work, read the [Delivery Guarantees](docs/delivery-guarantees.md). The short version: ChokaQ provides at-least-once execution. It does not provide exactly-once external side effects, so handlers that send email, charge cards, call APIs, or update other systems must be idempotent.
+
 ![ChokaQ Dashboard](scr1.jpg)
 ![ChokaQ Dashboard - Ops Panel](scr2.jpg)
 
@@ -31,6 +33,24 @@ ChokaQ implements a **2x2 matrix architecture**, allowing developers to choose b
 ### Storage Modes
 1.  **In-Memory:** Zero-config RAM storage using System.Threading.Channels.
 2.  **SQL Server:** Persistent storage using a custom lightweight ADO.NET wrapper (SqlMapper).
+
+---
+
+## Delivery Guarantees
+
+ChokaQ is an **at-least-once** background job processor.
+
+SQL Server mode is the durable production path: accepted jobs are stored in `JobsHot`, workers claim rows with ownership, and finalization moves jobs atomically to Archive, DLQ, or delayed retry. A stale worker that has lost ownership should not be able to finalize work owned by another worker.
+
+At-least-once still means a handler may run more than once. A worker can crash or lose ownership after user code has already sent an email, charged a payment, or updated another system but before finalization is committed. ChokaQ cannot make those external side effects exactly-once. Use idempotency keys, unique constraints, outbox patterns, or provider-supported idempotency for side-effecting handlers.
+
+`Fetched` jobs that never started user code can safely return to `Pending`. `Processing` jobs with expired heartbeats move to DLQ as `Zombie` jobs for operator review, because automatically retrying started work can duplicate side effects.
+
+In-memory mode is process-local and non-durable. Its bounded channel is the volatile execution notification source, and Hot rows are control/audit rows used to reject stale channel items. Orphaned Hot rows can remain after a process crash and are not recovered across restart. Use it for demos, tests, local development, or volatile workloads where losing process-local work is acceptable. Use SQL Server mode for restart-safe production work.
+
+See [Delivery Guarantees](docs/delivery-guarantees.md) for the full contract, including timeout, cancellation, shutdown, type-key, and payload compatibility guidance.
+
+Release candidates are gated by the [Release Checklist](docs/release-checklist.md) and [Release Verification Matrix](docs/release-verification-matrix.md).
 
 ---
 
@@ -71,10 +91,10 @@ To keep hot-path queries focused on active work, data is physically separated in
 ### Resilience & Reliability
 * **Smart Worker Logic:** Intelligent failure handling that distinguishes between transient and fatal errors. Non-transient exceptions bypass retry policies and are routed to the DLQ immediately to preserve system resources and provide instant visibility into code defects.
 * **Circuit Breaker:** In-memory protection that tracks failure rates per Job Type. Automatically opens the circuit to block execution of failing job types, preventing cascading system failures.
-* **Zombie Rescue:** Built-in self-healing mechanisms via a background service (`ZombieRescueService`) that monitors heartbeats. Automatically recovers abandoned or "zombie" jobs, ensuring no task is lost due to process crashes or network instability.
+* **Zombie Rescue:** Built-in recovery via a background service (`ZombieRescueService`) that monitors heartbeats. Abandoned `Fetched` jobs can return to `Pending`; expired `Processing` jobs move to DLQ as zombies so operators can inspect them before retrying side-effecting work.
 * **Smart Retries:** Configurable exponential backoff strategies with jitter to prevent "thundering herd" effects on external services.
 * **Runtime Configuration:** Execution timeouts, retry attempts, backoff, jitter, heartbeat windows, zombie recovery scans, SQL polling, cleanup batch size, transient SQL retry policy, health thresholds, and metric cardinality budgets can be bound from `appsettings.json` through `IConfiguration`.
-* **Idempotency:** Built-in Hot-queue deduplication for active jobs via idempotency keys, plus optional result-idempotency middleware for completed work.
+* **Idempotency:** Built-in Hot-queue deduplication for active jobs via idempotency keys, plus optional completion-marker middleware for completed work. Application handlers remain responsible for idempotent external side effects.
 
 ### "The Deck" (Dashboard)
 A reactive administrative dashboard built with **Blazor Server** and **SignalR**. It features real-time job monitoring, swappable visual themes, and specialized tools for operational management.
@@ -108,6 +128,10 @@ ChokaQ provides native metrics through standard `System.Diagnostics.Metrics`. Th
 | `chokaq.jobs.dlq` | Counter | none | `queue`, `type`, `reason` |
 | `chokaq.jobs.retried` | Counter | none | `queue`, `type`, `attempt` |
 | `chokaq.workers.active` | UpDownCounter | none | `queue` |
+| `chokaq.jobs.heartbeat_failures` | Counter | none | `queue`, `type` |
+| `chokaq.jobs.state_transition_conflicts` | Counter | none | `queue`, `type`, `transition` |
+| `chokaq.idempotency.claims` | Counter | none | `outcome` |
+| `chokaq.circuits.events` | Counter | none | `type`, `state`, `event` |
 
 Metric tag cardinality is bounded by `ChokaQ:Metrics`. When a process sees more distinct queue, job type, error, or DLQ reason values than the configured budget, new values are emitted as `other` instead of creating unbounded monitoring time series.
 
@@ -322,19 +346,27 @@ app.Run();
 {
   "ChokaQ": {
     "Execution": {
-      "DefaultTimeout": "00:15:00"
+      "DefaultTimeout": "00:15:00",
+      "HeartbeatFailureThreshold": 10,
+      "CancelOnHeartbeatFailure": false,
+      "PendingCancellationRetention": "00:00:30"
     },
     "Retry": {
       "MaxAttempts": 3,
       "BaseDelay": "00:00:03",
       "MaxDelay": "01:00:00",
       "BackoffMultiplier": 2.0,
-      "JitterMaxDelay": "00:00:01"
+      "JitterMaxDelay": "00:00:01",
+      "CircuitBreakerDelay": "00:00:05",
+      "MaxJobAge": "1.00:00:00"
     },
     "Recovery": {
       "FetchedJobTimeout": "00:10:00",
       "ProcessingZombieTimeout": "00:10:00",
       "ScanInterval": "00:01:00"
+    },
+    "Worker": {
+      "ShutdownGracePeriod": "00:00:30"
     },
     "Health": {
       "WorkerHeartbeatTimeout": "00:00:30",
@@ -353,6 +385,18 @@ app.Run();
       "UnknownTagValue": "unknown",
       "OverflowTagValue": "other"
     },
+    "Serialization": {
+      "MaxPayloadBytes": 1000000
+    },
+    "Idempotency": {
+      "InProgressTtl": "00:30:00",
+      "DefaultResultTtl": null,
+      "MinResultTtl": null,
+      "MaxResultTtl": null
+    },
+    "TypeResolution": {
+      "RequireRegisteredJobTypes": true
+    },
     "Queues": {
       "reports": {
         "ExecutionTimeout": "01:00:00"
@@ -365,22 +409,98 @@ app.Run();
       "PollingInterval": "00:00:01",
       "NoQueuesSleepInterval": "00:00:05",
       "CommandTimeoutSeconds": 30,
-      "CleanupBatchSize": 1000
+      "CleanupBatchSize": 1000,
+      "WorkerShutdownGracePeriod": "00:00:30",
+      "PrefetchedJobReleaseTimeout": "00:00:05"
     }
   }
 }
 ```
 
-See `docs/configuration.md` for the full runtime configuration reference.
+**Configuration quick reference**
+
+| Parameter | Description |
+|---|---|
+| `Execution.DefaultTimeout` | Maximum wall-clock time a job handler may run before ChokaQ cancels it. |
+| `Execution.HeartbeatFailureThreshold` | Consecutive heartbeat write failures before execution is marked heartbeat-degraded. |
+| `Execution.CancelOnHeartbeatFailure` | If `true`, repeated heartbeat write failures cancel the running job. Default behavior is degraded telemetry plus zombie recovery. |
+| `Execution.PendingCancellationRetention` | How long a cancellation request can wait for a matching execution token to appear. |
+| `Retry.MaxAttempts` | Maximum total execution attempts, including the first run. |
+| `Retry.BaseDelay` | Initial retry delay before exponential backoff is applied. |
+| `Retry.MaxDelay` | Hard cap for calculated retry delays and throttled retry delays. |
+| `Retry.BackoffMultiplier` | Exponential multiplier applied after each failed attempt. |
+| `Retry.JitterMaxDelay` | Maximum random delay added to retries to avoid synchronized retry storms. |
+| `Retry.CircuitBreakerDelay` | Delay used when the circuit breaker blocks execution. |
+| `Retry.MaxJobAge` | Maximum wall-clock retry lifetime before the job moves to DLQ as `RetryLifetimeExpired`. |
+| `Recovery.FetchedJobTimeout` | Time before a fetched-but-unstarted job is returned to `Pending`. |
+| `Recovery.ProcessingZombieTimeout` | Time before a processing job with expired heartbeat moves to DLQ as `Zombie`. |
+| `Recovery.ScanInterval` | How often recovery scans for abandoned fetched jobs and processing zombies. |
+| `Worker.ShutdownGracePeriod` | Maximum in-memory worker loop shutdown wait. |
+| `Health.WorkerHeartbeatTimeout` | Maximum age of the worker process heartbeat before health degrades. |
+| `Health.QueueLagDegradedThreshold` | Queue lag threshold for degraded health. |
+| `Health.QueueLagUnhealthyThreshold` | Queue lag threshold for unhealthy health. |
+| `InMemory.MaxCapacity` | Maximum retained in-process rows before old Archive/DLQ history is evicted. |
+| `Metrics.MaxQueueTagValues` | Maximum distinct queue tag values emitted by one process. |
+| `Metrics.MaxJobTypeTagValues` | Maximum distinct job type tag values emitted by one process. |
+| `Metrics.MaxErrorTagValues` | Maximum distinct error tag values emitted by one process. |
+| `Metrics.MaxFailureReasonTagValues` | Maximum distinct failure reason tag values emitted by one process. |
+| `Metrics.MaxTagValueLength` | Maximum metric tag value length before trimming. |
+| `Metrics.UnknownTagValue` | Replacement value for blank metric tags. |
+| `Metrics.OverflowTagValue` | Replacement value after a tag-cardinality budget is exhausted. |
+| `Serialization.MaxPayloadBytes` | Maximum serialized job payload size accepted before storage mutation. |
+| `Idempotency.InProgressTtl` | Lease duration for an active idempotency claim. |
+| `Idempotency.DefaultResultTtl` | Default completion marker TTL when a job does not provide one. |
+| `Idempotency.MinResultTtl` | Minimum allowed completion marker TTL. |
+| `Idempotency.MaxResultTtl` | Maximum allowed completion marker TTL. |
+| `TypeResolution.RequireRegisteredJobTypes` | Requires Bus jobs to use registered stable type keys instead of compatibility fallback identity. |
+| `Queues:{name}:ExecutionTimeout` | Per-queue handler execution timeout override. |
+| `SqlServer.ConnectionString` | SQL Server connection string for durable storage. |
+| `SqlServer.SchemaName` | Database schema used for ChokaQ tables and procedures. |
+| `SqlServer.AutoCreateSqlTable` | If `true`, ChokaQ attempts to create/update its SQL schema at startup. |
+| `SqlServer.PollingInterval` | SQL worker polling interval when active queues exist but no jobs are due. |
+| `SqlServer.NoQueuesSleepInterval` | SQL worker sleep duration when all queues are paused or inactive. |
+| `SqlServer.CommandTimeoutSeconds` | Timeout for ChokaQ SQL commands, separate from handler execution timeout. |
+| `SqlServer.CleanupBatchSize` | Maximum Archive/DLQ rows deleted by one cleanup transaction. |
+| `SqlServer.WorkerShutdownGracePeriod` | Maximum SQL worker wait for active processing tasks during shutdown. |
+| `SqlServer.PrefetchedJobReleaseTimeout` | Maximum time spent releasing one prefetched unstarted job during pause or shutdown. |
+
+See `docs/configuration.md` for the full runtime configuration reference and operational guidance.
 
 See `docs/3-deep-dives/backpressure-policy.md` for the SQL and in-memory backpressure model.
 
 ### 3. Define a Job & Handler
 
-```csharp
-// Job Contract (DTO)
-public record SendEmailJob(string To) : ChokaQBaseJob;
+Every typed ChokaQ job is a DTO that implements `IChokaQJob`.
 
+The shortest path is to inherit from `ChokaQBaseJob`. `ChokaQBaseJob` is a C#
+`record`, so the derived DTO must also be a `record`; a `class` cannot inherit
+from it. This base type gives each new job a generated `Id`.
+
+```csharp
+// Job Contract (DTO). Because ChokaQBaseJob is a record, this is a record too.
+public record SendEmailJob(string To) : ChokaQBaseJob;
+```
+
+If you prefer a regular mutable class, implement `IChokaQJob` directly and
+provide the job `Id` yourself:
+
+```csharp
+public sealed class SendEmailJob : IChokaQJob
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string To { get; set; } = string.Empty;
+}
+```
+
+Both shapes work with the same handler and profile registration. Use
+`ChokaQBaseJob` when you want concise immutable DTOs and automatic ID creation;
+use `IChokaQJob` directly when your message contract needs ordinary class
+semantics, mutable setters, or custom ID generation.
+
+See `docs/job-contracts.md` for DTO shape, serialization, type-key, and
+idempotency guidance.
+
+```csharp
 // Job Handler
 public class EmailHandler : IChokaQJobHandler<SendEmailJob>
 {
@@ -396,7 +516,7 @@ public class MailingProfile : ChokaQJobProfile
 {
     public MailingProfile()
     {
-        CreateJob<SendEmailJob, EmailHandler>("email_v1");
+        CreateJob<SendEmailJob, EmailHandler>("email.send.v1");
     }
 }
 ```
@@ -406,6 +526,14 @@ public class MailingProfile : ChokaQJobProfile
 ```csharp
 // Inject IChokaQQueue into your controller or service
 await queue.EnqueueAsync(new SendEmailJob("user@example.com"), priority: 10);
+```
+
+For the class-based DTO shape, enqueue with an object initializer instead:
+
+```csharp
+await queue.EnqueueAsync(
+    new SendEmailJob { To = "user@example.com" },
+    priority: 10);
 ```
 
 ---

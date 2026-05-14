@@ -7,7 +7,7 @@ namespace ChokaQ.Core.Observability;
 /// Native OpenTelemetry implementation using System.Diagnostics.Metrics.
 /// Zero external dependencies.
 /// </summary>
-public class ChokaQMetrics : IChokaQMetrics, IDisposable
+internal class ChokaQMetrics : IChokaQMetrics, IDisposable
 {
     public const string MeterName = "ChokaQ";
     private readonly Meter _meter;
@@ -26,6 +26,10 @@ public class ChokaQMetrics : IChokaQMetrics, IDisposable
     private readonly Counter<long> _dlqCounter;
     private readonly Counter<long> _retryCounter;
     private readonly UpDownCounter<long> _activeWorkersCounter;
+    private readonly Counter<long> _heartbeatFailureCounter;
+    private readonly Counter<long> _stateTransitionConflictCounter;
+    private readonly Counter<long> _idempotencyOutcomeCounter;
+    private readonly Counter<long> _circuitEventCounter;
 
     public ChokaQMetrics()
         : this(new ChokaQMetricsOptions())
@@ -99,6 +103,22 @@ public class ChokaQMetrics : IChokaQMetrics, IDisposable
         _activeWorkersCounter = _meter.CreateUpDownCounter<long>(
             "chokaq.workers.active",
             description: "Current number of active processing workers");
+
+        _heartbeatFailureCounter = _meter.CreateCounter<long>(
+            "chokaq.jobs.heartbeat_failures",
+            description: "Total number of failed per-job heartbeat writes");
+
+        _stateTransitionConflictCounter = _meter.CreateCounter<long>(
+            "chokaq.jobs.state_transition_conflicts",
+            description: "Total number of worker-owned state transitions that affected no rows");
+
+        _idempotencyOutcomeCounter = _meter.CreateCounter<long>(
+            "chokaq.idempotency.claims",
+            description: "Total number of idempotency claim-store outcomes");
+
+        _circuitEventCounter = _meter.CreateCounter<long>(
+            "chokaq.circuits.events",
+            description: "Total number of circuit-breaker state events");
     }
 
     public void RecordEnqueue(string queue, string jobType)
@@ -155,6 +175,35 @@ public class ChokaQMetrics : IChokaQMetrics, IDisposable
     {
         _activeWorkersCounter.Add(delta,
             new KeyValuePair<string, object?>("queue", _queueTags.GetValue(queue)));
+    }
+
+    public void RecordHeartbeatFailure(string queue, string jobType)
+    {
+        _heartbeatFailureCounter.Add(1,
+            new KeyValuePair<string, object?>("queue", _queueTags.GetValue(queue)),
+            new KeyValuePair<string, object?>("type", _jobTypeTags.GetValue(jobType)));
+    }
+
+    public void RecordStateTransitionConflict(string queue, string jobType, string transition)
+    {
+        _stateTransitionConflictCounter.Add(1,
+            new KeyValuePair<string, object?>("queue", _queueTags.GetValue(queue)),
+            new KeyValuePair<string, object?>("type", _jobTypeTags.GetValue(jobType)),
+            new KeyValuePair<string, object?>("transition", _failureReasonTags.GetValue(transition)));
+    }
+
+    public void RecordIdempotencyOutcome(string outcome)
+    {
+        _idempotencyOutcomeCounter.Add(1,
+            new KeyValuePair<string, object?>("outcome", _failureReasonTags.GetValue(outcome)));
+    }
+
+    public void RecordCircuitEvent(string circuitKey, string state, string @event)
+    {
+        _circuitEventCounter.Add(1,
+            new KeyValuePair<string, object?>("type", _jobTypeTags.GetValue(circuitKey)),
+            new KeyValuePair<string, object?>("state", _failureReasonTags.GetValue(state)),
+            new KeyValuePair<string, object?>("event", _failureReasonTags.GetValue(@event)));
     }
 
     public void Dispose()

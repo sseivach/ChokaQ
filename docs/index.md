@@ -49,6 +49,15 @@ features:
 
 <br>
 
+## Delivery Guarantees
+
+ChokaQ provides at-least-once execution. It does not provide exactly-once
+external side effects, and in-memory mode is process-local rather than durable.
+Read [Delivery Guarantees](/delivery-guarantees) before using ChokaQ for
+side-effecting jobs.
+
+<br>
+
 ## The Architecture at a Glance
 
 <img src="/architecture.png" alt="ChokaQ Three Pillars Architecture" style="width: 100%; max-width: 960px; margin: 0 auto; display: block;" />

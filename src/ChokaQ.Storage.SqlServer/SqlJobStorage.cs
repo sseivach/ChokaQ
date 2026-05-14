@@ -24,7 +24,7 @@ namespace ChokaQ.Storage.SqlServer;
 /// - Queues: Queue configuration
 /// All database calls are wrapped in a resilient transient fault handling policy.
 /// </summary>
-public class SqlJobStorage : IJobStorage
+internal class SqlJobStorage : IJobStorage
 {
     private const int TopErrorLimit = 5;
     private const int TopErrorSampleSize = 5000;

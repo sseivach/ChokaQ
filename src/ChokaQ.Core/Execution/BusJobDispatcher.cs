@@ -1,20 +1,21 @@
 ﻿using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Middleware;
+using ChokaQ.Abstractions.Serialization;
 using ChokaQ.Core.Contexts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace ChokaQ.Core.Execution;
 
-public class BusJobDispatcher : IJobDispatcher
+internal class BusJobDispatcher : IJobDispatcher
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly JobTypeRegistry _registry;
+    private readonly IChokaQJobSerializer _serializer;
     private readonly ILogger<BusJobDispatcher> _logger;
 
     // Cache for compiled delegates: Fast execution without Reflection overhead
@@ -24,10 +25,12 @@ public class BusJobDispatcher : IJobDispatcher
     public BusJobDispatcher(
         IServiceScopeFactory scopeFactory,
         JobTypeRegistry registry,
+        IChokaQJobSerializer serializer,
         ILogger<BusJobDispatcher> logger)
     {
         _scopeFactory = scopeFactory;
         _registry = registry;
+        _serializer = serializer;
         _logger = logger;
     }
 
@@ -40,16 +43,16 @@ public class BusJobDispatcher : IJobDispatcher
         var jobContext = serviceProvider.GetRequiredService<JobContext>();
         jobContext.JobId = jobId;
 
-        // 2. Resolve Type from Registry
-        var clrType = _registry.GetTypeByKey(jobType) ?? Type.GetType(jobType);
+        // 2. Resolve Type from Registry or assembly-qualified compatibility fallback.
+        var clrType = _registry.ResolvePersistedType(jobType);
 
         if (clrType == null)
         {
-            throw new InvalidOperationException($"Bus Mode: Unknown Job Type '{jobType}'. Ensure the job class is defined in a scanned assembly.");
+            throw new InvalidOperationException($"Bus Mode: Unknown Job Type '{jobType}'. Register the job type in a ChokaQJobProfile or store an assembly-qualified compatibility identity.");
         }
 
         // 3. Deserialize
-        var jobObject = JsonSerializer.Deserialize(payload, clrType) as IChokaQJob;
+        var jobObject = _serializer.Deserialize(payload, clrType);
         if (jobObject == null)
         {
             throw new InvalidOperationException($"Bus Mode: Failed to deserialize payload for '{clrType.Name}'.");

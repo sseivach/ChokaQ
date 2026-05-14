@@ -6,7 +6,7 @@ namespace ChokaQ.Storage.SqlServer.DataEngine;
 /// <summary>
 /// Extension methods for SqlConnection providing Dapper-like functionality.
 /// </summary>
-public static class SqlMapper
+internal static class SqlMapper
 {
     private static readonly ConditionalWeakTable<SqlConnection, CommandOptions> ConnectionOptions = new();
 
