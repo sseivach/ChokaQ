@@ -77,7 +77,7 @@ docker compose up -d sqlserver
 Run the lab.
 
 ```powershell
-dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln
+dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --no-cache --force-evaluate
 dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release --no-restore
 dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj
 ```
@@ -92,7 +92,8 @@ string:
 
 ```powershell
 $env:CHOKAQ_NUGET_LAB_SQL="Server=localhost,1433;Database=ChokaQNuGetLab;User Id=sa;Password=<password>;Encrypt=True;TrustServerCertificate=True;"
-dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release
+dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --no-cache --force-evaluate
+dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release --no-restore
 dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj
 ```
 
@@ -218,6 +219,11 @@ Development-mode Docker discovery only looks for a container named
 Build the local packages first. The lab's `NuGet.config` points at
 `artifacts/packages`. If that folder does not contain `ChokaQ.0.1.0-preview.1`
 and the related internal packages, restore will fail.
+
+If you repack the same preview version during local development, clear the
+cached `ChokaQ*` packages or restore with a fresh package cache. NuGet package
+caches are version-based, so a newer local `.nupkg` with the same version can be
+ignored until the cached copy is removed.
 
 ### The First Startup Logs Missing Table Errors
 

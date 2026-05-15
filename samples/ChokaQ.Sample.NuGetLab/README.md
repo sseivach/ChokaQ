@@ -37,7 +37,8 @@ Then point the sample at a SQL Server instance:
 
 ```powershell
 $env:CHOKAQ_NUGET_LAB_SQL="Server=localhost,1433;Database=ChokaQNuGetLab;User Id=sa;Password=<password>;Encrypt=True;TrustServerCertificate=True;"
-dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release
+dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --no-cache --force-evaluate
+dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release --no-restore
 dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj
 ```
 
@@ -48,9 +49,15 @@ and `MSSQL_SA_PASSWORD` environment variable:
 
 ```powershell
 docker compose up -d sqlserver
-dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release
+dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --no-cache --force-evaluate
+dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release --no-restore
 dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj
 ```
+
+If you rebuild local packages with the same preview version, clear the cached
+`ChokaQ*` packages or restore with a fresh package cache before running this
+sample. Otherwise the app can keep using an older local package even though
+`artifacts/packages` has newer `.nupkg` files.
 
 If the configured database does not exist, the sample creates it through
 `master` before ChokaQ creates its schema. The SQL login therefore needs database

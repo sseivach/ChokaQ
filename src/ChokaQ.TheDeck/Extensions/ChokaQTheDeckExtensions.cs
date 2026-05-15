@@ -39,6 +39,7 @@ public static class ChokaQTheDeckExtensions
         if (!path.StartsWith("/")) path = "/" + path;
         path = path.TrimEnd('/');
 
+        app.MapStaticAssets();
         app.UseStaticFiles();
         app.UseAntiforgery();
 

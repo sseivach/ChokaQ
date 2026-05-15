@@ -115,8 +115,14 @@
                 </tr>
             </thead>
             <tbody>
-                <Virtualize Items="@FilteredJobs" Context="job" OverscanCount="10" ItemSize="45">
-                    <ItemContent>
+                @if (FilteredJobs.Count == 0)
+                {
+                    <tr><td colspan="11" class="matrix__empty">No jobs found.</td></tr>
+                }
+                else
+                {
+                    @foreach (var job in FilteredJobs)
+                    {
                         <JobRow @key="job.Id"
                                 Job="job"
                                 IsSelected="@_selectedJobIds.Contains(job.Id)"
@@ -124,14 +130,8 @@
                                 OnCancelRequested="HandleCancelRequest"
                                 OnRestartRequested="HandleRestartRequest"
                                 OnSelected="HandleJobSelected" />
-                    </ItemContent>
-                    <Placeholder>
-                        <tr><td colspan="11" class="matrix__loading">Loading...</td></tr>
-                    </Placeholder>
-                    <EmptyContent>
-                        <tr><td colspan="11" class="matrix__empty">No jobs found.</td></tr>
-                    </EmptyContent>
-                </Virtualize>
+                    }
+                }
             </tbody>
         </table>
     </div>
