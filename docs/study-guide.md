@@ -55,7 +55,7 @@ Each major site page should eventually follow the same structure:
 | Idempotency | Defines what duplicate protection can and cannot promise. | [Getting Started](/getting-started) |
 | Observability | Connects metrics, health checks, structured logs, and dashboard state. | [Rolling Observability](/4-the-deck/rolling-observability) |
 | Admin Safety | Treats dashboards as production control planes, not just pretty UI. | [Getting Started](/getting-started) |
-| Release Readiness | Separates code that works locally from software that can be adopted safely. | [Release Strategy](/release-strategy) |
+| Operational Readiness | Separates code that works locally from software that can be adopted safely. | [Operations Runbooks](/5-operations/runbooks) |
 
 ## Site Expansion Map
 

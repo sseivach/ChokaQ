@@ -5,6 +5,11 @@ ChokaQ. It exists for one specific reason: it proves that a normal host
 application can install the top-level `ChokaQ` package from a NuGet feed and use
 the product without source `ProjectReference` shortcuts.
 
+Open `samples/ChokaQ.Sample.NuGetLab/ChokaQ.Sample.NuGetLab.sln` in an IDE. The
+solution is deliberately separate from the root `ChokaQ.sln`: the root solution
+validates source development, while NuGetLab validates the packaged consumer
+experience.
+
 The lab is not a benchmark and it is not a production template. It is a
 high-signal validation app that exercises the features a new user is most likely
 to care about before trusting a background job engine.
@@ -72,6 +77,8 @@ docker compose up -d sqlserver
 Run the lab.
 
 ```powershell
+dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln
+dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release --no-restore
 dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj
 ```
 
@@ -85,6 +92,7 @@ string:
 
 ```powershell
 $env:CHOKAQ_NUGET_LAB_SQL="Server=localhost,1433;Database=ChokaQNuGetLab;User Id=sa;Password=<password>;Encrypt=True;TrustServerCertificate=True;"
+dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release
 dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj
 ```
 
@@ -236,4 +244,3 @@ Open `/health`, check the application logs, and inspect these likely causes:
 
 Use [SLOs And Alerts](/5-operations/slo-alerts) and
 [Operations Runbooks](/5-operations/runbooks) for response guidance.
-

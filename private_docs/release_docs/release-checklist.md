@@ -246,8 +246,8 @@ dotnet pack src\ChokaQ\ChokaQ.csproj --configuration Release --no-build --no-res
 Restore and build the lab:
 
 ```powershell
-dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj
-dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj --configuration Release --no-restore
+dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln
+dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release --no-restore
 dotnet list samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj package --include-transitive
 ```
 
@@ -256,7 +256,8 @@ Checklist:
 - the top-level package list contains `ChokaQ` at the candidate version;
 - ChokaQ internal packages appear as transitive dependencies;
 - the sample project file has no `ProjectReference` entries to `src`;
-- restore uses `samples/ChokaQ.Sample.NuGetLab/NuGet.config` and
+- restore uses `samples/ChokaQ.Sample.NuGetLab/NuGet.config` through the
+  sample solution and
   `artifacts/packages`;
 - build exits with code `0` and warning count `0`.
 

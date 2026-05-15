@@ -13,7 +13,7 @@ dotnet build ChokaQ.sln --no-restore
 dotnet test ChokaQ.sln --no-restore --filter "FullyQualifiedName!~Integration"
 dotnet test ChokaQ.sln --no-restore --filter "Category=Integration"
 npm --prefix docs run docs:build
-dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj --configuration Release --no-restore
+dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release --no-restore
 git diff --check
 ```
 

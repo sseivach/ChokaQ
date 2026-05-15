@@ -36,9 +36,6 @@ export default defineConfig({
           { text: 'Local NuGet Lab', link: '/samples/nuget-lab' },
           { text: 'Delivery Guarantees', link: '/delivery-guarantees' },
           { text: 'Runtime Configuration', link: '/configuration' },
-          { text: 'Release Strategy', link: '/release-strategy' },
-          { text: 'Release Checklist', link: '/release-checklist' },
-          { text: 'Verification Matrix', link: '/release-verification-matrix' },
           { text: '0.1.0-preview.1 Notes', link: '/release-notes/0.1.0-preview.1' },
           { text: 'Study Guide', link: '/study-guide' },
           { text: 'Why ChokaQ?', link: '/why-chokaq' }

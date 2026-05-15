@@ -52,7 +52,7 @@ In-memory mode is process-local and non-durable. Its bounded channel is the vola
 
 See [Delivery Guarantees](docs/delivery-guarantees.md) for the full contract, including timeout, cancellation, shutdown, type-key, and payload compatibility guidance.
 
-Release candidates are gated by the [Release Checklist](docs/release-checklist.md) and [Release Verification Matrix](docs/release-verification-matrix.md).
+For operational readiness, start with the [Operations Runbooks](docs/5-operations/runbooks.md) and [SLOs And Alerts](docs/5-operations/slo-alerts.md). They describe the signals and response paths that matter when ChokaQ is running real workloads.
 
 ---
 

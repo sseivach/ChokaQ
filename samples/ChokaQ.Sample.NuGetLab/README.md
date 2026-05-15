@@ -3,6 +3,10 @@
 This sample validates the package consumer path: it references `ChokaQ` through
 NuGet, not through source `ProjectReference` entries.
 
+Open `ChokaQ.Sample.NuGetLab.sln` when using Visual Studio or Rider. The
+solution contains only this host app on purpose, so package restore behaves like
+it would in a consumer repository.
+
 ## What It Exercises
 
 - top-level `ChokaQ` package restore from a local feed;
@@ -33,6 +37,7 @@ Then point the sample at a SQL Server instance:
 
 ```powershell
 $env:CHOKAQ_NUGET_LAB_SQL="Server=localhost,1433;Database=ChokaQNuGetLab;User Id=sa;Password=<password>;Encrypt=True;TrustServerCertificate=True;"
+dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release
 dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj
 ```
 
@@ -43,6 +48,7 @@ and `MSSQL_SA_PASSWORD` environment variable:
 
 ```powershell
 docker compose up -d sqlserver
+dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release
 dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj
 ```
 
