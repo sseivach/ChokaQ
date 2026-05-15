@@ -102,7 +102,7 @@ state.
 | A.1 | P0 | Done | Call storage before notification. | Notifications are emitted only after storage returns success. |
 | A.2 | P0 | Done | Suppress notification on zero-row transition. | Lost ownership or stale finalization does not emit a false UI event. |
 | A.3 | P1 | Done | Add storage-exception notification tests. | If storage throws, no notification is sent. |
-| A.4 | P1 | Open | Add transition result contract docs. | Storage implementations document what `false`, success, and exception mean. |
+| A.4 | P1 | Done | Add transition result contract docs. | Storage implementations document what `false`, success, and exception mean. |
 
 ## Phase B: Notification Retry Hardening
 

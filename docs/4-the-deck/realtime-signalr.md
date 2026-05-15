@@ -34,7 +34,8 @@ builder.Services.AddChokaQTheDeck(options =>
 - UI logic runs on the server — no API layer needed
 - Direct access to `IJobStorage` via DI
 - SignalR connection is already established by Blazor — zero extra config
-- Real-time updates are **push-based**, not polling
+- Real-time updates are SignalR-driven, with bounded storage reconciliation as
+  the correctness fallback
 
 ## Dashboard Panels
 
@@ -80,6 +81,12 @@ cancel, or edit commands, because those commands can be affected by filters,
 ownership guards, concurrent workers, and row-level outcomes. Instead, the page
 waits for the command path to settle and then reloads summary counters, health,
 circuit state, and the current table slice from storage.
+
+SignalR is the primary live-update path for job and stats changes. The dashboard
+still keeps a reconciliation path because notification delivery is intentionally
+not part of the storage transaction. Timer-driven fallback refreshes and
+mutation-triggered reloads are single-flight, so a slow storage read cannot
+overlap with the next reconciliation request.
 
 This deliberately trades a tiny refresh delay for correctness. The operator sees
 the state the database accepted, not the state the browser guessed. It also keeps

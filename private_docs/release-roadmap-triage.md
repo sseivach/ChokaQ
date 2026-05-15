@@ -10,6 +10,11 @@ before anyone has used the package.
 
 ## Sorting Rules
 
+Roadmap priority is not transitive to every item inside the file. A roadmap can
+remain middle or low while one narrow item inside it becomes release-critical
+because it affects correctness, security, destructive operations, or a public
+claim.
+
 ## High
 
 Fix before the first NuGet preview, or explicitly reduce/remove the public
@@ -29,6 +34,9 @@ High means at least one of these is true:
 Current high roadmaps:
 
 None.
+
+No whole roadmap is currently high. Still audit low and middle roadmaps for
+individual release-claim exceptions before packaging.
 
 ## Middle
 
@@ -81,3 +89,7 @@ If a high item is too large to implement before preview, either:
 - or document the limitation clearly in the README.
 
 Do not block the first NuGet preview on low-priority roadmap items.
+
+Do not use "low roadmap" as a reason to ignore a false public statement. If the
+implementation is intentionally simpler than the long-term roadmap, either make
+the implementation match the claim or make the claim match the implementation.

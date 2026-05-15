@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "ChokaQ"
   text: ".NET 10 Background Job Engine"
-  tagline: "The pragmatic .NET 10 job engine for Enterprise. Get SQL-backed reliability, real-time operations, and cluster-wide concurrency without the heavy infrastructure tax of external message brokers."
+  tagline: "A production-preview .NET 10 job engine for SQL-backed reliability, real-time operations, and explicit concurrency control without the infrastructure weight of external brokers."
   actions:
     - theme: brand
       text: Get Started →
@@ -22,8 +22,8 @@ features:
     details: Physical data separation into Hot, Archive, and DLQ tables. Active-work indexes stay small while history and failed jobs get their own read paths.
     link: /1-architecture/three-pillars
   - icon: ⚡
-    title: Expression Trees (Zero Reflection)
-    details: Handlers invoked via cached compiled delegates — near-native execution speed. No MethodInfo.Invoke, no reflection overhead, no Activator.CreateInstance.
+    title: Compiled Handler Dispatch
+    details: Handlers are invoked through cached compiled delegates, which keeps dispatch overhead low without asking user code to manage reflection plumbing.
     link: /3-deep-dives/expression-trees
   - icon: 🧠
     title: Smart Worker (Fast-Fail)
@@ -35,7 +35,7 @@ features:
     link: /3-deep-dives/sql-concurrency
   - icon: 🛡️
     title: Bulkhead Isolation
-    details: Per-queue MaxWorkers enforced at database level. Heavy PDF generation will never starve lightweight SMS notifications.
+    details: Per-queue MaxWorkers enforced at database level. Heavy workloads can be isolated from lightweight queues so one workload does not consume all execution capacity.
     link: /2-lifecycle/bulkhead-isolation
   - icon: 🔧
     title: Minimal Dependencies
@@ -45,6 +45,10 @@ features:
     title: Architecture Study Guide
     details: The docs are growing into a practical architecture guide that explains backpressure, circuit breakers, bulkheads, retries, leases, and observability using this codebase.
     link: /study-guide
+  - icon: docs
+    title: Operations Runbooks
+    details: SLOs, alerts, queue-lag triage, DLQ recovery guidance, worker-health checks, and safe bulk-recovery procedures for people operating the system.
+    link: /5-operations/runbooks
 ---
 
 <br>
@@ -82,4 +86,4 @@ The **ZombieRescueService** periodically scans for jobs stuck in `Fetched` or `P
 
 <br>
 
-> *Ready to dive in? Start with the [Three Pillars Architecture](/1-architecture/three-pillars), run the [Docker Compose Sample](/samples/docker-compose), or use the [Study Guide](/study-guide) as a study map.*
+> *Ready to dive in? Start with the [Three Pillars Architecture](/1-architecture/three-pillars), run the [Docker Compose Sample](/samples/docker-compose), validate the [Local NuGet Lab](/samples/nuget-lab), or use the [Operations Runbooks](/5-operations/runbooks) when you want to understand how ChokaQ behaves under pressure.*

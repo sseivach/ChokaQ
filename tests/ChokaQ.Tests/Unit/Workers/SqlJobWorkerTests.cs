@@ -212,6 +212,110 @@ public class SqlJobWorkerTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task UpdateWorkerCount_WhenScaledBelowActiveSqlWork_ShouldDrainWithoutCancellingRunningJobs()
+    {
+        var storage = Substitute.For<IJobStorage>();
+        var processor = Substitute.For<IJobProcessor>();
+
+        var queue = new QueueEntity(
+            Name: "default",
+            IsPaused: false,
+            IsActive: true,
+            ZombieTimeoutSeconds: null,
+            MaxWorkers: null,
+            LastUpdatedUtc: DateTime.UtcNow);
+        storage.GetQueuesAsync(Arg.Any<CancellationToken>())
+            .Returns(_ => new ValueTask<IEnumerable<QueueEntity>>(new[] { queue }));
+
+        var jobs = Enumerable.Range(1, 2)
+            .Select(i => new JobHotEntity(
+                Id: $"job-{i}",
+                Queue: "default",
+                Type: "TestJob",
+                Payload: "{}",
+                Tags: null,
+                IdempotencyKey: null,
+                Priority: 10,
+                Status: JobStatus.Fetched,
+                AttemptCount: 1,
+                WorkerId: "sql-worker-1",
+                HeartbeatUtc: null,
+                ScheduledAtUtc: null,
+                CreatedAtUtc: DateTime.UtcNow,
+                StartedAtUtc: null,
+                LastUpdatedUtc: DateTime.UtcNow,
+                CreatedBy: null,
+                LastModifiedBy: null))
+            .ToArray();
+
+        var fetchCalls = 0;
+        storage.FetchNextBatchAsync(
+                Arg.Any<string>(),
+                Arg.Any<int>(),
+                Arg.Any<string[]>(),
+                Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                var fetched = Interlocked.Increment(ref fetchCalls) == 1
+                    ? jobs
+                    : Array.Empty<JobHotEntity>();
+
+                return new ValueTask<IEnumerable<JobHotEntity>>(fetched);
+            });
+
+        var startedCount = 0;
+        var bothStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseProcessing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var processorTokenCancellations = 0;
+
+        processor.ProcessJobAsync(
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<int>(),
+                Arg.Any<string?>(),
+                Arg.Any<DateTime?>(),
+                Arg.Any<DateTime>(),
+                Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                var ct = call.ArgAt<CancellationToken>(8);
+                using var registration = ct.Register(() => Interlocked.Increment(ref processorTokenCancellations));
+
+                if (Interlocked.Increment(ref startedCount) == 2)
+                {
+                    bothStarted.SetResult();
+                }
+
+                await releaseProcessing.Task;
+            });
+
+        var worker = CreateWorker(storage, processor);
+
+        using var cts = new CancellationTokenSource();
+        var runTask = worker.RunAsync(cts.Token);
+
+        await bothStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        worker.UpdateWorkerCount(1);
+        await Task.Delay(100);
+
+        // Runtime downscale is a pressure valve for future starts, not an implicit cancel
+        // command for work that already owns an execution slot.
+        worker.TotalWorkers.Should().Be(1);
+        worker.ActiveWorkers.Should().Be(2);
+        processorTokenCancellations.Should().Be(0);
+
+        releaseProcessing.SetResult();
+        await Task.Delay(100);
+        worker.ActiveWorkers.Should().Be(0);
+
+        await cts.CancelAsync();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
     private static TestableSqlJobWorker CreateWorker(
         IJobStorage storage,
         IJobProcessor? processor = null)

@@ -109,7 +109,7 @@ dependency, payload, and code problems quickly.
 | B.1 | P0 | Done | Add failure taxonomy. | DLQ rows carry structured failure reasons such as `Transient`, `Fatal`, `Throttled`, `Timeout`, `Cancelled`, `MaxRetriesExceeded`, and `Zombie`. |
 | B.2 | P0 | Done | Surface taxonomy in The Deck. | Operators can filter and inspect jobs by failure reason. |
 | B.3 | P1 | Done | Add top-error click-through. | Selecting a top error applies a matching DLQ investigation filter. |
-| B.4 | P1 | Partial | Frame taxonomy as triage, not badges. | Existing UI exposes the data; public docs should state how it reduces MTTR and unnecessary intervention. |
+| B.4 | P1 | Done | Frame taxonomy as triage, not badges. | Public docs explain that throttling, timeout, and fatal failure classes route operators to different remediation paths. |
 | B.5 | P1 | Open | Add failure-class runbook mapping. | Each failure reason maps to recommended action, owner, urgency, and requeue safety guidance. |
 | B.6 | P2 | Open | Add dependency correlation fields. | Optional metadata can identify external dependency, endpoint, tenant, or subsystem for faster incident slicing. |
 
@@ -129,8 +129,8 @@ even during GC pauses, process stalls, restarts, or network partitions.
 | C.2 | P0 | Done | Guard processing claims. | `MarkAsProcessing` succeeds only when the row is still owned by the expected worker/status state. |
 | C.3 | P0 | Done | Return stale-finalization results. | Storage methods return false when a worker no longer owns the row, allowing the worker to stop touching it. |
 | C.4 | P1 | Done | Separate fetched timeout from execution timeout. | Prefetched jobs are not reclaimed as zombies while they are only buffered. |
-| C.5 | P1 | Open | Add lease-expiration regression tests. | Tests simulate a stale worker finalizing after another worker reclaimed the job and prove only the current owner can mutate it. |
-| C.6 | P1 | Open | Add ownership-conflict telemetry. | Failed ownership-guard transitions emit a structured metric/log so lease pressure can be detected. |
+| C.5 | P1 | Done | Add lease-expiration regression tests. | Tests simulate stale success, failure, retry, and zombie-rescue races and prove only the current owner can mutate final state. |
+| C.6 | P1 | Done | Add ownership-conflict telemetry. | Failed ownership-guard transitions emit `StateTransitionNotApplied` and `chokaq.jobs.state_transition_conflicts`. |
 | C.7 | P2 | Open | Add worker clock-skew guidance. | Docs explain timeout settings, heartbeat intervals, and clock assumptions for multi-node deployments. |
 
 Target framing:
@@ -168,14 +168,14 @@ Goal: close the loop between detection and production response.
 
 | ID | Priority | Status | Work Item | Acceptance Criteria |
 |---|---|---|---|---|
-| E.1 | P0 | Open | Define default ChokaQ SLOs. | Docs define default objectives for queue lag, DLQ rate, worker liveness, and storage health. |
-| E.2 | P0 | Open | Add alert matrix. | Each SLO breach maps to signal, severity, likely cause, and first action. |
-| E.3 | P0 | Open | Add queue-lag runbook. | Runbook covers scaling workers, raising queue `MaxWorkers`, splitting queues, reducing producer rate, and identifying SQL bottlenecks. |
-| E.4 | P0 | Open | Add DLQ-spike runbook. | Runbook distinguishes throttling, dependency failures, bad payloads, code defects, and retry-safe recovery. |
-| E.5 | P1 | Open | Add worker-health runbook. | Runbook covers no active workers, zombie recovery, stale heartbeat, and ownership-conflict investigation. |
-| E.6 | P1 | Open | Add bulk-recovery runbook. | Runbook explains when to use bulk requeue, filtered requeue, cancel, purge, and maintenance cleanup. |
-| E.7 | P1 | Open | Add alert examples. | Provide Prometheus/OpenTelemetry-style example rules or pseudocode for the documented signals. |
-| E.8 | P2 | Open | Add environment-specific tuning section. | Docs explain how to adapt thresholds for user-facing, batch, low-priority, and high-volume queues. |
+| E.1 | P0 | Done | Define default ChokaQ SLOs. | `docs/5-operations/slo-alerts.md` defines default objectives for queue lag, DLQ rate, worker liveness, and storage health. |
+| E.2 | P0 | Done | Add alert matrix. | `docs/5-operations/slo-alerts.md` maps SLO breaches to likely causes and first actions. |
+| E.3 | P0 | Done | Add queue-lag runbook. | `docs/5-operations/runbooks.md` covers scaling workers, raising queue `MaxWorkers`, splitting queues, reducing producer rate, and identifying SQL bottlenecks. |
+| E.4 | P0 | Done | Add DLQ-spike runbook. | `docs/5-operations/runbooks.md` distinguishes throttling, dependency failures, bad payloads, code defects, and retry-safe recovery. |
+| E.5 | P1 | Done | Add worker-health runbook. | `docs/5-operations/runbooks.md` covers worker heartbeat issues, storage dependency failures, stale loops, and recovery checks. |
+| E.6 | P1 | Done | Add bulk-recovery runbook. | `docs/5-operations/runbooks.md` explains when to use bulk requeue, filtered requeue, cancel, purge, and maintenance cleanup. |
+| E.7 | P1 | Done | Add alert examples. | `docs/5-operations/slo-alerts.md` provides alert candidates and dashboard panels for the documented signals. |
+| E.8 | P2 | Done | Add environment-specific tuning section. | `docs/5-operations/slo-alerts.md` explains how to adapt thresholds for local, CI, user-facing, batch, downstream-limited, and high-volume queues. |
 
 Initial SLO candidates:
 
@@ -233,19 +233,19 @@ Goal: prove the hardening claims with tests that match the risks.
 | ID | Priority | Status | Work Item | Acceptance Criteria |
 |---|---|---|---|---|
 | G.1 | P1 | Open | Add large-dataset observability tests. | Health queries remain bounded with large Archive/DLQ/history volume. |
-| G.2 | P1 | Open | Add ownership-race tests. | Stale workers cannot archive, DLQ, or retry jobs after lease loss. |
+| G.2 | P1 | Done | Add ownership-race tests. | Stale workers cannot archive, DLQ, or retry jobs after lease loss. |
 | G.3 | P1 | Open | Add bulk-safety tests. | Rate limits, caps, confirmation, actor propagation, and audit records are covered. |
 | G.4 | P2 | Open | Add alert-threshold tests. | Queue saturation health check behavior is verified at healthy, degraded, and unhealthy boundaries. |
 | G.5 | P2 | Open | Add incident drill script. | A repeatable local scenario demonstrates lag spike, DLQ spike, alert interpretation, and recovery. |
 
 ## Suggested Implementation Order
 
-1. Write the public SLO and runbook docs using existing signals.
-2. Add alert examples and threshold tuning guidance.
+1. Write the public SLO and runbook docs using existing signals. Done.
+2. Add alert examples and threshold tuning guidance. Done.
 3. Add persistent audit events for destructive and bulk operations.
 4. Add bulk mutation rate limiting.
-5. Add ownership-conflict telemetry.
-6. Add targeted SQL and worker-race regression tests.
+5. Add ownership-conflict telemetry. Done.
+6. Add targeted SQL and worker-race regression tests. Done for stale success, DLQ, retry, and zombie-rescue paths.
 7. Add stale-data indicators in The Deck.
 8. Add OpenTelemetry tracing guidance after metrics and runbooks are stable.
 9. Add incident timeline/export only after audit events are durable.

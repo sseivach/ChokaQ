@@ -33,6 +33,7 @@ public partial class TheDeck : IAsyncDisposable
     private Components.OpsPanel.OpsPanel _opsPanel = default!;
     private Components.JobMatrix.JobMatrix _jobMatrix = default!;
     private System.Timers.Timer? _uiRefreshTimer;
+    private readonly SemaphoreSlim _reconciliationGate = new(1, 1);
 
 
     private JobSource _currentContext = JobSource.Hot;
@@ -59,7 +60,7 @@ public partial class TheDeck : IAsyncDisposable
 
         _uiRefreshTimer = new System.Timers.Timer(2000);
         _uiRefreshTimer.AutoReset = true;
-        _uiRefreshTimer.Elapsed += async (sender, e) => await LoadDataAsync();
+        _uiRefreshTimer.Elapsed += async (sender, e) => await LoadDataAsync(skipIfBusy: true);
         _uiRefreshTimer.Start();
 
         var hubPath = Options.RoutePrefix.TrimEnd('/') + "/hub";
@@ -76,9 +77,9 @@ public partial class TheDeck : IAsyncDisposable
         AddLog("System connected", "Success");
     }
 
-    private async Task LoadDataAsync()
+    private async Task LoadDataAsync(bool skipIfBusy = false)
     {
-        await ReconcileCurrentViewAsync(clearSelection: false, refreshHistoryPage: false);
+        await ReconcileCurrentViewAsync(clearSelection: false, refreshHistoryPage: false, skipIfBusy);
     }
 
     private async Task LoadShellStateAsync()
@@ -88,37 +89,40 @@ public partial class TheDeck : IAsyncDisposable
         _circuits = CircuitBreaker.GetCircuitStats().ToList();
     }
 
-    private async Task ReconcileCurrentViewAsync(bool clearSelection, bool refreshHistoryPage = true)
+    private async Task ReconcileCurrentViewAsync(bool clearSelection, bool refreshHistoryPage = true, bool skipIfBusy = false)
     {
-        try
+        await RunExclusiveReconciliationAsync(async () =>
         {
-            await LoadShellStateAsync();
+            try
+            {
+                await LoadShellStateAsync();
 
-            if (IsHistoryMode && refreshHistoryPage && _lastHistoryFilter != null)
-            {
-                await LoadHistoryPageAsync(_lastHistoryFilter);
-            }
-            else if (!IsHistoryMode)
-            {
-                var hotJobs = await JobStorage.GetActiveJobsAsync(MaxLiveCount, statusFilter: _activeStatusFilter);
-                _jobs = MapHotJobs(hotJobs);
-            }
+                if (IsHistoryMode && refreshHistoryPage && _lastHistoryFilter != null)
+                {
+                    await LoadHistoryPageAsync(_lastHistoryFilter);
+                }
+                else if (!IsHistoryMode)
+                {
+                    var hotJobs = await JobStorage.GetActiveJobsAsync(MaxLiveCount, statusFilter: _activeStatusFilter);
+                    _jobs = MapHotJobs(hotJobs);
+                }
 
-            if (clearSelection)
-            {
-                _jobMatrix?.ClearSelection();
-            }
+                if (clearSelection)
+                {
+                    _jobMatrix?.ClearSelection();
+                }
 
-            await InvokeAsync(StateHasChanged);
-        }
-        catch (Exception ex)
-        {
-            await InvokeAsync(() =>
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception ex)
             {
-                AddLog($"Data sync failed. Showing stale data. Reason: {ex.Message}", "Error");
-                StateHasChanged();
-            });
-        }
+                await InvokeAsync(() =>
+                {
+                    AddLog($"Data sync failed. Showing stale data. Reason: {ex.Message}", "Error");
+                    StateHasChanged();
+                });
+            }
+        }, skipIfBusy);
     }
 
     private async Task ReconcileAfterMutationAsync(bool clearSelection = true)
@@ -173,17 +177,20 @@ public partial class TheDeck : IAsyncDisposable
 
     private async Task HandleHistoryLoadRequest(HistoryFilterDto filter)
     {
-        try
+        await RunExclusiveReconciliationAsync(async () =>
         {
-            await LoadShellStateAsync();
-            await LoadHistoryPageAsync(filter);
+            try
+            {
+                await LoadShellStateAsync();
+                await LoadHistoryPageAsync(filter);
 
-            await InvokeAsync(StateHasChanged);
-        }
-        catch (Exception ex)
-        {
-            AddLog($"Error loading history: {ex.Message}", "Error");
-        }
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception ex)
+            {
+                AddLog($"Error loading history: {ex.Message}", "Error");
+            }
+        });
     }
 
     private async Task HandleTopErrorSelected(DlqErrorGroupDto error)
@@ -472,10 +479,41 @@ public partial class TheDeck : IAsyncDisposable
 
             InvokeAsync(async () =>
             {
-                await LoadShellStateAsync();
-                ThrottledRender();
+                await RunExclusiveReconciliationAsync(async () =>
+                {
+                    await LoadShellStateAsync();
+                    ThrottledRender();
+                }, skipIfBusy: true);
             });
         });
+    }
+
+    private async Task RunExclusiveReconciliationAsync(Func<Task> action, bool skipIfBusy = false)
+    {
+        bool entered;
+        if (skipIfBusy)
+        {
+            entered = await _reconciliationGate.WaitAsync(0);
+        }
+        else
+        {
+            await _reconciliationGate.WaitAsync();
+            entered = true;
+        }
+
+        if (!entered)
+        {
+            return;
+        }
+
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
     }
 
 
@@ -540,6 +578,7 @@ public partial class TheDeck : IAsyncDisposable
             _uiRefreshTimer.Dispose();
         }
         if (_hubConnection is not null) await _hubConnection.DisposeAsync();
+        _reconciliationGate.Dispose();
         GC.SuppressFinalize(this);
     }
 }

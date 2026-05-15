@@ -22,7 +22,8 @@ export default defineConfig({
       { text: 'Study Guide', link: '/study-guide' },
       { text: 'Architecture', link: '/1-architecture/three-pillars' },
       { text: 'Deep Dives', link: '/3-deep-dives/sql-concurrency' },
-      { text: 'The Deck', link: '/4-the-deck/realtime-signalr' }
+      { text: 'The Deck', link: '/4-the-deck/realtime-signalr' },
+      { text: 'Operations', link: '/5-operations/slo-alerts' }
     ],
 
     sidebar: [
@@ -32,6 +33,7 @@ export default defineConfig({
           { text: 'Getting Started', link: '/getting-started' },
           { text: 'Job Contracts', link: '/job-contracts' },
           { text: 'Docker Compose Sample', link: '/samples/docker-compose' },
+          { text: 'Local NuGet Lab', link: '/samples/nuget-lab' },
           { text: 'Delivery Guarantees', link: '/delivery-guarantees' },
           { text: 'Runtime Configuration', link: '/configuration' },
           { text: 'Release Strategy', link: '/release-strategy' },
@@ -85,6 +87,8 @@ export default defineConfig({
         text: 'Operations',
         collapsed: false,
         items: [
+          { text: 'SLOs And Alerts', link: '/5-operations/slo-alerts' },
+          { text: 'Operations Runbooks', link: '/5-operations/runbooks' },
           { text: 'Heartbeat Pressure', link: '/5-operations/heartbeat-pressure' },
           { text: 'Idempotent Handlers', link: '/5-operations/idempotent-handlers' },
           { text: 'Type-Key Troubleshooting', link: '/5-operations/type-key-troubleshooting' },

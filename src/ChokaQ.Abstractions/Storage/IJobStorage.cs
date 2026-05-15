@@ -15,6 +15,15 @@ namespace ChokaQ.Abstractions.Storage;
 /// 3. DLQ (Morgue): Failed/Poisoned jobs. Small, human-readable, requires manual intervention.
 /// 
 /// All state transitions (e.g., Hot -> Archive) MUST be atomic database transactions.
+///
+/// Transition result contract:
+/// - true means the requested state transition was durably applied.
+/// - false means no row was changed because the job was missing, in an invalid
+///   state, or no longer owned by the supplied worker. Callers must treat false
+///   as a stale/no-op transition and must not emit success notifications for it.
+/// - exceptions mean the storage operation failed before the caller can know the
+///   transition outcome. Callers should not emit success notifications after an
+///   exception; provider implementations must preserve atomicity internally.
 /// </summary>
 public interface IJobStorage
 {

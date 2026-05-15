@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChokaQ NuGet Lab</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --ink: #20242b;
+      --muted: #657080;
+      --line: #d9dee7;
+      --accent: #0f766e;
+      --accent-2: #1d4ed8;
+      --danger: #b42318;
+      --shadow: 0 8px 24px rgba(27, 39, 51, .08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      padding: 18px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    .topbar, main {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    .links {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    a, button {
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 38px;
+      padding: 0 13px;
+      text-decoration: none;
+      font: inherit;
+      font-weight: 650;
+    }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    button.secondary {
+      background: var(--accent-2);
+      border-color: var(--accent-2);
+      color: white;
+    }
+
+    button.danger {
+      color: var(--danger);
+      border-color: #f0b8b2;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr);
+      gap: 18px;
+      padding: 18px 0 28px;
+    }
+
+    section, .tile {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    section {
+      padding: 18px;
+    }
+
+    h2 {
+      font-size: 16px;
+      margin: 0 0 14px;
+      letter-spacing: 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 18px;
+      align-content: start;
+    }
+
+    .action {
+      display: grid;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 126px;
+    }
+
+    .action strong {
+      font-size: 14px;
+    }
+
+    .action span, .muted {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .tiles {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .tile {
+      padding: 12px;
+      box-shadow: none;
+    }
+
+    .tile span {
+      color: var(--muted);
+      display: block;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+
+    .tile strong {
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 8px 6px;
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    pre {
+      background: #101820;
+      border-radius: 8px;
+      color: #dbeafe;
+      margin: 0;
+      min-height: 130px;
+      overflow: auto;
+      padding: 12px;
+      white-space: pre-wrap;
+    }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .count {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      min-height: 38px;
+      padding: 0 10px;
+      width: 88px;
+    }
+
+    @media (max-width: 900px) {
+      main, .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .tiles {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <div>
+        <h1>ChokaQ NuGet Lab</h1>
+        <div class="muted">PackageReference smoke app with SQL, Deck, retries, idempotency, and runtime controls.</div>
+      </div>
+      <nav class="links">
+        <a href="/chokaq" target="_blank">The Deck</a>
+        <a href="/health" target="_blank">Health</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="stack">
+      <section>
+        <h2>Scenarios</h2>
+        <div class="grid">
+          <div class="action">
+            <strong>Mixed load</strong>
+            <span>Enqueues email, report, webhook, payment, slow, throttled, and delayed jobs across three queues.</span>
+            <div class="controls">
+              <input id="count" class="count" type="number" min="1" max="250" value="25">
+              <button class="primary" onclick="post('/api/lab/scenarios/mix?count=' + value('count'))">Run</button>
+            </div>
+          </div>
+          <div class="action">
+            <strong>Idempotency</strong>
+            <span>Sends five payment jobs with one business key. Active duplicates should collapse in SQL Hot.</span>
+            <button class="primary" onclick="post('/api/lab/scenarios/idempotency')">Run</button>
+          </div>
+          <div class="action">
+            <strong>Failure matrix</strong>
+            <span>Creates fatal DLQ, transient retry, retry-after throttling, and timeout traffic.</span>
+            <button class="danger" onclick="post('/api/lab/scenarios/failures')">Run</button>
+          </div>
+          <div class="action">
+            <strong>Delayed enqueue</strong>
+            <span>Schedules jobs into the future so queue lag and delayed eligibility are visible.</span>
+            <button class="secondary" onclick="post('/api/lab/scenarios/delayed')">Run</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Runtime Controls</h2>
+        <div class="controls">
+          <button onclick="post('/api/lab/workers/1')">Workers 1</button>
+          <button onclick="post('/api/lab/workers/4')">Workers 4</button>
+          <button onclick="post('/api/lab/workers/8')">Workers 8</button>
+          <button onclick="post('/api/lab/queues/unstable/pause')">Pause unstable</button>
+          <button onclick="post('/api/lab/queues/unstable/resume')">Resume unstable</button>
+          <button onclick="post('/api/lab/queues/reports/max-workers/1')">Reports max 1</button>
+          <button onclick="post('/api/lab/queues/reports/max-workers/0')">Reports unlimited</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Queues</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Paused</th>
+              <th>Active</th>
+              <th>Max Workers</th>
+              <th>Zombie Timeout</th>
+            </tr>
+          </thead>
+          <tbody id="queues"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <aside class="stack">
+      <section>
+        <h2>Snapshot</h2>
+        <div class="tiles">
+          <div class="tile"><span>Pending</span><strong id="pending">0</strong></div>
+          <div class="tile"><span>Processing</span><strong id="processing">0</strong></div>
+          <div class="tile"><span>Succeeded</span><strong id="succeeded">0</strong></div>
+          <div class="tile"><span>Failed</span><strong id="failed">0</strong></div>
+          <div class="tile"><span>Retried</span><strong id="retried">0</strong></div>
+          <div class="tile"><span>Workers</span><strong id="workers">0/0</strong></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Health</h2>
+        <div class="muted" id="health">Waiting for first refresh.</div>
+      </section>
+
+      <section>
+        <h2>Last Response</h2>
+        <pre id="log">Ready.</pre>
+      </section>
+    </aside>
+  </main>
+
+  <script>
+    function value(id) {
+      return document.getElementById(id).value;
+    }
+
+    async function post(url) {
+      const log = document.getElementById('log');
+      log.textContent = 'POST ' + url + ' ...';
+      try {
+        const response = await fetch(url, { method: 'POST' });
+        const body = await response.json();
+        log.textContent = JSON.stringify(body, null, 2);
+        await refresh();
+      } catch (error) {
+        log.textContent = String(error);
+      }
+    }
+
+    async function refresh() {
+      const response = await fetch('/api/lab/snapshot');
+      const data = await response.json();
+      const summary = data.summary || {};
+      document.getElementById('pending').textContent = summary.pending ?? 0;
+      document.getElementById('processing').textContent = summary.processing ?? 0;
+      document.getElementById('succeeded').textContent = summary.succeededTotal ?? 0;
+      document.getElementById('failed').textContent = summary.failedTotal ?? 0;
+      document.getElementById('retried').textContent = summary.retriedTotal ?? 0;
+      document.getElementById('workers').textContent = `${data.workers.activeWorkers}/${data.workers.totalWorkers}`;
+
+      const queues = data.queues || [];
+      document.getElementById('queues').innerHTML = queues.map(q => `
+        <tr>
+          <td>${q.name}</td>
+          <td>${q.isPaused}</td>
+          <td>${q.isActive}</td>
+          <td>${q.maxWorkers ?? 'unlimited'}</td>
+          <td>${q.zombieTimeoutSeconds ?? 'global'}</td>
+        </tr>`).join('');
+
+      const health = data.health || {};
+      document.getElementById('health').textContent =
+        `jps 1m: ${health.jobsPerSecondLastMinute ?? 0}, ` +
+        `fail 1m: ${health.failureRateLastMinutePercent ?? 0}%, ` +
+        `queues: ${(health.queues || []).length}, top errors: ${(health.topErrors || []).length}`;
+    }
+
+    refresh();
+    setInterval(refresh, 2500);
+  </script>
+</body>
+</html>

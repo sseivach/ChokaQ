@@ -23,7 +23,7 @@ The preview baseline is now acceptable:
 
 | ID | Priority | Status | Work Item | Notes |
 |---|---|---|---|---|
-| SQL-S.1 | P2 | Open | Add transaction rollback fault-injection tests. | Prove simulated failures inside archive, DLQ, and resurrection transactions do not lose or duplicate rows. |
+| SQL-S.1 | P2 | Done | Add transaction rollback fault-injection tests. | Archive, DLQ, and resurrection rollback tests prove simulated target-insert failures do not lose source rows or corrupt counters. |
 | SQL-S.2 | P2 | Open | Replace large selected-ID JSON batches. | Keep current `OPENJSON` path for normal batches, but add TVP or temp-table flow for very large selected operations. |
 | SQL-S.3 | P2 | Open | Add 100k selected-ID benchmark. | Measure purge, resurrection, and cancellation with the optimized ID path. |
 | SQL-S.4 | P2 | Open | Audit and replace high-concurrency `MERGE` where justified. | Current tests cover concurrency; replace with explicit update-then-insert only if production load or SQL Server edge cases justify the complexity. |

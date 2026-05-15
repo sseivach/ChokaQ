@@ -395,6 +395,8 @@ Goal: prepare the project for external adoption.
 | 11.4 | P2 | Done | Add sample Docker Compose. | New users can run the SQL Bus sample, SQL Server, The Deck, and health checks with one documented command. |
 | 11.5 | P2 | Done | Remove aspirational docs or mark them as planned. | README and docs describe current source/Docker usage, no published NuGet, minimal dependency reality, and planned product direction clearly. |
 | 11.6 | P2 | Done | Add release checklist. | `docs/release-checklist.md` defines build, unit test, SQL integration, docs, Docker smoke, security, database, and frozen future-package gates. |
+| 11.7 | P2 | Done | Add local NuGet smoke lab. | `samples/ChokaQ.Sample.NuGetLab` restores the top-level `ChokaQ` package from `artifacts/packages` and validates SQL, The Deck, health, idempotency, delayed jobs, retry/failure paths, queue controls, and worker scaling without source project references. |
+| 11.8 | P2 | Done | Document the NuGet smoke workflow. | `docs/samples/nuget-lab.md` explains local packaging, SQL startup, app URLs, scenarios, runtime controls, and troubleshooting for the package-consumer path. |
 
 Current release strategy:
 
@@ -402,8 +404,9 @@ Current release strategy:
 - The current development line targets `net10.0` only to avoid premature multi-target compatibility work.
 - The intended first public package is a single `ChokaQ` package containing abstractions, core, SQL Server storage, The Deck, health checks, configuration, and docs.
 - Separate storage packages are deferred until there is more than one production storage provider.
-- Actual package metadata, pack, and publish work is deferred until the dashboard/API surface is more stable.
+- Package metadata and local pack validation exist for preview smoke testing. Public publish remains deferred until release approval.
 - Root `docker-compose.yml` starts SQL Server 2022 and the Bus sample; `docs/samples/docker-compose.md` documents launcher, Deck, health, SQL port, password override, and reset commands.
+- `samples/ChokaQ.Sample.NuGetLab` validates the future NuGet consumer path from a local feed before any public package is published.
 - Release decisions are recorded in `docs/release-strategy.md`.
 - Public docs now distinguish implemented behavior from product direction: ChokaQ is active development, not a published NuGet package yet, and SQL Server mode uses the official `Microsoft.Data.SqlClient` driver while avoiding EF/Dapper/Polly-style infrastructure dependencies.
 - `docs/release-checklist.md` is the operational release gate for source truth, build, unit tests, SQL integration, docs, Docker Compose smoke, database readiness, security/operations, and future NuGet work.
@@ -420,6 +423,7 @@ Execution note: the separate long-form content layer is closed. Useful outline m
 | 12.2 | P2 | Done | Fold long-form outline material into the site. | The study guide contains a site expansion map that routes useful architecture topics to existing docs pages. |
 | 12.3 | P2 | Done | Keep deep explanations site-owned. | Future code walkthroughs, operational notes, and system-design framing are documented as docs-site expansion work. |
 | 12.4 | P2 | Done | Remove separate content-layer artifacts. | No source docs require a separate non-site documentation layer. |
+| 12.5 | P2 | Done | Add operator-facing SLO and runbook docs. | `docs/5-operations/slo-alerts.md` and `docs/5-operations/runbooks.md` explain signals, alerts, failure classes, safe recovery, and common incident response paths for new operators. |
 
 Documentation standard:
 

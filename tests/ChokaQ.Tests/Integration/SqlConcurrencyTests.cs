@@ -288,6 +288,71 @@ public class SqlConcurrencyTests
     }
 
     [Fact]
+    public async Task ArchiveFailedAsync_WithWrongWorkerId_ShouldNotFinalize()
+    {
+        await _fixture.CleanTablesAsync();
+        var id = NewId();
+        await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
+        await _storage.FetchNextBatchAsync("owner-a", 1);
+
+        var staleMoved = await _storage.ArchiveFailedAsync(id, "stale failure", workerId: "owner-b");
+        var ownerMoved = await _storage.ArchiveFailedAsync(id, "owner failure", workerId: "owner-a");
+
+        staleMoved.Should().BeFalse();
+        ownerMoved.Should().BeTrue();
+
+        var hotJob = await _storage.GetJobAsync(id);
+        hotJob.Should().BeNull();
+
+        var dlqJob = await _storage.GetDLQJobAsync(id);
+        dlqJob.Should().NotBeNull();
+        dlqJob!.ErrorDetails.Should().Be("owner failure");
+
+        var stats = await _storage.GetSummaryStatsAsync();
+        stats.FailedTotal.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task RescheduleForRetryAsync_WithWrongWorkerId_ShouldNotReleaseCurrentOwner()
+    {
+        await _fixture.CleanTablesAsync();
+        var id = NewId();
+        await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
+        await _storage.FetchNextBatchAsync("owner-a", 1);
+        await _storage.MarkAsProcessingAsync(id, workerId: "owner-a");
+
+        var staleMoved = await _storage.RescheduleForRetryAsync(
+            id,
+            DateTime.UtcNow.AddMinutes(5),
+            newAttemptCount: 1,
+            lastError: "stale retry",
+            workerId: "owner-b");
+
+        staleMoved.Should().BeFalse();
+
+        var hotJob = await _storage.GetJobAsync(id);
+        hotJob.Should().NotBeNull();
+        hotJob!.Status.Should().Be(ChokaQ.Abstractions.Enums.JobStatus.Processing);
+        hotJob.WorkerId.Should().Be("owner-a");
+        hotJob.AttemptCount.Should().Be(1);
+
+        var ownerMoved = await _storage.RescheduleForRetryAsync(
+            id,
+            DateTime.UtcNow.AddMinutes(5),
+            newAttemptCount: 2,
+            lastError: "owner retry",
+            workerId: "owner-a");
+
+        ownerMoved.Should().BeTrue();
+
+        hotJob = await _storage.GetJobAsync(id);
+        hotJob.Should().NotBeNull();
+        hotJob!.Status.Should().Be(ChokaQ.Abstractions.Enums.JobStatus.Pending);
+        hotJob.WorkerId.Should().BeNull();
+        hotJob.AttemptCount.Should().Be(2);
+    }
+
+    [Fact]
     public async Task MarkAsProcessingAsync_AfterRelease_ShouldNotStartBufferedCopy()
     {
         // Arrange

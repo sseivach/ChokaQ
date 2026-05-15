@@ -3,6 +3,7 @@ using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Observability;
 using ChokaQ.Storage.SqlServer;
 using ChokaQ.Tests.Fixtures;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
 
 namespace ChokaQ.Tests.Integration;
@@ -416,6 +417,84 @@ public class SqlJobStorageIntegrationTests
 
         // Assert
         moved.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ArchiveSucceededAsync_WhenArchiveInsertFails_ShouldRollbackHotDeleteAndStats()
+    {
+        await _fixture.CleanTablesAsync();
+        var id = NewId();
+        await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
+        await _storage.FetchNextBatchAsync("worker1", 10);
+        await InsertArchiveDuplicateAsync(id);
+
+        var act = async () => await _storage.ArchiveSucceededAsync(id, 100);
+
+        await act.Should().ThrowAsync<SqlException>();
+
+        // A target-table failure happens after the Hot delete inside the transaction.
+        // Rollback must restore the Hot row and leave counters untouched.
+        var hotJob = await _storage.GetJobAsync(id);
+        hotJob.Should().NotBeNull();
+        hotJob!.Status.Should().Be(JobStatus.Fetched);
+
+        var archiveJob = await _storage.GetArchiveJobAsync(id);
+        archiveJob.Should().NotBeNull();
+        archiveJob!.Type.Should().Be("ExistingArchive");
+
+        var stats = await _storage.GetSummaryStatsAsync();
+        stats.SucceededTotal.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ArchiveFailedAsync_WhenDlqInsertFails_ShouldRollbackHotDeleteAndStats()
+    {
+        await _fixture.CleanTablesAsync();
+        var id = NewId();
+        await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
+        await _storage.FetchNextBatchAsync("worker1", 10);
+        await InsertDlqDuplicateAsync(id);
+
+        var act = async () => await _storage.ArchiveFailedAsync(id, "boom");
+
+        await act.Should().ThrowAsync<SqlException>();
+
+        var hotJob = await _storage.GetJobAsync(id);
+        hotJob.Should().NotBeNull();
+        hotJob!.Status.Should().Be(JobStatus.Fetched);
+
+        var dlqJob = await _storage.GetDLQJobAsync(id);
+        dlqJob.Should().NotBeNull();
+        dlqJob!.Type.Should().Be("ExistingDLQ");
+
+        var stats = await _storage.GetSummaryStatsAsync();
+        stats.FailedTotal.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ResurrectAsync_WhenHotInsertFails_ShouldRollbackDlqDeleteAndStats()
+    {
+        await _fixture.CleanTablesAsync();
+        var id = NewId();
+        await _storage.EnqueueAsync(id, "default", "TestJob", "{}");
+        await _storage.FetchNextBatchAsync("worker1", 10);
+        await _storage.ArchiveFailedAsync(id, "boom");
+        await InsertHotDuplicateAsync(id);
+
+        var act = async () => await _storage.ResurrectAsync(id);
+
+        await act.Should().ThrowAsync<SqlException>();
+
+        var dlqJob = await _storage.GetDLQJobAsync(id);
+        dlqJob.Should().NotBeNull();
+        dlqJob!.Type.Should().Be("TestJob");
+
+        var hotJob = await _storage.GetJobAsync(id);
+        hotJob.Should().NotBeNull();
+        hotJob!.Type.Should().Be("ExistingHot");
+
+        var stats = await _storage.GetSummaryStatsAsync();
+        stats.FailedTotal.Should().Be(1);
     }
 
     #endregion
@@ -895,4 +974,59 @@ public class SqlJobStorageIntegrationTests
     }
 
     #endregion
+
+    private async Task InsertArchiveDuplicateAsync(string id)
+    {
+        await using var conn = new SqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $@"
+            INSERT INTO [{_fixture.Schema}].[JobsArchive]
+            ([Id], [Queue], [Type], [Payload], [Tags], [AttemptCount], [WorkerId],
+             [CreatedBy], [LastModifiedBy], [CreatedAtUtc], [StartedAtUtc], [FinishedAtUtc], [DurationMs])
+            VALUES (@Id, 'default', 'ExistingArchive', @Payload, NULL, 1, NULL,
+                    NULL, NULL, SYSUTCDATETIME(), NULL, SYSUTCDATETIME(), NULL);";
+        cmd.Parameters.AddWithValue("@Id", id);
+        cmd.Parameters.AddWithValue("@Payload", "{}");
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private async Task InsertDlqDuplicateAsync(string id)
+    {
+        await using var conn = new SqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $@"
+            INSERT INTO [{_fixture.Schema}].[JobsDLQ]
+            ([Id], [Queue], [Type], [Payload], [Tags], [FailureReason], [ErrorDetails], [AttemptCount],
+             [WorkerId], [CreatedBy], [LastModifiedBy], [CreatedAtUtc], [FailedAtUtc])
+            VALUES (@Id, 'default', 'ExistingDLQ', @Payload, NULL, 0, 'existing dlq row', 1,
+                    NULL, NULL, NULL, SYSUTCDATETIME(), SYSUTCDATETIME());";
+        cmd.Parameters.AddWithValue("@Id", id);
+        cmd.Parameters.AddWithValue("@Payload", "{}");
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private async Task InsertHotDuplicateAsync(string id)
+    {
+        await using var conn = new SqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $@"
+            INSERT INTO [{_fixture.Schema}].[JobsHot]
+            ([Id], [Queue], [Type], [Payload], [Tags], [IdempotencyKey],
+             [Priority], [Status], [AttemptCount], [WorkerId], [HeartbeatUtc],
+             [ScheduledAtUtc], [CreatedAtUtc], [StartedAtUtc], [LastUpdatedUtc],
+             [CreatedBy], [LastModifiedBy])
+            VALUES (@Id, 'default', 'ExistingHot', @Payload, NULL, NULL,
+                    10, 0, 0, NULL, NULL,
+                    NULL, SYSUTCDATETIME(), NULL, SYSUTCDATETIME(),
+                    NULL, NULL);";
+        cmd.Parameters.AddWithValue("@Id", id);
+        cmd.Parameters.AddWithValue("@Payload", "{}");
+        await cmd.ExecuteNonQueryAsync();
+    }
 }

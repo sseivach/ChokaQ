@@ -13,6 +13,8 @@ ChokaQ is also becoming a learning project: the codebase and docs are intended t
 
 Use the docs site as both product documentation and a study map. The [Architecture Study Guide](docs/study-guide.md) explains how each production pattern should be read, tested, operated, and discussed in senior/staff architecture interviews.
 
+If you are evaluating ChokaQ operationally, start with the [SLOs And Alerts](docs/5-operations/slo-alerts.md) and [Operations Runbooks](docs/5-operations/runbooks.md). Those pages explain what queue lag, DLQ rate, worker health, throttling, timeouts, and state-transition conflicts mean in practice, plus the safe first actions when something goes wrong.
+
 Before using ChokaQ for side-effecting work, read the [Delivery Guarantees](docs/delivery-guarantees.md). The short version: ChokaQ provides at-least-once execution. It does not provide exactly-once external side effects, so handlers that send email, charge cards, call APIs, or update other systems must be idempotent.
 
 ![ChokaQ Dashboard](scr1.jpg)
@@ -146,6 +148,8 @@ app.MapHealthChecks("/health");
 ```
 
 The SQL integration registers three checks: `chokaq_sql` for storage reachability and schema readiness, `chokaq_worker` for hosted-worker liveness, and `chokaq_queue_saturation` for pending queue lag. The queue check maps lag into Healthy/Degraded/Unhealthy using `ChokaQ:Health` thresholds, so operators can tune readiness sensitivity per environment.
+
+For alert design and incident response, see [SLOs And Alerts](docs/5-operations/slo-alerts.md) and [Operations Runbooks](docs/5-operations/runbooks.md).
 
 ### Structured Log Events
 ChokaQ uses stable `EventId` values for lifecycle logs so operators can build SIEM queries, alerts, and runbooks without parsing free-form text.
@@ -293,6 +297,18 @@ docker compose up --build
 Open `http://localhost:5299` for the launcher, `http://localhost:5299/chokaq`
 for The Deck, and `http://localhost:5299/health` for health checks. See
 `docs/samples/docker-compose.md` for details and reset commands.
+
+### Local NuGet Lab
+
+`samples/ChokaQ.Sample.NuGetLab` is the package-consumer smoke app. It restores
+the top-level `ChokaQ` package from `artifacts/packages` through NuGet, not
+through source project references, and exercises SQL Server, The Deck, health
+checks, idempotency, retry/failure paths, delayed jobs, queue controls, and
+runtime worker scaling.
+
+See [Local NuGet Lab](docs/samples/nuget-lab.md) or
+`samples/ChokaQ.Sample.NuGetLab/README.md` for the local pack and run commands.
+This is still local validation only; ChokaQ is not published to nuget.org yet.
 
 ### 1. Project References
 

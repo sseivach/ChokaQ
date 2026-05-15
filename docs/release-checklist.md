@@ -65,6 +65,9 @@ Read the public entry points:
 - `README.md`
 - `docs/getting-started.md`
 - `docs/configuration.md`
+- `docs/samples/nuget-lab.md`
+- `docs/5-operations/slo-alerts.md`
+- `docs/5-operations/runbooks.md`
 - `docs/release-strategy.md`
 - `docs/roadmap.md`
 
@@ -74,6 +77,10 @@ Checklist:
 - Docs do not claim a published NuGet package.
 - Package strategy still says one future `ChokaQ` package unless that decision
   has explicitly changed.
+- NuGetLab docs still describe local package validation, not a public install
+  command from nuget.org.
+- SLO and runbook docs explain what signals mean and what actions are safe,
+  without implying ChokaQ can make external side effects exactly-once.
 - Phase/status tables match the implemented behavior.
 - Frozen work is clearly marked as frozen.
 - Any planned behavior is labeled as planned, future, or frozen.
@@ -219,9 +226,67 @@ Checklist:
 Why this exists: The Deck is not just a UI. It is an administrative control
 plane that can edit, requeue, purge, pause, and cancel work.
 
-## 10. NuGet Gate
+## 10. Local NuGet Smoke Gate
 
-This gate validates the package artifact before any public publish.
+This gate validates the package-consumer path before any public publish. It
+must use a package reference from a local feed, not source project references.
+
+Create the local feed:
+
+```powershell
+New-Item -ItemType Directory -Force artifacts\packages | Out-Null
+dotnet build ChokaQ.sln --configuration Release --no-restore
+dotnet pack src\ChokaQ.Abstractions\ChokaQ.Abstractions.csproj --configuration Release --no-build --no-restore -o artifacts\packages
+dotnet pack src\ChokaQ.Core\ChokaQ.Core.csproj --configuration Release --no-build --no-restore -o artifacts\packages
+dotnet pack src\ChokaQ.Storage.SqlServer\ChokaQ.Storage.SqlServer.csproj --configuration Release --no-build --no-restore -o artifacts\packages
+dotnet pack src\ChokaQ.TheDeck\ChokaQ.TheDeck.csproj --configuration Release --no-build --no-restore -o artifacts\packages
+dotnet pack src\ChokaQ\ChokaQ.csproj --configuration Release --no-build --no-restore -o artifacts\packages
+```
+
+Restore and build the lab:
+
+```powershell
+dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj
+dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj --configuration Release --no-restore
+dotnet list samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj package --include-transitive
+```
+
+Checklist:
+
+- the top-level package list contains `ChokaQ` at the candidate version;
+- ChokaQ internal packages appear as transitive dependencies;
+- the sample project file has no `ProjectReference` entries to `src`;
+- restore uses `samples/ChokaQ.Sample.NuGetLab/NuGet.config` and
+  `artifacts/packages`;
+- build exits with code `0` and warning count `0`.
+
+Run the lab against SQL Server:
+
+```powershell
+docker compose up -d sqlserver
+dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj --configuration Release --no-restore --no-build
+```
+
+Manual checks:
+
+- `http://localhost:5317/` opens the NuGetLab launcher.
+- `http://localhost:5317/chokaq` opens The Deck.
+- `http://localhost:5317/health` returns healthy.
+- `http://localhost:5317/api/lab/snapshot` returns workers, queues, summary,
+  and health JSON.
+- `POST http://localhost:5317/api/lab/scenarios/mix?count=3` enqueues jobs.
+- The Deck shows the enqueued jobs moving through active/history/DLQ views.
+- The sample starts without requiring checked-in secrets.
+
+Why this exists: solution builds can accidentally hide package-shape mistakes
+because source projects are all available locally. A clean package-consuming app
+catches missing package dependencies, missing static assets, broken extension
+method visibility, and configuration gaps before publish.
+
+## 11. Future Public NuGet Gate
+
+This gate is used only when the project has explicit approval to publish a
+public package.
 
 Require:
 
@@ -230,8 +295,9 @@ Require:
 - license metadata;
 - README packaged into the artifact;
 - symbols and SourceLink;
-- local `dotnet pack` validation;
-- install smoke test from a local package folder into a clean sample app;
+- local NuGet smoke gate completed;
+- final release notes reviewed;
+- package ownership and publish credentials confirmed;
 - final human approval before publish.
 
 Do not use a successful local pack as a reason to publish early. It proves the

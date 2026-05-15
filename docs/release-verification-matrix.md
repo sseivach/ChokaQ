@@ -13,6 +13,7 @@ dotnet build ChokaQ.sln --no-restore
 dotnet test ChokaQ.sln --no-restore --filter "FullyQualifiedName!~Integration"
 dotnet test ChokaQ.sln --no-restore --filter "Category=Integration"
 npm --prefix docs run docs:build
+dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj --configuration Release --no-restore
 git diff --check
 ```
 
@@ -35,6 +36,7 @@ release exception, not a pass.
 | Zombie behavior | `Fetched` recovery and `Processing` zombie DLQ behavior are distinct. | `ZombieRescueServiceTests`, `InMemoryJobStorageTests`, `SqlJobStorageIntegrationTests`, `docs/2-lifecycle/zombie-rescue.md` |
 | In-memory boundary | Channel-driven source of truth is documented; stale channel items skip execution; restart/requeue reporting is deterministic. | `JobWorkerTests`, `docs/delivery-guarantees.md`, `docs/configuration.md` |
 | Observability | Operators can distinguish handler failures, heartbeat pressure, state conflicts, idempotency outcomes, and circuit events. | `ChokaQMetricsTests`, operations runbooks, `docs/configuration.md` |
+| Package consumer path | The top-level package restores into a separate app without source project references and runs against SQL Server. | `samples/ChokaQ.Sample.NuGetLab`, `docs/samples/nuget-lab.md`, local NuGet smoke gate |
 
 ## Required Test Groups
 

@@ -269,8 +269,8 @@ Goal: make The Deck push-first without losing eventual reconciliation.
 | ID | Priority | Status | Work Item | Acceptance Criteria |
 |---|---|---|---|---|
 | H.1 | P1 | Partial | Use SignalR for live updates. | Job updates and stats updates already arrive through hub callbacks. |
-| H.2 | P1 | Open | Correct public docs claim. | Public docs no longer say The Deck is purely push-based while fixed polling exists. |
-| H.3 | P1 | Open | Add single-flight refresh guard. | A slow storage refresh cannot overlap with the next timer tick or SignalR-triggered reconciliation. |
+| H.2 | P1 | Done | Correct public docs claim. | Public docs no longer say The Deck is purely push-based while fixed polling exists. |
+| H.3 | P1 | Done | Add single-flight refresh guard. | A slow storage refresh cannot overlap with the next timer tick or SignalR-triggered reconciliation. |
 | H.4 | P2 | Open | Replace always-on top-level polling. | The 2-second timer becomes configurable fallback reconciliation instead of unconditional refresh. |
 | H.5 | P2 | Open | Refresh after reconnect. | Hub reconnect triggers one canonical storage reconciliation. |
 | H.6 | P2 | Open | Refresh after operator mutations. | Mutating commands continue to reload canonical state after the command path settles. |
@@ -305,8 +305,8 @@ Goal: prove UI improvements with practical checks rather than guesswork.
 ## Suggested Implementation Order
 
 1. Correct the public refresh-model claim before NuGet if implementation stays
-   polling-assisted.
-2. Add single-flight refresh protection.
+   polling-assisted. Done.
+2. Add single-flight refresh protection. Done.
 3. Convert fixed polling into configurable fallback reconciliation.
 4. Cache `_filteredJobs` and derived selection state.
 5. Feed `Virtualize` and search count from the cached list.

@@ -52,6 +52,13 @@ public interface IWorkerManager
     /// <summary>
     /// Dynamically scales the number of workers up or down.
     /// </summary>
+    /// <remarks>
+    /// SQL Server mode treats this as target execution capacity: scaling down
+    /// blocks new starts until active jobs drain below the new target instead of
+    /// cancelling jobs that are already running. Volatile in-memory mode uses
+    /// process-local worker loops and is intended for demos and tests, not durable
+    /// production capacity control.
+    /// </remarks>
     /// <param name="count">The target number of workers.</param>
     void UpdateWorkerCount(int count);
 

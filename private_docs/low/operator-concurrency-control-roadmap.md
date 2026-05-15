@@ -108,8 +108,8 @@ Goal: keep the already-working runtime capacity mechanism.
 | A.2 | P0 | Done | Expose active count. | `IWorkerManager.ActiveWorkers` returns current running jobs. |
 | A.3 | P0 | Done | Expose target capacity. | `IWorkerManager.TotalWorkers` returns limiter capacity. |
 | A.4 | P0 | Done | Change capacity at runtime. | `IWorkerManager.UpdateWorkerCount` calls `SetCapacity` without restart. |
-| A.5 | P1 | Open | Add runtime capacity regression tests. | Scaling down below active count blocks new jobs until active work drains. |
-| A.6 | P1 | Open | Document drain semantics. | Docs state that capacity reduction does not cancel running jobs. |
+| A.5 | P1 | Done | Add runtime capacity regression tests. | Scaling down below active count blocks new jobs until active work drains. |
+| A.6 | P1 | Done | Document drain semantics. | Docs state that capacity reduction does not cancel running jobs. |
 
 ## Phase B: Operator Bar UX
 
@@ -231,8 +231,8 @@ Goal: prove runtime control behavior before making it more prominent.
 
 | ID | Priority | Status | Work Item | Acceptance Criteria |
 |---|---|---|---|---|
-| H.1 | P1 | Open | Add downscale drain test. | Reducing capacity below active count does not cancel running jobs and prevents new starts until drained. |
-| H.2 | P1 | Open | Add upscale wakeup test. | Increasing capacity allows additional waiting jobs to start. |
+| H.1 | P1 | Done | Add downscale drain test. | Reducing capacity below active count does not cancel running jobs and prevents new starts until drained. |
+| H.2 | P1 | Done | Add upscale wakeup test. | Increasing capacity allows additional waiting jobs to start. |
 | H.3 | P1 | Open | Add UI validation tests. | Invalid values are rejected or clamped consistently in UI and backend. |
 | H.4 | P1 | Open | Add authorization tests. | Read-only users cannot change runtime capacity. |
 | H.5 | P1 | Open | Add audit tests. | Successful and rejected changes produce expected audit records. |
@@ -241,7 +241,7 @@ Goal: prove runtime control behavior before making it more prominent.
 ## Suggested Implementation Order
 
 1. Add tests for current process-local `UpdateWorkerCount` downscale/upscale
-   semantics.
+   semantics. Done for SQL worker runtime downscale and limiter scale-up.
 2. Add backend validation and authorization boundary for capacity changes.
 3. Add audit event for runtime capacity changes.
 4. Move or mirror the control into a dashboard operator bar.
