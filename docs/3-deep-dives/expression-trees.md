@@ -86,8 +86,8 @@ public async Task DispatchAsync(JobHotEntity job, CancellationToken ct)
     // 3. Resolve handler from DI (scoped)
     var handler = scope.ServiceProvider.GetRequiredService(handlerInterfaceType);
 
-    // 4. Deserialize the payload
-    var jobInstance = JsonSerializer.Deserialize(job.Payload, jobType) as IChokaQJob;
+    // 4. Deserialize through the shared ChokaQ serializer contract
+    var jobInstance = _serializer.Deserialize(job.Payload, jobType);
 
     // 5. Invoke — this is now a DIRECT CALL, not reflection
     await invoker(handler, jobInstance, ct);

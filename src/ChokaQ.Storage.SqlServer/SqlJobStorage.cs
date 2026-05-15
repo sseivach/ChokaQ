@@ -463,7 +463,7 @@ internal class SqlJobStorage : IJobStorage
             var matchedCount = await conn.ExecuteScalarAsync<int>(countSql, parameters, ct);
 
             var sampleSql = _q.GetDLQBulkIds.Replace("{WHERE_CLAUSE}", whereSql);
-            var sampleParams = MergeParams(parameters, new { MaxJobs = Math.Min(limit, 10) });
+            var sampleParams = AddParams(parameters, ("MaxJobs", Math.Min(limit, 10)));
             var sampleIds = (await conn.QueryAsync<string>(sampleSql, sampleParams, ct)).ToArray();
 
             return new DlqBulkOperationPreviewDto(matchedCount, limit, sampleIds);
@@ -479,7 +479,7 @@ internal class SqlJobStorage : IJobStorage
             var limit = NormalizeDlqBulkLimit(filter);
             var (whereSql, parameters) = BuildDlqBulkFilterSql(filter);
             var sql = _q.PurgeDLQByFilter.Replace("{WHERE_CLAUSE}", whereSql);
-            var combinedParams = MergeParams(parameters, new { MaxJobs = limit });
+            var combinedParams = AddParams(parameters, ("MaxJobs", limit));
 
             await using var conn = await OpenConnectionAsync(ct);
             return await conn.ExecuteScalarAsync<int>(sql, combinedParams, ct);
@@ -496,11 +496,10 @@ internal class SqlJobStorage : IJobStorage
             var limit = NormalizeDlqBulkLimit(filter);
             var (whereSql, parameters) = BuildDlqBulkFilterSql(filter);
             var sql = _q.ResurrectDLQByFilter.Replace("{WHERE_CLAUSE}", whereSql);
-            var combinedParams = MergeParams(parameters, new
-            {
-                MaxJobs = limit,
-                ResurrectedBy = resurrectedBy
-            });
+            var combinedParams = AddParams(
+                parameters,
+                ("MaxJobs", limit),
+                ("ResurrectedBy", resurrectedBy));
 
             await using var conn = await OpenConnectionAsync(ct);
             return await conn.ExecuteScalarAsync<int>(sql, combinedParams, ct);
@@ -836,11 +835,10 @@ internal class SqlJobStorage : IJobStorage
                 .Replace("{WHERE_CLAUSE}", whereSql)
                 .Replace("{ORDER_BY}", orderBy);
 
-            var combinedParams = MergeParams(parameters, new
-            {
-                Offset = (filter.PageNumber - 1) * filter.PageSize,
-                Limit = filter.PageSize
-            });
+            var combinedParams = AddParams(
+                parameters,
+                ("Offset", (filter.PageNumber - 1) * filter.PageSize),
+                ("Limit", filter.PageSize));
 
             var items = await conn.QueryAsync<JobArchiveEntity>(dataSql, combinedParams, ct);
 
@@ -870,11 +868,10 @@ internal class SqlJobStorage : IJobStorage
                 .Replace("{WHERE_CLAUSE}", whereSql)
                 .Replace("{ORDER_BY}", orderBy);
 
-            var combinedParams = MergeParams(parameters, new
-            {
-                Offset = (filter.PageNumber - 1) * filter.PageSize,
-                Limit = filter.PageSize
-            });
+            var combinedParams = AddParams(
+                parameters,
+                ("Offset", (filter.PageNumber - 1) * filter.PageSize),
+                ("Limit", filter.PageSize));
 
             var items = await conn.QueryAsync<JobDLQEntity>(dataSql, combinedParams, ct);
 
@@ -992,13 +989,16 @@ internal class SqlJobStorage : IJobStorage
         return (sb.ToString(), p);
     }
 
-    private Dictionary<string, object?> MergeParams(Dictionary<string, object?> first, object second)
+    private static Dictionary<string, object?> AddParams(
+        Dictionary<string, object?> first,
+        params (string Name, object? Value)[] additional)
     {
         var result = new Dictionary<string, object?>(first);
-        foreach (var prop in second.GetType().GetProperties())
+        foreach (var (name, value) in additional)
         {
-            result[prop.Name] = prop.GetValue(second);
+            result[name] = value;
         }
+
         return result;
     }
 

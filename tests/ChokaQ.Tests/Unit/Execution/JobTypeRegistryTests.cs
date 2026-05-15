@@ -48,6 +48,22 @@ public class JobTypeRegistryTests
     }
 
     [Fact]
+    public void Register_MultipleKeysForSameType_ShouldKeepFirstReverseKey()
+    {
+        // Arrange
+        var registry = new JobTypeRegistry();
+
+        // Act
+        registry.Register("email.send.v1", typeof(VersionedJob));
+        registry.Register("email.send.v2", typeof(VersionedJob));
+
+        // Assert
+        registry.GetTypeByKey("email.send.v1").Should().Be(typeof(VersionedJob));
+        registry.GetTypeByKey("email.send.v2").Should().Be(typeof(VersionedJob));
+        registry.GetKeyByType(typeof(VersionedJob)).Should().Be("email.send.v1");
+    }
+
+    [Fact]
     public void GetTypeByKey_UnknownKey_ShouldReturnNull()
     {
         // Arrange
@@ -158,6 +174,10 @@ public class JobTypeRegistryTests
     }
 
     private sealed class UnregisteredJob
+    {
+    }
+
+    private sealed class VersionedJob
     {
     }
 }

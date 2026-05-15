@@ -120,6 +120,14 @@ keys such as `email.send.v1` instead of CLR type names. If you rename
 `SendEmailJob` later but keep the same payload contract, the type key can stay
 stable.
 
+Normally, one DTO type should have one active enqueue key. ChokaQ allows the
+same CLR type to be registered under multiple keys for migration scenarios, but
+reverse lookup from type to key keeps the first registered key. That means
+`queue.EnqueueAsync(new SendEmailJob(...))` uses the first key for that type. If
+you need to actively enqueue both `email.send.v1` and `email.send.v2`, prefer
+separate DTO types or an explicit migration path instead of relying on one CLR
+type with two active keys.
+
 ## Enqueue Examples
 
 Record-based DTO:

@@ -84,4 +84,21 @@ If you scale down (e.g., 20 → 10), `_targetCapacity` is instantly updated. Exi
 
 No cancellation tokens, no background burner tasks, no permit leaks. Just pure, state-driven mathematics.
 
+### Misuse And Shutdown Contract
+
+`Release()` must match a successful `WaitAsync()`. A double release throws
+instead of silently repairing the counter, because hidden accounting bugs can
+make worker capacity telemetry lie.
+
+Disposal wakes waiting callers and future `WaitAsync()` calls fail with
+`ObjectDisposedException`. Releasing a slot that was acquired before disposal is
+allowed during shutdown, so worker cleanup can finish normally.
+
+### Fairness
+
+The limiter does not promise FIFO waiter fairness. It uses competitive
+scheduling for throughput and low overhead, which is appropriate for background
+job workers. Do not use this primitive as a user-facing rate limiter without a
+separate fairness review.
+
 > *Next: [In-Memory Engine](/3-deep-dives/memory-management) — BoundedChannels and backpressure.*

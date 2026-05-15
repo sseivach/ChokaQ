@@ -346,6 +346,16 @@ public class LoggingMiddleware : IChokaQMiddleware
 }
 ```
 
+Middleware runs around handler dispatch only. It is the right place for logging,
+correlation, audit tags, validation, timing, and idempotency guards. It does not
+own fetch, worker lease acquisition, circuit breaker decisions, retry
+scheduling, Archive, or DLQ transitions; those remain processor/storage
+lifecycle policies.
+
+Middleware executes in registration order around the handler. In Bus mode the
+`job` argument is the deserialized DTO. In Pipe mode it is the raw payload
+string.
+
 ## What's Next?
 
 | Topic | What You'll Learn |

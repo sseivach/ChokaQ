@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text;
 
@@ -10,6 +11,8 @@ namespace ChokaQ.Storage.SqlServer.DataEngine;
 /// </summary>
 internal static class ParameterBuilder
 {
+    private static readonly ConcurrentDictionary<Type, PropertyInfo[]> PropertyCache = new();
+
     /// <summary>
     /// Builds SqlParameter array from an anonymous object.
     /// Expands array properties for IN clauses.
@@ -31,7 +34,10 @@ internal static class ParameterBuilder
         }
         else
         {
-            var properties = parameters.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            var properties = PropertyCache.GetOrAdd(
+                parameters.GetType(),
+                static type => type.GetProperties(BindingFlags.Public | BindingFlags.Instance));
+
             foreach (var prop in properties)
             {
                 var value = prop.GetValue(parameters);

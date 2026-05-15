@@ -1,5 +1,7 @@
 using ChokaQ.Abstractions.Jobs;
 using ChokaQ.Abstractions.Notifications;
+using ChokaQ.Abstractions.Serialization;
+using ChokaQ.Core;
 using ChokaQ.Core.Execution;
 using ChokaQ.Core.Serialization;
 using Microsoft.Extensions.DependencyInjection;
@@ -41,14 +43,17 @@ public class BusJobDispatcherTests
         _serviceProvider.GetService(jobContextType).Returns(jobContext);
     }
 
-    private BusJobDispatcher CreateDispatcher()
+    private BusJobDispatcher CreateDispatcher(
+        IChokaQJobSerializer? serializer = null,
+        ChokaQOptions? options = null)
     {
         SetupJobContext();
         return new BusJobDispatcher(
             _scopeFactory,
             _registry,
-            new SystemTextJsonChokaQJobSerializer(new ChokaQ.Core.ChokaQSerializationOptions()),
-            NullLogger<BusJobDispatcher>.Instance);
+            serializer ?? new SystemTextJsonChokaQJobSerializer(new ChokaQ.Core.ChokaQSerializationOptions()),
+            NullLogger<BusJobDispatcher>.Instance,
+            options);
     }
 
     [Fact]
@@ -86,6 +91,47 @@ public class BusJobDispatcherTests
 
         // Assert
         await handler.Received(1).HandleAsync(Arg.Any<TestJob>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DispatchAsync_WhenStrictTypeResolutionEnabled_ShouldRejectAssemblyQualifiedFallback()
+    {
+        // Arrange
+        var handler = Substitute.For<IChokaQJobHandler<TestJob>>();
+        _serviceProvider.GetService(typeof(IChokaQJobHandler<TestJob>)).Returns(handler);
+        var dispatcher = CreateDispatcher(options: new ChokaQOptions
+        {
+            TypeResolution = { RequireRegisteredJobTypes = true }
+        });
+
+        var payload = "{\"Id\":\"test123\",\"Message\":\"Hello\"}";
+        var fullTypeName = typeof(TestJob).AssemblyQualifiedName!;
+
+        // Act & Assert
+        await dispatcher.Invoking(d => d.DispatchAsync("job1", fullTypeName, payload, CancellationToken.None))
+            .Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Strict type resolution is enabled*");
+        await handler.DidNotReceive().HandleAsync(Arg.Any<TestJob>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DispatchAsync_ShouldDeserializeThroughConfiguredSerializer()
+    {
+        // Arrange
+        _registry.Register("test_job", typeof(TestJob));
+        var handler = Substitute.For<IChokaQJobHandler<TestJob>>();
+        var serializer = Substitute.For<IChokaQJobSerializer>();
+        var expectedJob = new TestJob { Id = "from-serializer", Message = "configured serializer" };
+        serializer.Deserialize("custom payload", typeof(TestJob)).Returns(expectedJob);
+        _serviceProvider.GetService(typeof(IChokaQJobHandler<TestJob>)).Returns(handler);
+        var dispatcher = CreateDispatcher(serializer);
+
+        // Act
+        await dispatcher.DispatchAsync("job1", "test_job", "custom payload", CancellationToken.None);
+
+        // Assert
+        serializer.Received(1).Deserialize("custom payload", typeof(TestJob));
+        await handler.Received(1).HandleAsync(expectedJob, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -131,7 +177,7 @@ public class BusJobDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_ShouldUnwrapTargetInvocationException()
+    public async Task DispatchAsync_ShouldPropagateHandlerExceptionDirectly()
     {
         // Arrange
         _registry.Register("test_job", typeof(TestJob));

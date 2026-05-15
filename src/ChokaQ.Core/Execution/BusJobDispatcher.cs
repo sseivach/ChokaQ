@@ -6,7 +6,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Linq.Expressions;
-using System.Reflection;
 using System.Text.Json.Nodes;
 
 namespace ChokaQ.Core.Execution;
@@ -17,6 +16,7 @@ internal class BusJobDispatcher : IJobDispatcher
     private readonly JobTypeRegistry _registry;
     private readonly IChokaQJobSerializer _serializer;
     private readonly ILogger<BusJobDispatcher> _logger;
+    private readonly bool _requireRegisteredJobTypes;
 
     // Cache for compiled delegates: Fast execution without Reflection overhead
     // Signature: Func<object handler, IChokaQJob job, CancellationToken ct, Task>
@@ -26,12 +26,14 @@ internal class BusJobDispatcher : IJobDispatcher
         IServiceScopeFactory scopeFactory,
         JobTypeRegistry registry,
         IChokaQJobSerializer serializer,
-        ILogger<BusJobDispatcher> logger)
+        ILogger<BusJobDispatcher> logger,
+        ChokaQOptions? options = null)
     {
         _scopeFactory = scopeFactory;
         _registry = registry;
         _serializer = serializer;
         _logger = logger;
+        _requireRegisteredJobTypes = options?.TypeResolution.RequireRegisteredJobTypes ?? false;
     }
 
     public async Task DispatchAsync(string jobId, string jobType, string payload, CancellationToken ct)
@@ -45,11 +47,17 @@ internal class BusJobDispatcher : IJobDispatcher
         jobContext.CancellationToken = ct;
 
         // 2. Resolve Type from Registry or assembly-qualified compatibility fallback.
-        var clrType = _registry.ResolvePersistedType(jobType);
+        var clrType = _requireRegisteredJobTypes
+            ? _registry.GetTypeByKey(jobType)
+            : _registry.ResolvePersistedType(jobType);
 
         if (clrType == null)
         {
-            throw new InvalidOperationException($"Bus Mode: Unknown Job Type '{jobType}'. Register the job type in a ChokaQJobProfile or store an assembly-qualified compatibility identity.");
+            var suffix = _requireRegisteredJobTypes
+                ? "Strict type resolution is enabled, so compatibility fallback identities are rejected."
+                : "Register the job type in a ChokaQJobProfile or store an assembly-qualified compatibility identity.";
+
+            throw new InvalidOperationException($"Bus Mode: Unknown Job Type '{jobType}'. {suffix}");
         }
 
         // 3. Deserialize
@@ -76,16 +84,8 @@ internal class BusJobDispatcher : IJobDispatcher
 
         JobDelegate pipeline = async () =>
         {
-            try
-            {
-                // BOOM! Ultra-fast execution via compiled delegate
-                await executeDelegate(handler, jobObject, ct);
-            }
-            catch (TargetInvocationException ex)
-            {
-                if (ex.InnerException != null) throw ex.InnerException;
-                throw;
-            }
+            // BOOM! Ultra-fast execution via compiled delegate.
+            await executeDelegate(handler, jobObject, ct);
         };
 
         // Wrap the core handler with middlewares
@@ -135,11 +135,14 @@ internal class BusJobDispatcher : IJobDispatcher
             var castedHandler = Expression.Convert(handlerParam, handlerType);
             var castedJob = Expression.Convert(jobParam, jobType);
 
-            // Find the HandleAsync method
-            var methodInfo = handlerType.GetMethod("HandleAsync");
+            // Find the exact interface method shape instead of relying on name-only lookup.
+            var methodInfo = handlerType.GetMethod(
+                nameof(IChokaQJobHandler<IChokaQJob>.HandleAsync),
+                new[] { jobType, typeof(CancellationToken) });
             if (methodInfo == null)
             {
-                throw new InvalidOperationException($"Method 'HandleAsync' not found on {handlerType.Name}");
+                throw new InvalidOperationException(
+                    $"Method 'HandleAsync({jobType.Name}, CancellationToken)' not found on {handlerType.Name}");
             }
 
             // Create the method call expression: ((THandler)handler).HandleAsync((TJob)job, ct)

@@ -306,17 +306,19 @@ not provide the same atomic in-progress claim semantics.
 
 ## Type Resolution
 
-`TypeResolution.RequireRegisteredJobTypes` controls whether Bus-mode enqueue
-requires every job DTO to be registered through a `ChokaQJobProfile`.
+`TypeResolution.RequireRegisteredJobTypes` controls whether Bus-mode enqueue and
+dispatch require every job DTO to be registered through a `ChokaQJobProfile`.
 
 Set it to `true` for production. Registered profile keys, such as
 `email.send.v1`, are stable persisted message-contract names and survive CLR
 renames or namespace refactors.
 
-When it is `false`, unregistered Bus jobs use an assembly-qualified CLR fallback
-identity for compatibility. ChokaQ does not persist or resolve unregistered jobs
-by CLR short name, because two different namespaces can contain classes with the
-same short name.
+When it is `false`, unregistered Bus jobs can use an assembly-qualified CLR
+fallback identity for compatibility. ChokaQ does not persist or resolve
+unregistered jobs by CLR short name, because two different namespaces can
+contain classes with the same short name. When it is `true`, persisted
+assembly-qualified fallback identities are rejected at dispatch too; register
+the type key or migrate the old row.
 
 ## Structured Log Events
 

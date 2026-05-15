@@ -182,7 +182,8 @@ internal class DynamicConcurrencyLimiter : IDisposable
         if (newValue < 0)
         {
             Interlocked.Exchange(ref _activeWorkers, 0);
-            newValue = 0;
+            throw new InvalidOperationException(
+                "DynamicConcurrencyLimiter.Release was called without a matching successful WaitAsync.");
         }
 
         // Wake one waiter if capacity allows

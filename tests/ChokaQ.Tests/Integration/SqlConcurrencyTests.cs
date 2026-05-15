@@ -135,7 +135,69 @@ public class SqlConcurrencyTests
 
         // Assert - Stats should be accurate
         var stats = await _storage.GetSummaryStatsAsync();
-        stats.SucceededTotal.Should().BeGreaterOrEqualTo(20);
+        stats.SucceededTotal.Should().Be(20);
+        stats.FailedTotal.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ArchiveFailedAsync_Concurrent_ShouldIncrementStatsAndMetricBucketsCorrectly()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+        var jobIds = new List<string>();
+        for (int i = 0; i < 20; i++)
+        {
+            var id = NewId();
+            await _storage.EnqueueAsync(id, "default", $"Job{i}", "{}");
+            jobIds.Add(id);
+        }
+        await _storage.FetchNextBatchAsync("worker1", 20);
+
+        // Act - Archive all jobs concurrently through the high-contention MERGE paths.
+        var tasks = jobIds.Select(id => Task.Run(async () =>
+        {
+            await _storage.ArchiveFailedAsync(id, "boom", failureReason: ChokaQ.Abstractions.Enums.FailureReason.Transient);
+        })).ToArray();
+
+        await Task.WhenAll(tasks);
+
+        // Assert
+        var stats = await _storage.GetSummaryStatsAsync();
+        stats.SucceededTotal.Should().Be(0);
+        stats.FailedTotal.Should().Be(20);
+
+        var health = await _storage.GetSystemHealthAsync();
+        health.JobsPerSecondLastMinute.Should().BeGreaterThan(0);
+        health.FailureRateLastMinutePercent.Should().Be(100);
+    }
+
+    [Fact]
+    public async Task FetchNextBatchAsync_WithCompetingQueues_ShouldRespectBulkheadsInsideBatch()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+        var loudQueue = $"loud-{NewId()}";
+        var quietQueue = $"quiet-{NewId()}";
+
+        await _storage.SetQueueMaxWorkersAsync(loudQueue, 2);
+        await _storage.SetQueueMaxWorkersAsync(quietQueue, 2);
+
+        for (int i = 0; i < 20; i++)
+        {
+            await _storage.EnqueueAsync(NewId(), loudQueue, "LoudJob", "{}", priority: 100);
+        }
+
+        await _storage.EnqueueAsync(NewId(), quietQueue, "QuietJob", "{}", priority: 1);
+
+        // Act
+        var jobs = (await _storage.FetchNextBatchAsync("bulkhead-worker", 10)).ToList();
+
+        // Assert
+        // The loud queue has much higher priority work, but its MaxWorkers cap applies inside the
+        // fetch statement. Once the loud queue's remaining capacity is consumed, eligible work from
+        // other queues must still be claimable in the same batch.
+        jobs.Where(job => job.Queue == loudQueue).Should().HaveCount(2);
+        jobs.Where(job => job.Queue == quietQueue).Should().ContainSingle();
     }
 
     [Fact]

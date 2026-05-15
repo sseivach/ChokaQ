@@ -46,9 +46,7 @@ Middle means at least one of these is true:
 
 Current middle roadmaps:
 
-- `middle/dispatch-layer-hardening-roadmap.md`
-- `middle/dynamic-concurrency-limiter-roadmap.md`
-- `middle/sql-storage-hardening-roadmap.md`
+None.
 
 ## Low
 
@@ -68,6 +66,7 @@ Current low roadmaps:
 - `low/deterministic-replay-roadmap.md`
 - `low/operator-concurrency-control-roadmap.md`
 - `low/self-tuning-concurrency-roadmap.md`
+- `low/sql-storage-scale-hardening-roadmap.md`
 - `low/sre-hardening-roadmap.md`
 - `low/state-manager-outbox-roadmap.md`
 - `low/the-deck-ui-hardening-roadmap.md`

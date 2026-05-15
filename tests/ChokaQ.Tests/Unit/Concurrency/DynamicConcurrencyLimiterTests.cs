@@ -74,14 +74,13 @@ public class DynamicConcurrencyLimiterTests
     }
 
     [Fact]
-    public async Task SetCapacity_ScaleDown_ShouldBurnPermits()
+    public async Task SetCapacity_ScaleDown_ShouldLetActiveWorkersDrainNaturally()
     {
         // Arrange
         var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 5);
 
         // Act
         semaphore.SetCapacity(2); // Scale down from 5 to 2
-        await Task.Delay(100); // Give time for burn loop to consume permits
 
         // Assert
         semaphore.Capacity.Should().Be(2);
@@ -97,6 +96,43 @@ public class DynamicConcurrencyLimiterTests
         // Cleanup
         semaphore.Release();
         await waitTask;
+    }
+
+    [Fact]
+    public async Task SetCapacity_ScaleDownWhileActive_ShouldBlockNewAcquiresUntilBelowNewCapacity()
+    {
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 5);
+        for (var i = 0; i < 5; i++)
+        {
+            await semaphore.WaitAsync();
+        }
+
+        semaphore.SetCapacity(2);
+        var waitTask = semaphore.WaitAsync();
+
+        for (var i = 0; i < 3; i++)
+        {
+            semaphore.Release();
+            await Task.Delay(25);
+            waitTask.IsCompleted.Should().BeFalse();
+        }
+
+        semaphore.Release();
+        await waitTask.WaitAsync(TimeSpan.FromSeconds(1));
+
+        semaphore.RunningCount.Should().Be(2);
+    }
+
+    [Fact]
+    public void Release_WhenNoSlotWasAcquired_ShouldThrow()
+    {
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 1);
+
+        Action act = () => semaphore.Release();
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*without a matching successful WaitAsync*");
+        semaphore.RunningCount.Should().Be(0);
     }
 
     [Fact]
@@ -132,18 +168,27 @@ public class DynamicConcurrencyLimiterTests
     }
 
     [Fact]
-    public async Task BurnLoop_CancellationShouldAbort()
+    public async Task SetCapacity_ManyWaitersScaleUp_ShouldWakeThroughRelay()
     {
-        // Arrange
-        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 10);
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 1);
+        await semaphore.WaitAsync();
 
-        // Act
-        semaphore.SetCapacity(2); // This starts a burn loop in background
-        await Task.Delay(50); // Let it start burning
-        semaphore.Dispose(); // Dispose cancels the burn loop
+        var waiters = Enumerable.Range(0, 20)
+            .Select(_ => semaphore.WaitAsync())
+            .ToArray();
 
-        // Assert
-        // Disposal should not throw, even with burn loop running
+        await Task.Delay(50);
+        waiters.Should().OnlyContain(task => !task.IsCompleted);
+
+        semaphore.SetCapacity(21);
+
+        await Task.WhenAll(waiters).WaitAsync(TimeSpan.FromSeconds(2));
+        semaphore.RunningCount.Should().Be(21);
+
+        for (var i = 0; i < 21; i++)
+        {
+            semaphore.Release();
+        }
     }
 
 
@@ -198,5 +243,32 @@ public class DynamicConcurrencyLimiterTests
         // Assert
         // Should not throw
         semaphore.Dispose(); // Double dispose should be safe
+    }
+
+    [Fact]
+    public async Task Dispose_WithWaitingAcquire_ShouldFailWaiterWithObjectDisposedException()
+    {
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 1);
+        await semaphore.WaitAsync();
+        var waiter = semaphore.WaitAsync();
+
+        semaphore.Dispose();
+
+        Func<Task> act = () => waiter.WaitAsync(TimeSpan.FromSeconds(1));
+        await act.Should().ThrowAsync<ObjectDisposedException>();
+
+        // Releasing an already-acquired slot during shutdown is allowed.
+        semaphore.Release();
+        semaphore.RunningCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task WaitAsync_AfterDispose_ShouldThrowObjectDisposedException()
+    {
+        var semaphore = new DynamicConcurrencyLimiter(initialCapacity: 1);
+        semaphore.Dispose();
+
+        Func<Task> act = () => semaphore.WaitAsync();
+        await act.Should().ThrowAsync<ObjectDisposedException>();
     }
 }

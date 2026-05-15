@@ -30,6 +30,12 @@ internal class PipeJobDispatcher : IJobDispatcher
         // 1. Setup Context
         var jobContext = serviceProvider.GetRequiredService<JobContext>();
         jobContext.JobId = jobId;
+        jobContext.CancellationToken = ct;
+
+        _logger.LogDebug(
+            "Dispatching Pipe job {JobId} with type {JobType}.",
+            jobId,
+            jobType);
 
         // 2. Resolve the single global handler
         var handler = serviceProvider.GetService<IChokaQPipeHandler>();

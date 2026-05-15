@@ -179,6 +179,19 @@ This is a fetch ordering policy, not a strict end-to-end FIFO guarantee. Multipl
 workers, per-queue limits, retries, pause/resume, cancellation, and operator
 actions can change completion order.
 
+## Fairness Policy
+
+SQL fetch provides best-effort scheduling, not strict global fairness. Each fetch
+claim orders eligible rows by priority and due time, and per-queue `MaxWorkers`
+keeps one queue from consuming more than its configured capacity. Under heavy
+concurrency, `READPAST` may skip rows that another worker has locked, so a later
+eligible row can be claimed first.
+
+That trade-off is intentional: ChokaQ prefers forward progress and duplicate
+claim prevention over making workers wait behind locked rows. If you need
+stronger business fairness, use separate queues, explicit priorities, and
+`MaxWorkers` caps to encode that policy.
+
 ## Concurrency Proof
 
 **Scenario:** 3 workers, batch size 2, 9 pending jobs
