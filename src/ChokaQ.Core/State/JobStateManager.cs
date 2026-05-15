@@ -68,8 +68,8 @@ internal class JobStateManager : IJobStateManager
         }
 
         // 2. Notify dashboard
-        await SafeNotifyAsync(() => _notifier.NotifyJobArchivedAsync(jobId, queue));
-        await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync());
+        await SafeNotifyAsync(() => _notifier.NotifyJobArchivedAsync(jobId, queue), ct);
+        await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync(), ct);
     }
 
     /// <summary>
@@ -99,8 +99,8 @@ internal class JobStateManager : IJobStateManager
         }
 
         // 2. Notify dashboard
-        await SafeNotifyAsync(() => _notifier.NotifyJobFailedAsync(jobId, queue, failureReason.ToString()));
-        await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync());
+        await SafeNotifyAsync(() => _notifier.NotifyJobFailedAsync(jobId, queue, failureReason.ToString()), ct);
+        await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync(), ct);
     }
 
     public async Task ArchiveCancelledAsync(
@@ -150,8 +150,8 @@ internal class JobStateManager : IJobStateManager
             JobCancellationReason.HeartbeatFailure => FailureReason.HeartbeatFailure,
             _ => FailureReason.Cancelled
         };
-        await SafeNotifyAsync(() => _notifier.NotifyJobFailedAsync(jobId, queue, failureReason.ToString()));
-        await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync());
+        await SafeNotifyAsync(() => _notifier.NotifyJobFailedAsync(jobId, queue, failureReason.ToString()), ct);
+        await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync(), ct);
     }
 
     public async Task RescheduleForRetryAsync(
@@ -189,8 +189,8 @@ internal class JobStateManager : IJobStateManager
             CreatedBy: null,
             StartedAtUtc: null
         );
-        await SafeNotifyAsync(() => _notifier.NotifyJobUpdatedAsync(update));
-        await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync());
+        await SafeNotifyAsync(() => _notifier.NotifyJobUpdatedAsync(update), ct);
+        await SafeNotifyAsync(() => _notifier.NotifyStatsUpdatedAsync(), ct);
     }
 
     public async Task<bool> MarkAsProcessingAsync(
@@ -231,7 +231,7 @@ internal class JobStateManager : IJobStateManager
             CreatedBy: createdBy,
             StartedAtUtc: now
         );
-        await SafeNotifyAsync(() => _notifier.NotifyJobUpdatedAsync(update));
+        await SafeNotifyAsync(() => _notifier.NotifyJobUpdatedAsync(update), ct);
         return true;
     }
 
@@ -240,17 +240,26 @@ internal class JobStateManager : IJobStateManager
     /// We must NEVER throw an exception here, as it would crash the background
     /// job state machine just because the UI SignalR hub is disconnected.
     /// </summary>
-    private async Task SafeNotifyAsync(Func<Task> notifyAction)
+    private async Task SafeNotifyAsync(Func<Task> notifyAction, CancellationToken ct)
     {
         const int maxRetries = 3;
-        const int delayMs = 500;
+        const int baseDelayMs = 50;
+        const int maxDelayMs = 500;
 
         for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
             try
             {
+                ct.ThrowIfCancellationRequested();
                 await notifyAction();
                 return; // Success
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                _logger.LogDebug(
+                    ChokaQLogEvents.NotificationFailed,
+                    "Skipped UI notification retry because the state-transition token was canceled.");
+                return;
             }
             catch (Exception ex)
             {
@@ -265,9 +274,27 @@ internal class JobStateManager : IJobStateManager
                 }
                 else
                 {
-                    await Task.Delay(delayMs);
+                    var delay = GetRetryDelay(attempt, baseDelayMs, maxDelayMs);
+                    try
+                    {
+                        await Task.Delay(delay, ct);
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        _logger.LogDebug(
+                            ChokaQLogEvents.NotificationFailed,
+                            "Stopped UI notification retry because the state-transition token was canceled.");
+                        return;
+                    }
                 }
             }
         }
+    }
+
+    private static TimeSpan GetRetryDelay(int attempt, int baseDelayMs, int maxDelayMs)
+    {
+        var exponentialMs = Math.Min(maxDelayMs, baseDelayMs * (1 << Math.Max(0, attempt - 1)));
+        var jitterMs = Random.Shared.Next(0, Math.Max(1, exponentialMs / 4));
+        return TimeSpan.FromMilliseconds(exponentialMs + jitterMs);
     }
 }

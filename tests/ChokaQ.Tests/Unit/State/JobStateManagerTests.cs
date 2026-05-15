@@ -5,6 +5,7 @@ using ChokaQ.Abstractions.Storage;
 using ChokaQ.Core.State;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute.ExceptionExtensions;
+using System.Diagnostics;
 
 namespace ChokaQ.Tests.Unit.State;
 
@@ -164,6 +165,61 @@ public class JobStateManagerTests
 
         // Assert - Storage should still be called
         await _storage.Received(1).ArchiveSucceededAsync("job1", 1000, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ArchiveSucceededAsync_WhenStorageThrows_ShouldNotNotify()
+    {
+        // Arrange
+        _storage.ArchiveSucceededAsync("job1", 1000, Arg.Any<CancellationToken>(), null)
+            .ThrowsAsync(new InvalidOperationException("storage down"));
+
+        // Act
+        var act = async () => await _manager.ArchiveSucceededAsync("job1", "TestJob", "default", 1000);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        await _notifier.DidNotReceive().NotifyJobArchivedAsync(Arg.Any<string>(), Arg.Any<string>());
+        await _notifier.DidNotReceive().NotifyStatsUpdatedAsync();
+    }
+
+    [Fact]
+    public async Task ArchiveFailedAsync_WhenStorageThrows_ShouldNotNotify()
+    {
+        // Arrange
+        _storage.ArchiveFailedAsync("job1", "boom", Arg.Any<CancellationToken>(), null, FailureReason.MaxRetriesExceeded)
+            .ThrowsAsync(new InvalidOperationException("storage down"));
+
+        // Act
+        var act = async () => await _manager.ArchiveFailedAsync("job1", "TestJob", "default", "boom");
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        await _notifier.DidNotReceive().NotifyJobFailedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _notifier.DidNotReceive().NotifyStatsUpdatedAsync();
+    }
+
+    [Fact]
+    public async Task SafeNotifyAsync_WhenTokenCancelsDuringRetryDelay_ShouldStopPromptly()
+    {
+        // Arrange
+        using var cts = new CancellationTokenSource();
+        _notifier.NotifyJobArchivedAsync("job1", "default")
+            .Returns(_ =>
+            {
+                cts.Cancel();
+                return Task.FromException(new InvalidOperationException("SignalR error"));
+            });
+
+        // Act
+        var sw = Stopwatch.StartNew();
+        await _manager.ArchiveSucceededAsync("job1", "TestJob", "default", 1000, cts.Token);
+        sw.Stop();
+
+        // Assert
+        sw.Elapsed.Should().BeLessThan(TimeSpan.FromMilliseconds(250));
+        await _notifier.Received(1).NotifyJobArchivedAsync("job1", "default");
+        await _notifier.DidNotReceive().NotifyStatsUpdatedAsync();
     }
 
     [Fact]

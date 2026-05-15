@@ -3,7 +3,9 @@ using ChokaQ.Abstractions.Enums;
 using ChokaQ.Abstractions.Observability;
 using ChokaQ.Storage.SqlServer;
 using ChokaQ.Tests.Fixtures;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
+using System.Diagnostics;
 
 namespace ChokaQ.Tests.Integration;
 
@@ -37,6 +39,52 @@ public class SqlJobStorageBulkTests
     }
 
     private static string NewId() => Guid.NewGuid().ToString("N");
+
+    private async Task SeedArchiveRowsAsync(string queue, int rowCount)
+    {
+        await using var conn = new SqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandTimeout = 30;
+        cmd.CommandText = $@"
+            INSERT INTO [{_fixture.Schema}].[Queues]
+            ([Name], [IsPaused], [IsActive], [MaxWorkers], [LastUpdatedUtc])
+            VALUES (@Queue, 0, 1, NULL, SYSUTCDATETIME());
+
+            INSERT INTO [{_fixture.Schema}].[StatsSummary]
+            ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal], [LastActivityUtc])
+            VALUES (@Queue, @RowCount, 0, 0, SYSUTCDATETIME());
+
+            ;WITH n AS (
+                SELECT TOP (@RowCount) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS n
+                FROM sys.all_objects a CROSS JOIN sys.all_objects b
+            )
+            INSERT INTO [{_fixture.Schema}].[JobsArchive]
+            ([Id], [Queue], [Type], [Payload], [Tags], [AttemptCount], [WorkerId],
+             [CreatedBy], [LastModifiedBy], [CreatedAtUtc], [StartedAtUtc], [FinishedAtUtc], [DurationMs])
+            SELECT
+                CONCAT(@RunId, '-', n),
+                @Queue,
+                'MaintenanceTestJob',
+                N'{{}}',
+                NULL,
+                1,
+                'maintenance-seed',
+                'test',
+                NULL,
+                DATEADD(MINUTE, -n, SYSUTCDATETIME()),
+                DATEADD(MINUTE, -n, SYSUTCDATETIME()),
+                DATEADD(MINUTE, -n, SYSUTCDATETIME()),
+                10.0
+            FROM n;";
+
+        cmd.Parameters.AddWithValue("@Queue", queue);
+        cmd.Parameters.AddWithValue("@RowCount", rowCount);
+        cmd.Parameters.AddWithValue("@RunId", Guid.NewGuid().ToString("N"));
+
+        await cmd.ExecuteNonQueryAsync();
+    }
 
     [Fact]
     public async Task ArchiveCancelledBatchAsync_MovesJobsToDlq_AndUpdatesStats()
@@ -208,6 +256,32 @@ public class SqlJobStorageBulkTests
         archived.Should().BeEmpty();
 
         var stats = (await storage.GetQueueStatsAsync()).First(q => q.Queue == _testQueue);
+        stats.SucceededTotal.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PurgeArchiveAsync_WithLargerArchive_ShouldStayInsideMaintenanceBudget()
+    {
+        // Arrange: seed directly so the guardrail measures cleanup shape, not enqueue/archive setup.
+        await _fixture.CleanTablesAsync();
+        var storage = CreateStorage(cleanupBatchSize: 25);
+        var queue = $"{_testQueue}_{Guid.NewGuid():N}";
+        await SeedArchiveRowsAsync(queue, rowCount: 250);
+
+        // Act
+        var sw = Stopwatch.StartNew();
+        var deleted = await storage.PurgeArchiveAsync(DateTime.UtcNow.AddDays(1));
+        sw.Stop();
+
+        // Assert
+        deleted.Should().Be(250);
+        sw.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10),
+            "archive cleanup should remain bounded by CleanupBatchSize and avoid one large transaction");
+
+        var archived = await storage.GetArchiveJobsAsync(1, queueFilter: queue);
+        archived.Should().BeEmpty();
+
+        var stats = (await storage.GetQueueStatsAsync()).First(q => q.Queue == queue);
         stats.SucceededTotal.Should().Be(0);
     }
 

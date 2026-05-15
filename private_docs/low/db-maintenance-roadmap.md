@@ -23,7 +23,7 @@ ChokaQ already has a production-preview cleanup baseline:
 The current implementation is not yet a full maintenance engine:
 
 - No `PurgeOptions` contract.
-- No throttling delay between batches.
+- No public throttling delay between batches.
 - No progress DTO/events.
 - No ETA or progress bar.
 - No step mode.
@@ -93,7 +93,7 @@ Goal: preserve and harden the existing batched-delete baseline.
 | 0.4 | P0 | Done | Keep API backward compatible. | Existing purge methods still work as single operator actions. |
 | 0.5 | P1 | Done | Update counters by actual deleted rows. | Queue summary counters decrement only by rows committed in the transaction. |
 | 0.6 | P1 | Done | Add multi-batch tests. | Integration tests prove Archive and selected DLQ purge cross batch boundaries correctly. |
-| 0.7 | P1 | Open | Add high-volume guardrail test. | A SQL integration test seeds a large dataset and proves cleanup remains bounded by batch count and command budget. |
+| 0.7 | P1 | Done | Add high-volume guardrail test. | A SQL integration test seeds a larger archive dataset and proves cleanup remains bounded by batch count and command budget. |
 
 ## Phase 1: Controlled Execution Engine
 

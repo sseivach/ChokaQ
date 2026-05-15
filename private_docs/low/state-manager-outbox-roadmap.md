@@ -39,9 +39,9 @@ Remaining risks:
 - There is no durable notification replay mechanism.
 - `NotifyStatsUpdatedAsync` is called after many individual transitions and can
   produce excessive SignalR traffic under load.
-- Notification retry uses a fixed delay with no exponential backoff or jitter.
-- `SafeNotifyAsync` does not accept a cancellation token, and retry delay uses
-  non-cancellable `Task.Delay`.
+- Notification retry now uses a short exponential delay with jitter.
+- `SafeNotifyAsync` observes the transition cancellation token before retrying
+  and while waiting between retries.
 - `JobStateManager` uses `DateTime.UtcNow` for notification DTOs, while storage
   may use SQL server time for persisted timestamps.
 - Notification delivery is not idempotent or deduplicated.
@@ -87,8 +87,8 @@ Remaining risks:
 | Archive failure can still notify success. | Mostly mitigated. Current code awaits storage first and skips notification when no row moves. Partial storage failures still need storage-level guarantees. | Keep zero-row guards and cover storage exception behavior in tests. |
 | Notify failure can leave UI stale. | Valid. Exceptions are swallowed after retries. | Add durable outbox or periodic reconciliation. |
 | `NotifyStatsUpdatedAsync` can spam clients. | Valid. It is called after many individual transitions. | Add debounce or batching. |
-| `SafeNotifyAsync` retry is too simple. | Valid. It uses fixed delay and no jitter. | Add exponential backoff, jitter, and cancellation. |
-| Cancellation token is not propagated. | Valid. `SafeNotifyAsync` has no `CancellationToken`. | Pass transition cancellation into notification retry. |
+| `SafeNotifyAsync` retry is too simple. | Mitigated for preview. It now uses bounded exponential delay with jitter. | Keep durable outbox as the later hardening step. |
+| Cancellation token is not propagated. | Mitigated for preview. `SafeNotifyAsync` observes the transition token before and during retry delay. | Keep direct notifier APIs unchanged until outbox work. |
 | StateManager time can diverge from storage time. | Valid. DTO timestamp uses local process UTC time. | Use `ISystemClock` or storage-returned transition timestamps. |
 | StateManager has no idempotent event model. | Valid. Notifications can duplicate and are transport-shaped. | Add typed events with event IDs. |
 
@@ -101,7 +101,7 @@ state.
 |---|---|---|---|---|
 | A.1 | P0 | Done | Call storage before notification. | Notifications are emitted only after storage returns success. |
 | A.2 | P0 | Done | Suppress notification on zero-row transition. | Lost ownership or stale finalization does not emit a false UI event. |
-| A.3 | P1 | Open | Add storage-exception notification tests. | If storage throws, no notification is sent. |
+| A.3 | P1 | Done | Add storage-exception notification tests. | If storage throws, no notification is sent. |
 | A.4 | P1 | Open | Add transition result contract docs. | Storage implementations document what `false`, success, and exception mean. |
 
 ## Phase B: Notification Retry Hardening
@@ -110,10 +110,10 @@ Goal: make current direct notification safer while outbox is not implemented.
 
 | ID | Priority | Status | Work Item | Acceptance Criteria |
 |---|---|---|---|---|
-| B.1 | P1 | Partial | Swallow notification exceptions. | Current code logs final failure and does not crash execution. |
-| B.2 | P1 | Open | Pass cancellation token into notification retry. | Retry delay and notifier calls can stop during shutdown. |
-| B.3 | P1 | Open | Add exponential backoff. | Retry delay grows per attempt within a bounded maximum. |
-| B.4 | P1 | Open | Add jitter. | Concurrent failures do not retry in lockstep. |
+| B.1 | P1 | Done | Swallow notification exceptions. | Current code logs final failure and does not crash execution. |
+| B.2 | P1 | Done | Pass cancellation token into notification retry. | Retry delay and notifier calls can stop during shutdown. |
+| B.3 | P1 | Done | Add exponential backoff. | Retry delay grows per attempt within a bounded maximum. |
+| B.4 | P1 | Done | Add jitter. | Concurrent failures do not retry in lockstep. |
 | B.5 | P2 | Open | Add notification retry metrics. | Operators can see attempts, failures, final drops, and retry latency. |
 
 Candidate behavior:
@@ -210,8 +210,8 @@ Goal: prove notification behavior under failure and load.
 
 | ID | Priority | Status | Work Item | Acceptance Criteria |
 |---|---|---|---|---|
-| H.1 | P1 | Open | Add no-notify-on-storage-exception tests. | Storage failure never emits a success/failure UI event. |
-| H.2 | P1 | Open | Add cancellable retry tests. | Shutdown cancellation exits notification retry promptly. |
+| H.1 | P1 | Done | Add no-notify-on-storage-exception tests. | Storage failure never emits a success/failure UI event. |
+| H.2 | P1 | Done | Add cancellable retry tests. | Shutdown cancellation exits notification retry promptly. |
 | H.3 | P1 | Open | Add stats debounce tests. | Many state changes produce bounded stats notifications. |
 | H.4 | P1 | Open | Add outbox atomicity tests. | SQL transition and outbox append commit or roll back together. |
 | H.5 | P1 | Open | Add outbox replay tests. | Failed SignalR delivery is retried after dispatcher restart. |
