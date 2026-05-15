@@ -123,11 +123,11 @@ Lifecycle logs use stable `EventId` values as well. Operators can query `JobRetr
 - Recurring/scheduled jobs (not yet supported)
 - Multi-region distributed coordination
 
-## Learning Value
+## Architecture Notes
 
-ChokaQ is also meant to be read as an architecture study project. The docs use
-the working codebase to explain patterns that appear in senior/staff interviews
-and real production systems:
+The documentation goes beyond setup snippets because background processing
+systems fail in ways that are hard to debug after the fact. The design pages
+explain the operational patterns ChokaQ relies on:
 
 - at-least-once processing and idempotency;
 - SQL competing consumers;

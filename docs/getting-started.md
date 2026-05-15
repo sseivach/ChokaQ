@@ -1,9 +1,36 @@
 # Getting Started
 
+This page gets a ChokaQ host running and explains what each piece is doing.
+
+If you are new to ChokaQ, read [Overview](/overview) first.
+If you want to run something immediately, use the Docker sample below.
+
 ## Prerequisites
 
 - **.NET 10 SDK**
 - **SQL Server** (for persistent mode) — or use In-Memory for development
+
+## The Smallest Useful Mental Model
+
+Before the code, here is the shape of the system:
+
+| Piece | What you add | What it does |
+|---|---|---|
+| Job DTO | A class or record that implements `IChokaQJob`. | Describes the work to do. |
+| Handler | `IChokaQJobHandler<TJob>`. | Runs your business logic. |
+| Profile | `ChokaQJobProfile`. | Connects job type keys to handlers. |
+| Storage | SQL Server or in-memory. | Stores active work and final states. |
+| Worker | Registered by ChokaQ. | Claims jobs and runs handlers. |
+| The Deck | `/chokaq`. | Shows jobs, queues, health, failures, and controls. |
+
+The normal path is:
+
+```text
+enqueue -> JobsHot -> worker claim -> handler -> Archive or DLQ
+```
+
+For delayed jobs and retries, the row stays in `JobsHot` with a future
+`ScheduledAtUtc`. Workers ignore it until it becomes due.
 
 ## Try The SQL Sample With Docker
 
@@ -37,6 +64,9 @@ Since ChokaQ is currently in active development, integrate it by referencing the
 ```
 
 ## Minimal Setup (Bus Mode + SQL Server)
+
+Bus mode means each job has a typed DTO and a typed handler. This is the best
+starting point for normal application work.
 
 ### 1. Configure `Program.cs`
 
@@ -356,12 +386,29 @@ Middleware executes in registration order around the handler. In Bus mode the
 `job` argument is the deserialized DTO. In Pipe mode it is the raw payload
 string.
 
+## What To Check After It Runs
+
+Open `/chokaq` and look for these signals:
+
+| Signal | Meaning |
+|---|---|
+| Pending | Jobs waiting for a worker. |
+| Buffered or Fetched | Jobs claimed by workers but not yet running user code. |
+| Processing | Handlers currently executing. |
+| Succeeded | Jobs moved to Archive. |
+| Failed or DLQ | Jobs that need inspection or repair. |
+| Queue lag | How long eligible work has waited. |
+
+Then open `/health`. In SQL Server mode, health checks verify SQL schema access,
+worker liveness, and queue saturation.
+
 ## What's Next?
 
 | Topic | What You'll Learn |
 |-------|-------------------|
+| [Overview](/overview) | The short model of the product and architecture |
 | [Why ChokaQ?](/why-chokaq) | The core philosophy and architectural benefits |
-| [Architecture Study Guide](/study-guide) | The study map for production patterns and interview framing |
+| [Delivery Guarantees](/delivery-guarantees) | What ChokaQ promises and what your handlers must handle |
 | [Three Pillars](/1-architecture/three-pillars) | Why we physically separate Hot, Archive, and DLQ |
 | [State Machine](/2-lifecycle/state-machine) | The full lifecycle of a job from Pending to Archive |
 | [The Deck](/4-the-deck/realtime-signalr) | Real-time admin dashboard with SignalR |

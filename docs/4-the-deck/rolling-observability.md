@@ -1,26 +1,12 @@
 # Rolling Observability Buckets
 
-This chapter documents an intentional design upgrade in ChokaQ's dashboard
-observability. It is written as an architecture lesson: start with the simpler
-version, understand why it was reasonable, then move to the production-grade
-version once its limits become visible.
+This chapter documents how ChokaQ calculates recent throughput and failure-rate
+signals for The Deck.
 
-## The Teaching Pattern
-
-A good enterprise system does not need to begin with the most sophisticated
-version of every feature. In fact, learning is often better when the project
-shows the evolution:
-
-1. Build the simplest honest version.
-2. Explain what guarantee it provides.
-3. Measure where it becomes weak.
-4. Replace it with a stronger design.
-5. Document the trade-off, not just the final code.
-
-ChokaQ uses that pattern here. The first throughput implementation was a bounded
-lookback over `JobsArchive` and `JobsDLQ`. The new implementation records
-completion outcomes into `MetricBuckets` during the same transaction that moves a
-job to Archive or DLQ.
+The current implementation records completion outcomes into `MetricBuckets`
+during the same transaction that moves a job to Archive or DLQ. That design
+keeps dashboard reads bounded and avoids scanning growing history tables on
+every refresh.
 
 ## Version 1: Bounded History Lookback
 

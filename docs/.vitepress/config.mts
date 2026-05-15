@@ -18,8 +18,8 @@ export default defineConfig({
     siteTitle: 'ChokaQ',
 
     nav: [
+      { text: 'Overview', link: '/overview' },
       { text: 'Getting Started', link: '/getting-started' },
-      { text: 'Study Guide', link: '/study-guide' },
       { text: 'Architecture', link: '/1-architecture/three-pillars' },
       { text: 'Deep Dives', link: '/3-deep-dives/sql-concurrency' },
       { text: 'The Deck', link: '/4-the-deck/realtime-signalr' },
@@ -30,6 +30,7 @@ export default defineConfig({
       {
         text: 'Introduction',
         items: [
+          { text: 'Overview', link: '/overview' },
           { text: 'Getting Started', link: '/getting-started' },
           { text: 'Job Contracts', link: '/job-contracts' },
           { text: 'Docker Compose Sample', link: '/samples/docker-compose' },
@@ -37,7 +38,6 @@ export default defineConfig({
           { text: 'Delivery Guarantees', link: '/delivery-guarantees' },
           { text: 'Runtime Configuration', link: '/configuration' },
           { text: '0.1.0-preview.1 Notes', link: '/release-notes/0.1.0-preview.1' },
-          { text: 'Study Guide', link: '/study-guide' },
           { text: 'Why ChokaQ?', link: '/why-chokaq' }
         ]
       },

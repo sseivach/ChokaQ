@@ -148,6 +148,27 @@
       line-height: 1.35;
     }
 
+    .action__details {
+      display: grid;
+      gap: 6px;
+      margin: 4px 0 2px;
+    }
+
+    .action__detail {
+      background: #f3f6fa;
+      border: 1px solid #e5eaf1;
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      padding: 8px;
+    }
+
+    .action__detail b {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
     .tiles {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -253,6 +274,10 @@
           <div class="action">
             <strong>Mixed load</strong>
             <span>Enqueues email, report, webhook, payment, slow, throttled, and delayed jobs across three queues.</span>
+            <div class="action__details">
+              <div class="action__detail"><b>Creates:</b> a realistic blend of critical, reports, and unstable queue traffic.</div>
+              <div class="action__detail"><b>Watch:</b> pending, buffered, processing, throughput, queue lag, and live rows in The Deck.</div>
+            </div>
             <div class="controls">
               <input id="count" class="count" type="number" min="1" max="250" value="25">
               <button class="primary" onclick="post('/api/lab/scenarios/mix?count=' + value('count'))">Run</button>
@@ -261,16 +286,28 @@
           <div class="action">
             <strong>Idempotency</strong>
             <span>Sends five payment jobs with one business key. Active duplicates should collapse in SQL Hot.</span>
+            <div class="action__details">
+              <div class="action__detail"><b>Creates:</b> five payment requests for one logical operation.</div>
+              <div class="action__detail"><b>Watch:</b> duplicate admission behavior and one active operation instead of five independent payments.</div>
+            </div>
             <button class="primary" onclick="post('/api/lab/scenarios/idempotency')">Run</button>
           </div>
           <div class="action">
             <strong>Failure matrix</strong>
             <span>Creates fatal DLQ, transient retry, retry-after throttling, and timeout traffic.</span>
+            <div class="action__details">
+              <div class="action__detail"><b>Creates:</b> poison payload, transient webhook, throttled partner, and slow timeout work.</div>
+              <div class="action__detail"><b>Watch:</b> retries, DLQ rows, failure reasons, top errors, and timeout/throttling signals.</div>
+            </div>
             <button class="danger" onclick="post('/api/lab/scenarios/failures')">Run</button>
           </div>
           <div class="action">
             <strong>Delayed enqueue</strong>
             <span>Schedules jobs into the future so queue lag and delayed eligibility are visible.</span>
+            <div class="action__details">
+              <div class="action__detail"><b>Creates:</b> future-due email and report jobs.</div>
+              <div class="action__detail"><b>Watch:</b> jobs stored immediately, then becoming eligible later without being lost.</div>
+            </div>
             <button class="secondary" onclick="post('/api/lab/scenarios/delayed')">Run</button>
           </div>
         </div>

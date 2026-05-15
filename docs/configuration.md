@@ -1,5 +1,12 @@
 # Runtime Configuration
 
+Configuration is where the host application describes operational policy.
+
+Code tells ChokaQ what jobs exist. Configuration tells ChokaQ how the runtime
+should behave in this environment: how long handlers may run, how retries back
+off, when health becomes degraded, which SQL schema to use, and how much metric
+cardinality is acceptable.
+
 ChokaQ is designed for future NuGet packaging, so production hosts should be able to keep operational policy in `appsettings.json`, environment variables, Key Vault-backed configuration, or any other `IConfiguration` provider.
 
 The code defaults are intentionally conservative. They make a local demo work without configuration, but every important timeout and retry policy can be made explicit by the host application.
@@ -8,6 +15,21 @@ Configuration does not change ChokaQ's delivery contract. ChokaQ provides
 at-least-once execution; it does not provide exactly-once external side effects.
 Review [Delivery Guarantees](/delivery-guarantees) before tuning production
 queues, retries, timeouts, or shutdown behavior.
+
+## How To Think About The Knobs
+
+Most settings answer one of five questions:
+
+| Question | Configuration area | Example |
+|---|---|---|
+| How long may user code run? | `Execution` | `DefaultTimeout` |
+| What happens after transient failure? | `Retry` | `BaseDelay`, `MaxAttempts`, `JitterMaxDelay` |
+| How do workers recover abandoned work? | `Recovery` | `FetchedJobTimeout`, `ProcessingZombieTimeout` |
+| When should monitoring complain? | `Health` | `QueueLagUnhealthyThreshold` |
+| How does SQL storage behave? | `SqlServer` | `SchemaName`, `CommandTimeoutSeconds`, `CleanupBatchSize` |
+
+Start with defaults for a local demo. For a real service, make the important
+values explicit and commit them with the host application configuration.
 
 ## Recommended Program.cs
 

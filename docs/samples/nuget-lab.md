@@ -180,9 +180,36 @@ Endpoint:
 POST /api/lab/scenarios/delayed
 ```
 
-This schedules jobs into the future. They are stored immediately but are not
-eligible to run until their scheduled time. This validates delayed enqueue and
-queue-lag behavior for future-due work.
+This schedules jobs into the future:
+
+| Job | Queue | Delay |
+|---|---|---|
+| Receipt email | `critical` | About 30 seconds |
+| Report render | `reports` | About 45 seconds |
+
+The important behavior is that these jobs are accepted and stored immediately,
+but workers must not run them immediately. ChokaQ writes them into SQL
+`JobsHot` with a future `ScheduledAtUtc`. Until that time arrives, the SQL fetch
+query treats the rows as not eligible.
+
+Think of it as "stored now, runnable later." It is not a process-local
+`Task.Delay`, and it is not a timer that disappears when the app restarts. The
+schedule is persisted with the job row. If the NuGetLab host restarts while the
+job is waiting, the job is still in SQL and can run after it becomes due.
+
+What to observe:
+
+1. Click `Delayed enqueue`.
+2. The API response says two jobs were enqueued.
+3. They should not immediately become `Processing`.
+4. After roughly 30 and 45 seconds, they become eligible.
+5. Workers then process them through the normal lifecycle:
+   `Pending -> Fetched -> Processing -> Succeeded`.
+
+In the current preview, The Deck does not yet have a dedicated `DELAYED` badge
+or `Scheduled For` column. That UI improvement is tracked separately. For now,
+the important validation is that future-due jobs are persisted, do not run early,
+and later enter the normal worker lifecycle.
 
 ## Runtime Controls
 

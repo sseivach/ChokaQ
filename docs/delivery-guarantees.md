@@ -32,6 +32,40 @@ external side effects are exactly-once.
 - In-memory mode is not durable. Accepted in-memory work is process-local and is
   lost when the process exits.
 
+## Delayed Execution
+
+A delayed job is work that ChokaQ has already accepted, stored, and promised to
+remember, but that workers are not allowed to run yet.
+
+This is different from putting `Task.Delay(...)` inside your application. With
+`Task.Delay`, the wait usually lives inside one process. If that process exits,
+the timer disappears with it. In SQL Server mode, ChokaQ stores the job in
+`JobsHot` with a future `ScheduledAtUtc` value. The schedule is data, not an
+in-memory timer.
+
+The durable flow is:
+
+1. Your application calls `EnqueueAsync(..., delay: someTimeSpan)`.
+2. ChokaQ writes the job to SQL Server immediately.
+3. The row stays in `JobsHot` with `ScheduledAtUtc` set to a future UTC time.
+4. Workers skip that row while `ScheduledAtUtc` is still in the future.
+5. When the scheduled time arrives, the same normal worker fetch path can claim
+   the job and process it.
+
+The important part is that the delayed job already exists before it is eligible.
+If the host restarts during the waiting period, the job is still in SQL. If one
+worker dies before the scheduled time, another worker can pick it up later.
+
+Delayed execution is also the same basic idea used for retries. A transient
+failure does not need a sleeping thread. ChokaQ keeps the job in `JobsHot`,
+calculates the next due time, stores that time, and lets workers ignore the job
+until it is due.
+
+Queue lag intentionally ignores future-due work until it becomes eligible. A job
+scheduled for 30 seconds from now should not make a queue look unhealthy just
+because it has been stored for 29 seconds. Once it is due, lag is measured from
+the due time, because that is when the job became actionable.
+
 ## Handler Idempotency Checklist
 
 Treat every handler that performs external side effects as idempotent work.

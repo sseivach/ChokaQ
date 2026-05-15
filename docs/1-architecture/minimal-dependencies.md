@@ -8,7 +8,7 @@ custom telemetry/exporter stack just to run background jobs.
 
 Core stays on Microsoft.Extensions abstractions. SQL Server storage uses
 `Microsoft.Data.SqlClient`, the official ADO.NET driver. Everything else is
-owned by ChokaQ so the behavior is explicit, inspectable, and teachable.
+owned by ChokaQ so the behavior is explicit and inspectable.
 
 ## The Dependency Tax
 

@@ -9,9 +9,9 @@
 
 **ChokaQ** is a .NET 10 background job processor for SQL Server-centric systems where reliability, observability, and a minimal dependency footprint matter. It bridges the gap between simple in-memory channels and heavy job frameworks by combining durable SQL storage, atomic state transitions, worker ownership, The Deck dashboard, and detailed architecture documentation.
 
-ChokaQ is also becoming a learning project: the codebase and docs are intended to explain production patterns such as backpressure, circuit breakers, bulkheads, leases, idempotency, zombie recovery, and observability in the context of one working system.
-
-Use the docs site as both product documentation and a study map. The [Architecture Study Guide](docs/study-guide.md) explains how each production pattern should be read, tested, operated, and discussed in senior/staff architecture interviews.
+The docs explain both setup and runtime behavior: backpressure, circuit breakers,
+bulkheads, leases, idempotency, zombie recovery, and observability are documented
+as practical parts of operating the system.
 
 If you are evaluating ChokaQ operationally, start with the [SLOs And Alerts](docs/5-operations/slo-alerts.md) and [Operations Runbooks](docs/5-operations/runbooks.md). Those pages explain what queue lag, DLQ rate, worker health, throttling, timeouts, and state-transition conflicts mean in practice, plus the safe first actions when something goes wrong.
 

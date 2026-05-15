@@ -4,86 +4,109 @@ layout: home
 hero:
   name: "ChokaQ"
   text: ".NET 10 Background Job Engine"
-  tagline: "A production-preview .NET 10 job engine for SQL-backed reliability, real-time operations, and explicit concurrency control without the infrastructure weight of external brokers."
+  tagline: "A SQL-backed background job engine with typed jobs, retries, queue isolation, health checks, and The Deck dashboard."
   actions:
     - theme: brand
-      text: Get Started →
-      link: /getting-started
+      text: Start Here
+      link: /overview
     - theme: alt
-      text: Why ChokaQ?
-      link: /why-chokaq
+      text: Run A Sample
+      link: /samples/docker-compose
   image:
     src: /logo.png
     alt: ChokaQ Logo
 
 features:
-  - icon: 🏛️
-    title: Three Pillars Architecture
-    details: Physical data separation into Hot, Archive, and DLQ tables. Active-work indexes stay small while history and failed jobs get their own read paths.
+  - icon: storage
+    title: Durable SQL Storage
+    details: Accepted work is stored in JobsHot. Finished work moves to Archive, and failed work moves to DLQ for operator review.
     link: /1-architecture/three-pillars
-  - icon: ⚡
-    title: Compiled Handler Dispatch
-    details: Handlers are invoked through cached compiled delegates, which keeps dispatch overhead low without asking user code to manage reflection plumbing.
-    link: /3-deep-dives/expression-trees
-  - icon: 🧠
-    title: Smart Worker (Fast-Fail)
-    details: "Fatal exceptions (NullRef, ArgumentEx) bypass retry policies and go straight to the DLQ. No more burning resources on code bugs."
-    link: /1-architecture/smart-worker
-  - icon: 🔒
-    title: SQL Concurrency (UPDLOCK + READPAST)
-    details: Competing consumers claim work with SQL locking hints and ownership guards, reducing lock contention and preventing duplicate claims.
-    link: /3-deep-dives/sql-concurrency
-  - icon: 🛡️
-    title: Bulkhead Isolation
-    details: Per-queue MaxWorkers enforced at database level. Heavy workloads can be isolated from lightweight queues so one workload does not consume all execution capacity.
-    link: /2-lifecycle/bulkhead-isolation
-  - icon: 🔧
-    title: Minimal Dependencies
-    details: "No EF Core, no Dapper, no Polly. ChokaQ keeps infrastructure code explicit and relies on the official Microsoft SQL client for SQL Server access."
-    link: /1-architecture/minimal-dependencies
-  - icon: 📚
-    title: Architecture Study Guide
-    details: The docs are growing into a practical architecture guide that explains backpressure, circuit breakers, bulkheads, retries, leases, and observability using this codebase.
-    link: /study-guide
-  - icon: docs
-    title: Operations Runbooks
-    details: SLOs, alerts, queue-lag triage, DLQ recovery guidance, worker-health checks, and safe bulk-recovery procedures for people operating the system.
-    link: /5-operations/runbooks
+  - icon: code
+    title: Typed Jobs
+    details: Define a DTO, write a handler, register a type key, and enqueue work through IChokaQQueue.
+    link: /job-contracts
+  - icon: shield
+    title: At-Least-Once Execution
+    details: ChokaQ can preserve and retry work, but handlers that touch external systems still need idempotency.
+    link: /delivery-guarantees
+  - icon: dashboard
+    title: The Deck
+    details: A real-time dashboard for active jobs, queues, DLQ, health, worker controls, and recovery workflows.
+    link: /4-the-deck/realtime-signalr
+  - icon: settings
+    title: Runtime Policy
+    details: Timeouts, retries, queue limits, health thresholds, SQL settings, and metrics caps live in configuration.
+    link: /configuration
+  - icon: book
+    title: Detailed Documentation
+    details: The docs explain setup, runtime behavior, delivery guarantees, operator workflows, and the architecture behind durable processing.
+    link: /overview
 ---
 
-<br>
+## What ChokaQ Is
 
-## Delivery Guarantees
+ChokaQ is a background job engine for .NET applications.
 
-ChokaQ provides at-least-once execution. It does not provide exactly-once
-external side effects, and in-memory mode is process-local rather than durable.
-Read [Delivery Guarantees](/delivery-guarantees) before using ChokaQ for
-side-effecting jobs.
+In normal request/response code, the user waits while your app does everything.
+That is fine for quick work. It is not fine for slow or unreliable work like
+sending email, rendering reports, calling partner APIs, charging payments, or
+processing webhooks.
 
-<br>
+ChokaQ lets the request say: "store this work, run it in the background, and
+make its state visible."
 
-## The Architecture at a Glance
+The core idea is simple:
 
-<img src="/architecture.png" alt="ChokaQ Three Pillars Architecture" style="width: 100%; max-width: 960px; margin: 0 auto; display: block;" />
+1. Your application enqueues a job.
+2. ChokaQ stores the job.
+3. A worker claims the job.
+4. Your handler runs.
+5. ChokaQ records the final state.
+6. Operators can inspect what happened in The Deck.
 
-<br>
+## The Mental Model
 
-### How Data Flows Through the System
+Think about ChokaQ as three cooperating parts:
 
-| Step | What Happens | Key Technology |
-|------|-------------|---------------|
-| **1. Enqueue** | API submits a job → inserted into **JobsHot** table | Idempotency keys, priority, delayed scheduling |
-| **2. Fetch** | Worker atomically locks a batch of pending jobs | `UPDLOCK, READPAST` (SQL) or `Channel<T>` (RAM) |
-| **3a. Success** | Job completes → atomically moved to **JobsArchive** | Transactional state transition with ownership guards |
-| **3b. Failure** | Fatal error or max retries → moved to **JobsDLQ** | Smart Worker classification, Circuit Breaker |
-| **3c. Retry** | Transient error → stays in Hot with delayed visibility | Exponential backoff + jitter |
+| Part | Plain explanation | Why it matters |
+|---|---|---|
+| Job storage | The durable notebook of accepted work. | Jobs can survive process restarts in SQL Server mode. |
+| Workers | The background runners that claim and execute jobs. | Work happens outside the request path. |
+| The Deck | The operator window into the system. | People can see lag, failures, queues, retries, and DLQ rows. |
 
-<br>
+The most important table is `JobsHot`. It contains active work: jobs waiting to
+run, jobs fetched by a worker, and jobs currently processing. Finished jobs move
+out of Hot so the active-work table stays small.
 
-::: tip 💡 Self-Healing
-The **ZombieRescueService** periodically scans for jobs stuck in `Fetched` or `Processing` with expired leases or heartbeats. Abandoned fetched jobs can return to Pending; processing zombies move to DLQ for operator review.
+## What To Read First
+
+If you are new to ChokaQ, start with [Overview](/overview). It explains the
+system in small steps.
+
+If you want to run code immediately, start with
+[Getting Started](/getting-started) or the [Docker Compose Sample](/samples/docker-compose).
+
+If you are evaluating reliability, read [Delivery Guarantees](/delivery-guarantees)
+before writing a handler that sends email, charges money, or calls another
+system.
+
+If you want to understand the architecture, read
+[Three Pillars](/1-architecture/three-pillars), [State Machine](/2-lifecycle/state-machine),
+and [SQL Concurrency](/3-deep-dives/sql-concurrency).
+
+## Data Flow
+
+| Step | What happens | Human meaning |
+|---|---|---|
+| Enqueue | A job is inserted into `JobsHot`. | The system accepted the work. |
+| Fetch | A worker claims eligible work with SQL locking. | One worker owns the job now. |
+| Processing | The handler runs user code. | Your business operation is happening. |
+| Success | The row moves to Archive. | The job finished normally. |
+| Retry | The row stays in Hot with a future schedule. | Try again later without sleeping a thread. |
+| DLQ | The row moves to Dead Letter Queue. | A human or repair workflow should inspect it. |
+
+::: tip Start Small
+Run the sample first, then read the docs while looking at The Deck. The UI makes
+the architecture easier to understand because you can see jobs move between
+states instead of only reading about them.
 :::
-
-<br>
-
-> *Ready to dive in? Start with the [Three Pillars Architecture](/1-architecture/three-pillars), run the [Docker Compose Sample](/samples/docker-compose), validate the [Local NuGet Lab](/samples/nuget-lab), or use the [Operations Runbooks](/5-operations/runbooks) when you want to understand how ChokaQ behaves under pressure.*

@@ -1,6 +1,11 @@
 # Job Contracts
 
-This page defines the shape of typed ChokaQ jobs.
+This page explains how to design typed ChokaQ jobs.
+
+In plain language, a job contract is the message you put into the background
+system. It should contain the data needed to perform the work later. It should
+not contain live services, database contexts, HTTP request objects, or anything
+that only makes sense inside the current request.
 
 A typed job is the message contract that ChokaQ serializes, stores, retries,
 shows in The Deck, and passes to your handler. In code terms, it is any DTO that
@@ -15,6 +20,32 @@ public interface IChokaQJob
 
 The `Id` identifies one physical job instance. ChokaQ uses it for tracking,
 logging, state transitions, retries, archive/DLQ rows, and dashboard links.
+
+## Beginner Rule
+
+Put facts in the job, not behavior.
+
+Good job fields:
+
+- `OrderId`
+- `UserId`
+- `Email`
+- `WebhookUrl`
+- `ReportDate`
+- `PaymentAttemptId`
+
+Bad job fields:
+
+- `DbContext`
+- `HttpContext`
+- service clients
+- open streams
+- delegates or lambdas
+- request cancellation tokens
+
+The handler can load fresh state from your database when it runs. That is safer
+than serializing a large object graph that may be stale by the time the job is
+processed.
 
 ## Two Supported Shapes
 
