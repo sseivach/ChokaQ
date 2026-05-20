@@ -37,15 +37,18 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Install docs dependencies
-        run: npm install --prefix docs
+        working-directory: docs
+        run: npm install
 
       - name: Validate docs
-        run: npm --prefix docs run docs:validate
+        working-directory: docs
+        run: npm run docs:validate
 
       - name: Build docs
+        working-directory: docs
         env:
           VITEPRESS_BASE: /ChokaQ/
-        run: npm --prefix docs run docs:build
+        run: npm run docs:build
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
