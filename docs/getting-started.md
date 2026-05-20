@@ -51,17 +51,23 @@ http://localhost:5299/health
 
 The full walkthrough is in [Docker Compose Sample](/samples/docker-compose).
 
-## Project References
+## Package Reference
 
-Since ChokaQ is currently in active development, integrate it by referencing the source projects:
+The consumer install target is the top-level `ChokaQ` package. It brings in the
+runtime subpackages (`ChokaQ.Core`, `ChokaQ.Storage.SqlServer`,
+`ChokaQ.TheDeck`, and `ChokaQ.Abstractions`) transitively so application hosts
+do not need to reference each internal package one by one.
 
 ```xml
 <ItemGroup>
-    <ProjectReference Include="..\src\ChokaQ.Core\ChokaQ.Core.csproj" />
-    <ProjectReference Include="..\src\ChokaQ.Storage.SqlServer\ChokaQ.Storage.SqlServer.csproj" />
-    <ProjectReference Include="..\src\ChokaQ.TheDeck\ChokaQ.TheDeck.csproj" />
+    <PackageReference Include="ChokaQ" Version="0.1.0-preview.1" />
 </ItemGroup>
 ```
+
+ChokaQ is not published to nuget.org yet. For local package validation, use
+`samples/ChokaQ.Sample.NuGetLab`; its `NuGet.config` restores `ChokaQ` from
+`artifacts/packages`. For source development inside this repository, the Bus
+and Pipe samples still use project references.
 
 ## Minimal Setup (Bus Mode + SQL Server)
 

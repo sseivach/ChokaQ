@@ -5,7 +5,7 @@
 ![Blazor](https://img.shields.io/badge/UI-Blazor%20Server-purple)
 ![Status](https://img.shields.io/badge/status-Active%20Development-orange)
 
-**Current Status:** Active development / production-preview hardening. ChokaQ is not published as a NuGet package yet; use source references or the Docker Compose sample while the API and The Deck continue to evolve.
+**Current Status:** Active development / production-preview hardening. ChokaQ is not published to nuget.org yet. The consumer install target is the top-level `ChokaQ` package; local package validation uses `artifacts/packages` and `samples/ChokaQ.Sample.NuGetLab` while the API and The Deck continue to evolve.
 
 **ChokaQ** is a .NET 10 background job processor for SQL Server-centric systems where reliability, observability, and a minimal dependency footprint matter. It bridges the gap between simple in-memory channels and heavy job frameworks by combining durable SQL storage, atomic state transitions, worker ownership, The Deck dashboard, and detailed architecture documentation.
 
@@ -282,9 +282,11 @@ builder.Services.AddChokaQTheDeck(options =>
 
 ---
 
-## Quick Start (Source Integration)
+## Quick Start
 
-Since ChokaQ is currently in development, integrate it by referencing the source projects directly.
+For package consumers, install the top-level `ChokaQ` package. It pulls the
+runtime subpackages (`ChokaQ.Core`, `ChokaQ.Storage.SqlServer`,
+`ChokaQ.TheDeck`, and `ChokaQ.Abstractions`) transitively.
 
 ### Docker Compose Sample
 
@@ -310,17 +312,20 @@ See [Local NuGet Lab](docs/samples/nuget-lab.md) or
 `samples/ChokaQ.Sample.NuGetLab/README.md` for the local pack and run commands.
 This is still local validation only; ChokaQ is not published to nuget.org yet.
 
-### 1. Project References
+### 1. Package Reference
 
-Add references to the core libraries in your ASP.NET Core `.csproj` file:
+Add the top-level package to your ASP.NET Core `.csproj` file:
 
 ```xml
 <ItemGroup>
-    <ProjectReference Include="..\src\ChokaQ.Core\ChokaQ.Core.csproj" />
-    <ProjectReference Include="..\src\ChokaQ.Storage.SqlServer\ChokaQ.Storage.SqlServer.csproj" />
-    <ProjectReference Include="..\src\ChokaQ.TheDeck\ChokaQ.TheDeck.csproj" />
+    <PackageReference Include="ChokaQ" Version="0.1.0-preview.1" />
 </ItemGroup>
 ```
+
+For source development inside this repository, the Bus and Pipe samples still
+use project references. For local package validation before publication, use
+`samples/ChokaQ.Sample.NuGetLab`, which restores `ChokaQ` from
+`artifacts/packages`.
 
 ### 2. Configuration
 

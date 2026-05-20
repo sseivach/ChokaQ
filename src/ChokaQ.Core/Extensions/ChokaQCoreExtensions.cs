@@ -54,10 +54,13 @@ public static class ChokaQCoreExtensions
     /// });
     /// </code>
     /// 
-    /// For SQL Server persistence, chain with AddChokaQSqlServer():
+    /// For SQL Server persistence, register ChokaQ first and then call UseSqlServer():
     /// <code>
-    /// services.AddChokaQ(options => options.AddProfile&lt;MyProfile&gt;())
-    ///         .AddChokaQSqlServer(connectionString);
+    /// services.AddChokaQ(options => options.AddProfile&lt;MyProfile&gt;());
+    /// services.UseSqlServer(options =>
+    /// {
+    ///     options.ConnectionString = connectionString;
+    /// });
     /// </code>
     /// </remarks>
     public static IServiceCollection AddChokaQ(this IServiceCollection services, Action<ChokaQOptions>? configure = null)
