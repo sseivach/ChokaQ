@@ -1,5 +1,9 @@
 # ChokaQ
 
+## Documentation Site
+
+**Read the full documentation:** [https://sseivach.github.io/ChokaQ/](https://sseivach.github.io/ChokaQ/)
+
 ![.NET 10](https://img.shields.io/badge/.NET-10.0%20-blue)
 ![License](https://img.shields.io/badge/License-Apache_2.0-green)
 ![Blazor](https://img.shields.io/badge/UI-Blazor%20Server-purple)
@@ -13,9 +17,9 @@ The docs explain both setup and runtime behavior: backpressure, circuit breakers
 bulkheads, leases, idempotency, zombie recovery, and observability are documented
 as practical parts of operating the system.
 
-If you are evaluating ChokaQ operationally, start with the [SLOs And Alerts](docs/5-operations/slo-alerts.md) and [Operations Runbooks](docs/5-operations/runbooks.md). Those pages explain what queue lag, DLQ rate, worker health, throttling, timeouts, and state-transition conflicts mean in practice, plus the safe first actions when something goes wrong.
+If you are evaluating ChokaQ operationally, start with the [SLOs And Alerts](https://sseivach.github.io/ChokaQ/5-operations/slo-alerts) and [Operations Runbooks](https://sseivach.github.io/ChokaQ/5-operations/runbooks). Those pages explain what queue lag, DLQ rate, worker health, throttling, timeouts, and state-transition conflicts mean in practice, plus the safe first actions when something goes wrong.
 
-Before using ChokaQ for side-effecting work, read the [Delivery Guarantees](docs/delivery-guarantees.md). The short version: ChokaQ provides at-least-once execution. It does not provide exactly-once external side effects, so handlers that send email, charge cards, call APIs, or update other systems must be idempotent.
+Before using ChokaQ for side-effecting work, read the [Delivery Guarantees](https://sseivach.github.io/ChokaQ/delivery-guarantees). The short version: ChokaQ provides at-least-once execution. It does not provide exactly-once external side effects, so handlers that send email, charge cards, call APIs, or update other systems must be idempotent.
 
 ![ChokaQ Dashboard](scr1.jpg)
 ![ChokaQ Dashboard - Ops Panel](scr2.jpg)
@@ -50,9 +54,9 @@ At-least-once still means a handler may run more than once. A worker can crash o
 
 In-memory mode is process-local and non-durable. Its bounded channel is the volatile execution notification source, and Hot rows are control/audit rows used to reject stale channel items. Orphaned Hot rows can remain after a process crash and are not recovered across restart. Use it for demos, tests, local development, or volatile workloads where losing process-local work is acceptable. Use SQL Server mode for restart-safe production work.
 
-See [Delivery Guarantees](docs/delivery-guarantees.md) for the full contract, including timeout, cancellation, shutdown, type-key, and payload compatibility guidance.
+See [Delivery Guarantees](https://sseivach.github.io/ChokaQ/delivery-guarantees) for the full contract, including timeout, cancellation, shutdown, type-key, and payload compatibility guidance.
 
-For operational readiness, start with the [Operations Runbooks](docs/5-operations/runbooks.md) and [SLOs And Alerts](docs/5-operations/slo-alerts.md). They describe the signals and response paths that matter when ChokaQ is running real workloads.
+For operational readiness, start with the [Operations Runbooks](https://sseivach.github.io/ChokaQ/5-operations/runbooks) and [SLOs And Alerts](https://sseivach.github.io/ChokaQ/5-operations/slo-alerts). They describe the signals and response paths that matter when ChokaQ is running real workloads.
 
 ---
 
@@ -149,7 +153,7 @@ app.MapHealthChecks("/health");
 
 The SQL integration registers three checks: `chokaq_sql` for storage reachability and schema readiness, `chokaq_worker` for hosted-worker liveness, and `chokaq_queue_saturation` for pending queue lag. The queue check maps lag into Healthy/Degraded/Unhealthy using `ChokaQ:Health` thresholds, so operators can tune readiness sensitivity per environment.
 
-For alert design and incident response, see [SLOs And Alerts](docs/5-operations/slo-alerts.md) and [Operations Runbooks](docs/5-operations/runbooks.md).
+For alert design and incident response, see [SLOs And Alerts](https://sseivach.github.io/ChokaQ/5-operations/slo-alerts) and [Operations Runbooks](https://sseivach.github.io/ChokaQ/5-operations/runbooks).
 
 ### Structured Log Events
 ChokaQ uses stable `EventId` values for lifecycle logs so operators can build SIEM queries, alerts, and runbooks without parsing free-form text.
@@ -298,7 +302,8 @@ docker compose up --build
 
 Open `http://localhost:5299` for the launcher, `http://localhost:5299/chokaq`
 for The Deck, and `http://localhost:5299/health` for health checks. See
-`docs/samples/docker-compose.md` for details and reset commands.
+[Docker Compose Sample](https://sseivach.github.io/ChokaQ/samples/docker-compose)
+for details and reset commands.
 
 ### Local NuGet Lab
 
@@ -308,7 +313,7 @@ through source project references, and exercises SQL Server, The Deck, health
 checks, idempotency, retry/failure paths, delayed jobs, queue controls, and
 runtime worker scaling.
 
-See [Local NuGet Lab](docs/samples/nuget-lab.md) or
+See [Local NuGet Lab](https://sseivach.github.io/ChokaQ/samples/nuget-lab) or
 `samples/ChokaQ.Sample.NuGetLab/README.md` for the local pack and run commands.
 This is still local validation only; ChokaQ is not published to nuget.org yet.
 
@@ -485,9 +490,11 @@ app.Run();
 | `SqlServer.WorkerShutdownGracePeriod` | Maximum SQL worker wait for active processing tasks during shutdown. |
 | `SqlServer.PrefetchedJobReleaseTimeout` | Maximum time spent releasing one prefetched unstarted job during pause or shutdown. |
 
-See `docs/configuration.md` for the full runtime configuration reference and operational guidance.
+See the [Runtime Configuration](https://sseivach.github.io/ChokaQ/configuration)
+reference for the full runtime configuration and operational guidance.
 
-See `docs/3-deep-dives/backpressure-policy.md` for the SQL and in-memory backpressure model.
+See [Backpressure Policy](https://sseivach.github.io/ChokaQ/3-deep-dives/backpressure-policy)
+for the SQL and in-memory backpressure model.
 
 ### 3. Define a Job & Handler
 
@@ -518,8 +525,8 @@ Both shapes work with the same handler and profile registration. Use
 use `IChokaQJob` directly when your message contract needs ordinary class
 semantics, mutable setters, or custom ID generation.
 
-See `docs/job-contracts.md` for DTO shape, serialization, type-key, and
-idempotency guidance.
+See [Job Contracts](https://sseivach.github.io/ChokaQ/job-contracts) for DTO
+shape, serialization, type-key, and idempotency guidance.
 
 ```csharp
 // Job Handler
