@@ -1,11 +1,14 @@
 import { defineConfig } from 'vitepress'
 
+const base = process.env.VITEPRESS_BASE ?? '/'
+
 export default defineConfig({
   title: "ChokaQ",
   description: "SQL-backed background job engine with full architecture documentation for .NET 10",
+  base,
   
   head: [
-    ['link', { rel: 'icon', href: '/logo.png' }],
+    ['link', { rel: 'icon', href: `${base}logo.png` }],
     ['meta', { name: 'theme-color', content: '#4589ff' }],
     ['meta', { property: 'og:title', content: 'ChokaQ - .NET 10 Background Job Engine' }],
     ['meta', { property: 'og:description', content: 'SQL-backed background job processor with The Deck dashboard and architecture documentation for production patterns.' }],
