@@ -51,7 +51,7 @@ private static bool IsFatalException(Exception ex)
 
 ### The Decision Tree
 
-<img src="/smart_worker.png" alt="Smart Worker Decision Tree" style="width: 100%; max-width: 900px; margin: 1.5rem auto; display: block;" />
+![Smart worker classification](/diagrams/39-smart-worker-classification.png)
 
 ## Exponential Backoff with Jitter
 
@@ -157,6 +157,41 @@ shutdown should not leave all probe slots consumed forever.
 ::: tip 💡 Architecture Insight
 The Smart Worker and Circuit Breaker act together. Smart Worker is **reactive** (classifies individual jobs after failure). Circuit Breaker is **preventive** (blocks the entire queue before execution). Together they provide both micro-level and macro-level fault tolerance.
 :::
+
+## Architecture Decision
+
+ChokaQ classifies failures before spending retry budget because not every
+exception deserves another execution attempt. Retrying `NullReferenceException`,
+invalid payload shape, or unsupported domain state only increases queue lag and
+hides the real bug behind noise. Fast-failing fatal errors into DLQ makes the
+problem visible and preserves worker capacity for jobs that can actually
+recover.
+
+The alternative is a uniform retry policy for every exception. That is simpler
+to explain, but operationally weaker: a bad deployment can create a retry storm,
+inflate database writes, and delay healthy queues. The chosen design accepts a
+classification responsibility in exchange for faster incident visibility and
+less wasted compute.
+
+Classification must stay conservative. If a failure might be transient, it
+should remain retryable unless the application explicitly marks it fatal with
+`ChokaQFatalException`.
+
+## Interview Questions
+
+**Why not let every failed job retry until max attempts?**  
+Because retry is a recovery tool, not a correctness tool. Fatal code and payload
+errors do not improve with time, so retrying them burns capacity and delays real
+transient recovery.
+
+**How do you avoid misclassifying domain-specific failures?**  
+The built-in list covers common programming and serialization failures. Domain
+handlers can throw `ChokaQFatalException` when the business case is known to be
+non-retryable.
+
+**How does this interact with circuit breakers?**  
+Smart Worker makes a per-job decision after a failure. Circuit breakers make a
+job-type or queue-level decision before execution when failures look systemic.
 
 <br>
 

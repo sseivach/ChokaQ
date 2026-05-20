@@ -19,6 +19,8 @@ Timeline:
 
 Without intervention, this job would sit in `Processing` status **indefinitely**, blocking the queue slot (in Bulkhead mode) and never completing.
 
+![Zombie rescue sweep](/diagrams/33-zombie-rescue-sweep.png)
+
 ## The ZombieRescueService
 
 A `BackgroundService` that runs on `ChokaQOptions.Recovery.ScanInterval` with two recovery phases:
@@ -172,4 +174,37 @@ When the ZombieRescueService detects zombies, it notifies The Deck via SignalR:
 
 <br>
 
-> *Now let's go deeper. See [SQL Concurrency (UPDLOCK)](/3-deep-dives/sql-concurrency) for the full breakdown of how 50 workers fetch without deadlocks.*
+> *Now let's go deeper. See [Heartbeat](/2-lifecycle/heartbeat) for the liveness contract and [SQL Concurrency (UPDLOCK)](/3-deep-dives/sql-concurrency) for the full breakdown of how 50 workers fetch without deadlocks.*
+
+## Architecture Decision
+
+Zombie rescue separates two failure states that look similar but have different
+safety implications. `Fetched` jobs were reserved by a worker but user code did
+not start, so they can safely return to Pending. `Processing` jobs may already
+have produced side effects, so ChokaQ moves them to DLQ instead of retrying them
+automatically.
+
+The alternative is automatic retry for every expired lease. That maximizes
+throughput recovery, but it can duplicate side effects after a process crash.
+ChokaQ chooses operator-visible safety over invisible retry because background
+jobs frequently interact with email, payments, files, and external APIs.
+
+The result is a conservative recovery model: untouched reservations are
+reclaimed automatically, while uncertain executions require inspection,
+idempotency confidence, and an explicit resurrect decision.
+
+## Interview Questions
+
+**Why are Fetched and Processing jobs handled differently?**  
+Fetched means the row is in a local prefetch buffer and user code has not run.
+Processing means the handler started and may have performed side effects.
+
+**Why not let heartbeat expiration retry the job immediately?**  
+Because heartbeat loss tells you the worker stopped reporting, not whether the
+business operation completed. Retrying blindly can duplicate external effects.
+
+**How should operators decide whether to resurrect a zombie?**  
+They should inspect the handler's idempotency guarantees, downstream state, and
+payload. If the operation is idempotent or externally confirmed as incomplete,
+resurrection is reasonable; otherwise keep it in DLQ or purge according to
+policy.

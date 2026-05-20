@@ -9,6 +9,8 @@ producer/consumer boundary is different. This page documents those answers so
 operators can tune the system deliberately instead of discovering pressure
 behavior during an incident.
 
+![Backpressure and adaptive throttling](/diagrams/23-backpressure-adaptive-throttling.png)
+
 ## Policy Summary
 
 | Mode | Producer boundary | Backlog location | Pressure behavior | Production fit |
@@ -117,5 +119,42 @@ first.
 For in-memory workloads, keep `InMemory.MaxCapacity` explicit and small enough
 for the host process. Remember that in-memory mode protects the process from
 unbounded local buffers, but it does not protect accepted work from process loss.
+
+## Architecture Decision
+
+ChokaQ deliberately separates durable backlog pressure from local execution
+pressure. SQL Server mode accepts work into `JobsHot` and lets the database be
+the source of truth for backlog, while workers use bounded prefetch and queue
+limits to avoid turning one process into an unbounded second queue.
+
+The alternative would be producer-side rejection when workers are behind. That
+can be useful for request throttling, but it is a poor default for background
+jobs because the caller often expects accepted work to survive restarts and
+temporary worker shortages. ChokaQ therefore treats enqueue success as durable
+acceptance and exposes queue lag, SQL latency, and worker health as the pressure
+signals operators should act on.
+
+The trade-off is explicit: the system protects accepted jobs, but it does not
+magically protect the database from an unlimited producer. Production systems
+still need API rate limits, capacity planning, alerting, and queue-specific
+worker limits.
+
+## Interview Questions
+
+**Why not use an unbounded channel between fetch and processing?**  
+Because an unbounded channel hides pressure until memory becomes the failure
+mode. A bounded channel makes the fetch loop stop claiming more rows when local
+processors cannot keep up.
+
+**Why does SQL mode not block producers when workers are saturated?**  
+Because SQL mode uses `JobsHot` as the durable backlog. Once a row commits, the
+job is accepted and restart-safe. Saturation is handled operationally through
+lag, scaling, pausing, bulkheads, and producer rate limits.
+
+**When should a team not use this model?**  
+If a workload requires synchronous admission control with strict immediate
+rejection under pressure, put a rate limiter or quota check before enqueue.
+ChokaQ's queue is the durable execution boundary, not the only traffic-control
+mechanism in the application.
 
 > Next: Review the [In-Memory Engine](/3-deep-dives/memory-management) details or the [SQL Concurrency](/3-deep-dives/sql-concurrency) fetch path.

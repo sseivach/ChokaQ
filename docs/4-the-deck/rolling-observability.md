@@ -8,6 +8,8 @@ during the same transaction that moves a job to Archive or DLQ. That design
 keeps dashboard reads bounded and avoids scanning growing history tables on
 every refresh.
 
+![Rolling observability buckets](/diagrams/38-rolling-observability-buckets.png)
+
 ## Version 1: Bounded History Lookback
 
 The first implementation answered recent throughput and failure rate directly
@@ -142,3 +144,36 @@ ChokaQ now uses three different read models for three different questions:
 
 That separation is the real architectural improvement. Each table now has a job,
 and the dashboard no longer asks one table to answer every operational question.
+
+## Architecture Decision
+
+ChokaQ keeps rolling observability separate from lifecycle history because the
+questions are different. Archive and DLQ tables answer "what happened to this
+job?" Metrics buckets answer "what is the system doing right now?" Combining
+those concerns forces dashboard refreshes to scan tables whose main purpose is
+audit and investigation.
+
+The chosen design writes a tiny aggregate event at the same point where the job
+reaches a terminal state. That preserves the outcome even if an operator later
+resurrects or purges a DLQ row. Recent failure rate remains a fact about recent
+execution, not a side effect of current DLQ contents.
+
+The trade-off is an additional write during finalization. ChokaQ accepts that
+because finalization is already a transactional boundary, and bounded dashboard
+reads are more important than avoiding one small aggregate update.
+
+## Interview Questions
+
+**Why not compute dashboard rates directly from Archive and DLQ forever?**  
+Because those tables grow with retention and operator workflows. Requeue and
+purge can also change their contents after the failure event happened.
+
+**Why are buckets written in the terminal-state transaction?**  
+So lifecycle state and operational metrics cannot disagree because of a partial
+write. If the job reached Archive or DLQ, the corresponding rolling outcome is
+recorded with it.
+
+**What would you change at very high scale?**  
+Potential next steps are coarser bucket partitions, asynchronous metrics export,
+or database-specific upsert tuning. The current design keeps the first
+production model simple and query-bounded.

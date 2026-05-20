@@ -1,5 +1,7 @@
 # Idempotent Handler Checklist
 
+![Idempotency key flow](/diagrams/34-idempotency-key-flow.png)
+
 ChokaQ provides at-least-once execution. A handler can run more than once if a
 worker crashes after user code produces a side effect but before finalization is
 stored. Make every side-effecting handler idempotent.
@@ -36,3 +38,35 @@ Relevant metrics:
 
 Investigate `complete_conflict`: it means handler execution finished, but the
 completion marker could not be stored for that key/job pair.
+
+## Architecture Decision
+
+### Why this pattern?
+
+At-least-once execution is honest but pushes duplicate side-effect safety to the
+business boundary. Idempotent handlers are the application-level answer.
+
+### Trade-offs
+
+Idempotency adds data modeling and retention decisions. The cost is necessary
+for payments, email, webhooks, and external writes.
+
+### Alternatives considered
+
+| Alternative | Benefit | Cost |
+|---|---|---|
+| Trust queue exactly-once | Simple. | False assumption for real crashes. |
+| Disable retries | Avoids retry duplicates. | Loses resilience and still does not solve crash windows. |
+| Provider idempotency only | Strong where available. | Not every dependency supports it. |
+
+### Interview questions
+
+**Why is handler idempotency required?**  
+Because a job can execute more than once after crash/recovery.
+
+**What is the hardest duplicate window?**  
+External side effect succeeds, then the process crashes before ChokaQ archives
+the job.
+
+**What should payment jobs use?**  
+A provider-supported idempotency key tied to the business payment attempt.

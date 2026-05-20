@@ -21,6 +21,8 @@ In most frameworks, your options are:
 
 The Deck provides **in-browser editing** of DLQ job data and one-click resurrection.
 
+![DLQ edit and resurrect](/diagrams/30-dlq-edit-resurrect.png)
+
 ### The Workflow
 
 ```
@@ -205,5 +207,39 @@ When a job is resurrected, its `AttemptCount` is reset to 0 because the root cau
 | Zombie from server restart | Resurrect if idempotent, Purge if not |
 | Cancelled by mistake | Resurrect with original data |
 | Old archive cleanup | `PurgeArchiveAsync(olderThan: 90 days)` |
+
+## Architecture Decision
+
+Edit and resurrect exists because production failures are not always fixed by
+restarting workers. Sometimes the handler is correct and the payload is wrong;
+sometimes a dependency outage is over and dead work needs a controlled second
+chance. Making operators write ad hoc SQL for that workflow is both risky and
+hard to audit.
+
+ChokaQ therefore makes resurrection a first-class storage operation. It moves a
+DLQ row back into Hot under one database operation, resets retry state, records
+who made the change, and lets the normal worker path process the job again.
+This keeps recovery inside the same lifecycle model instead of creating a
+parallel manual re-enqueue path.
+
+The trade-off is power. Editing payloads is a dangerous capability and should be
+protected by authorization, audit logging, and operational discipline. The Deck
+should make the workflow easy, but not casual.
+
+## Interview Questions
+
+**Why reset `AttemptCount` during resurrection?**  
+Resurrection implies an operator changed the conditions: payload fixed, code
+deployed, or dependency recovered. A fresh retry budget lets the normal policy
+evaluate the repaired job.
+
+**Why not update the DLQ row in place and process it from DLQ?**  
+Because DLQ is a terminal inspection table. Moving the row back to Hot restores
+the standard execution path: fetch, processing, heartbeat, retry, archive, and
+metrics.
+
+**What prevents unsafe editing of in-flight jobs?**  
+Hot edits are limited to Pending jobs. Fetched and Processing jobs are owned by
+workers, so editing them would corrupt an active execution.
 
 > *That's the complete ChokaQ documentation. Start from the [beginning](/getting-started) or explore the [Architecture](/1-architecture/three-pillars).*

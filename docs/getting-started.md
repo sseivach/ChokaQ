@@ -415,6 +415,17 @@ worker liveness, and queue saturation.
 | [Overview](/overview) | The short model of the product and architecture |
 | [Why ChokaQ?](/why-chokaq) | The core philosophy and architectural benefits |
 | [Delivery Guarantees](/delivery-guarantees) | What ChokaQ promises and what your handlers must handle |
+| [Package Topology](/1-architecture/package-topology) | Why installing `ChokaQ` pulls the runtime subpackages |
+| [Bus Vs Pipe Dispatch](/1-architecture/bus-vs-pipe) | How typed jobs and raw pipe events differ |
+| [Queue Registry And Profiles](/1-architecture/queue-registry-and-profiles) | How profiles, type keys, handlers, and queues relate |
 | [Three Pillars](/1-architecture/three-pillars) | Why we physically separate Hot, Archive, and DLQ |
+| [SQL Schema Atlas](/3-deep-dives/sql-schema-atlas) | What each SQL table and index is for |
+| [SQL Query Reference](/3-deep-dives/sql-query-reference) | How the important runtime queries claim, move, recover, and observe jobs |
+| [Transaction Integrity](/3-deep-dives/transaction-integrity) | Why lifecycle moves are atomic but external side effects still need idempotency |
+| [Prefetching](/3-deep-dives/prefetching) | How SQL fetching is decoupled from handler execution |
+| [Serialization And Envelope Limits](/3-deep-dives/serialization-and-envelope-limits) | How payloads, type keys, tags, and size limits are enforced |
+| [Middleware Pipeline](/3-deep-dives/middleware-pipeline) | What middleware can and cannot own |
 | [State Machine](/2-lifecycle/state-machine) | The full lifecycle of a job from Pending to Archive |
+| [Retry And DLQ](/2-lifecycle/retry-and-dlq) | How retries, terminal failures, and resurrection work |
+| [Production Readiness](/5-operations/production-readiness-checklist) | The rollout checklist for production use |
 | [The Deck](/4-the-deck/realtime-signalr) | Real-time admin dashboard with SignalR |

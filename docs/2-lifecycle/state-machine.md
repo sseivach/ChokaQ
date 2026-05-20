@@ -22,7 +22,7 @@ Statuses 3–6 are **virtual** in SQL Server mode. The job doesn't actually have
 
 ## The Full Lifecycle
 
-<img src="/state_machine.png" alt="Job State Machine" style="width: 100%; max-width: 900px; margin: 1.5rem auto; display: block;" />
+![Job state machine](/diagrams/11-job-state-machine-full.png)
 
 ## Phase 1: Enqueue
 
@@ -191,6 +191,9 @@ _metrics.RecordFailure(job.Queue, job.Type, ex.GetType().Name);
 The job is atomically moved to `JobsDLQ` with full exception details stored in `ErrorDetails`.
 
 ## Phase 5: Resurrection (DLQ → Hot)
+
+For the failure categories that lead to DLQ, see [Failure Taxonomy](/2-lifecycle/failure-taxonomy).
+For shutdown and cancellation behavior around active work, see [Graceful Shutdown](/2-lifecycle/graceful-shutdown) and [Job Context And Cancellation](/2-lifecycle/job-context-and-cancellation).
 
 Via The Deck dashboard or programmatically:
 

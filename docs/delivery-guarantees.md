@@ -6,6 +6,9 @@ This means a job that has been accepted by durable storage should either finish,
 retry, or become visible for operator action in DLQ. It does not mean that
 external side effects are exactly-once.
 
+For the storage-level boundary, see [Transaction Integrity](/3-deep-dives/transaction-integrity).
+For handler-level duplicate protection, see [Idempotency Middleware](/3-deep-dives/idempotency-middleware).
+
 ## What ChokaQ Guarantees
 
 - SQL Server mode stores accepted work in `JobsHot` and uses ownership-aware

@@ -1,5 +1,7 @@
 # CHK-04: Expression Trees — Killing Reflection
 
+![Expression tree dispatch](/diagrams/66-expression-tree-dispatch.png)
+
 ## The Problem: Reflection is Slow
 
 In a typical job framework using the `IJobHandler<TJob>` pattern, you need to:
@@ -165,6 +167,37 @@ return lambda.Compile();
 ::: tip 💡 Architecture Insight
 This pattern is widely used in high-performance .NET libraries. EF Core uses Expression Trees for LINQ-to-SQL translation. ASP.NET Core uses them for model binding and request delegate compilation. AutoMapper uses them for property mapping. ChokaQ applies this same technique specifically to bypass the DI → Handler invocation bottleneck.
 :::
+
+## Architecture Decision
+
+ChokaQ uses compiled expression trees because job type and handler type are
+known only after the runtime resolves the serialized job type key. The runtime
+therefore needs dynamic dispatch, but it should not pay reflection invocation
+cost for every job.
+
+Expression trees give a middle ground: the first execution for a job type builds
+and compiles a strongly typed delegate; later executions reuse that delegate.
+The resulting call path is close to normal generic code while keeping the
+runtime flexible enough to dispatch jobs discovered through the registry.
+
+The main trade-off is startup cost for the first job of each type and a small
+cache surface. That is acceptable because the cost is paid once per job type,
+not once per job execution.
+
+## Interview Questions
+
+**Why is reflection lookup acceptable but `MethodInfo.Invoke` is not?**  
+Reflection lookup happens during delegate creation and is cached. `Invoke` would
+run for every job and would keep the hot execution path slow.
+
+**Why not use source generators?**  
+Source generators can be faster, but they require a more complex compile-time
+pipeline and make dynamic registration harder. Expression trees keep the runtime
+package simpler while removing the per-job reflection cost.
+
+**What is the failure mode if a handler signature is wrong?**  
+Delegate creation fails early for that job type. That is better than silently
+accepting a handler that cannot execute the registered payload.
 
 ## Who Else Uses This Pattern?
 

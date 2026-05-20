@@ -1,5 +1,7 @@
 # CHK-01: Three Pillars Architecture
 
+![Three Pillars enterprise map](/diagrams/20-three-pillars-enterprise.png)
+
 ## The Core Problem
 
 Many traditional background job frameworks store **everything in a single table**:
@@ -22,7 +24,7 @@ To find that one Pending job, the database must **scan past millions of irreleva
 
 ChokaQ splits data into **three physically separate tables**, each optimized for its specific workload:
 
-<img src="/architecture.png" alt="Three Pillars Architecture" style="width: 100%; max-width: 900px; margin: 1.5rem auto; display: block;" />
+![Three Pillars architecture](/diagrams/20-three-pillars-enterprise.png)
 
 ### Pillar 1: JobsHot (The Engine Room) 🔵
 
@@ -211,3 +213,35 @@ Updating a status column instead of moving the row means the fetch query must al
 <br>
 
 > *Next: Learn [Why SQL Server?](/1-architecture/why-sql-server) — the database-level features that make this architecture possible.*
+
+## Architecture Decision
+
+### Why this pattern?
+
+Active work, successful history, and failed recovery work have different query
+patterns. Physical separation keeps worker fetch small while preserving audit
+and repair data.
+
+### Trade-offs
+
+The model requires atomic cross-table moves. ChokaQ accepts that complexity and
+uses short SQL transactions so rows are not half-moved.
+
+### Alternatives considered
+
+| Alternative | Benefit | Cost |
+|---|---|---|
+| One jobs table | Simple schema. | Active fetch competes with years of history. |
+| Broker plus separate history store | High broker throughput. | Split operational state. |
+| No DLQ | Smaller model. | Failed work has no repair workflow. |
+
+### Interview questions
+
+**Why not a single jobs table?**  
+Because active fetch should not degrade as history grows.
+
+**What makes the split safe?**  
+Atomic state transitions with SQL transactions and ownership predicates.
+
+**What is the main cost?**  
+More schema and transition logic, which must be tested and documented.

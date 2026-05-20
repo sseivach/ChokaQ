@@ -11,6 +11,8 @@ ChokaQ's `IJobStorage` interface has two implementations:
 
 Both implement the same Three Pillars architecture — Hot, Archive, DLQ — just with different backing stores.
 
+![In-memory engine](/diagrams/57-in-memory-engine.png)
+
 ## InMemoryJobStorage: How It Works
 
 Three `ConcurrentDictionary<string, T>` instances mirror the SQL tables:
@@ -107,7 +109,7 @@ private readonly Channel<JobHotEntity> _channel =
 
 ### The Producer-Consumer Flow
 
-<img src="/bounded_channel.png" alt="Bounded Channel Flow Diagram" style="width: 100%; max-width: 900px; margin: 1.5rem auto; display: block;" />
+![In-memory bounded channel flow](/diagrams/57-in-memory-engine.png)
 
 **Why this design prevents memory issues:**
 
@@ -193,5 +195,37 @@ callers when workers fall behind, and `DynamicConcurrencyLimiter` caps active
 execution. SQL Server mode moves the backlog out of process and uses the
 database as the durable pressure boundary.
 :::
+
+## Architecture Decision
+
+The in-memory engine exists to make local development, tests, and volatile
+process-owned workloads fast without changing the public queue API. It mirrors
+the SQL model closely enough that handlers, middleware, dispatch, retries, and
+dashboard concepts remain understandable across both modes.
+
+It is not positioned as a production durability story. `ConcurrentDictionary`
+and bounded channels are excellent in-process tools, but they cannot coordinate
+multiple hosts, survive a process crash, or provide database-level audit
+history. That is why the documentation treats SQL Server mode as the production
+default and in-memory mode as a deliberate local or ephemeral choice.
+
+The important engineering boundary is that in-memory mode still has pressure
+limits. It does not use "demo mode" as an excuse for unbounded heap growth.
+
+## Interview Questions
+
+**Why keep an in-memory provider at all if SQL Server is the production path?**  
+Because a storage abstraction is easier to trust when it can run fast tests and
+samples without infrastructure. The in-memory provider shortens feedback loops
+while preserving the same handler-facing contract.
+
+**What breaks if someone uses in-memory mode for critical production work?**  
+Accepted jobs disappear on process loss, queue limits are process-local, and
+history cannot be shared across instances. That violates the durability and
+coordination guarantees expected from production background processing.
+
+**Why preserve Hot rows during capacity eviction?**  
+Hot rows represent accepted unfinished work. Evicting Archive or DLQ history is
+less harmful than discarding work that still needs execution.
 
 > Next: Read the [Backpressure Policy](/3-deep-dives/backpressure-policy) or explore [The Deck Dashboard](/4-the-deck/realtime-signalr).

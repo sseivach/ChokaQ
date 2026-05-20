@@ -116,6 +116,10 @@ Start with [Real-time SignalR](/4-the-deck/realtime-signalr), then read
 | 2 | [Docker Compose Sample](/samples/docker-compose) | Start SQL Server, the app, The Deck, and health checks. |
 | 3 | [Delivery Guarantees](/delivery-guarantees) | Understand what ChokaQ promises and what your handlers must handle. |
 | 4 | [Job Contracts](/job-contracts) | Design job DTOs safely. |
-| 5 | [Three Pillars](/1-architecture/three-pillars) | Understand Hot, Archive, and DLQ. |
-| 6 | [State Machine](/2-lifecycle/state-machine) | Follow a job from enqueue to final state. |
-| 7 | [Operations Runbooks](/5-operations/runbooks) | Respond when queues lag, jobs fail, or DLQ grows. |
+| 5 | [Package Topology](/1-architecture/package-topology) | Understand why consumers install one package while the runtime stays modular. |
+| 6 | [Three Pillars](/1-architecture/three-pillars) | Understand Hot, Archive, and DLQ. |
+| 7 | [SQL Schema Atlas](/3-deep-dives/sql-schema-atlas) | Learn the database tables and indexes. |
+| 8 | [Transaction Integrity](/3-deep-dives/transaction-integrity) | Understand atomic Hot/Archive/DLQ moves and at-least-once boundaries. |
+| 9 | [State Machine](/2-lifecycle/state-machine) | Follow a job from enqueue to final state. |
+| 10 | [Retry And DLQ](/2-lifecycle/retry-and-dlq) | Understand retry budgets, DLQ placement, and resurrection risk. |
+| 11 | [Production Readiness](/5-operations/production-readiness-checklist) | Check the system before production rollout. |

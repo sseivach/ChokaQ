@@ -69,7 +69,7 @@ CREATE TABLE [chokaq].[Queues](
 
 ### The Visualization
 
-<img src="/bulkhead.png" alt="Bulkhead Isolation" style="width: 100%; max-width: 900px; margin: 1.5rem auto; display: block;" />
+![Queue bulkhead isolation](/diagrams/40-queue-bulkhead-isolation.png)
 
 Even with 50 PDF jobs flooding the queue, SMS notifications **never wait more than one polling cycle** — the PDF queue is capped at 3 concurrent slots.
 
@@ -119,6 +119,40 @@ The `Queues` table provides additional controls:
 | **Bulkhead** | `MaxWorkers` | Maximum concurrent processing slots for this queue |
 
 All four controls are exposed in The Deck dashboard and take effect without any restart or redeployment.
+
+## Architecture Decision
+
+ChokaQ enforces queue bulkheads in the storage claim path instead of only inside
+one worker process. That matters because production deployments often run
+multiple application instances. A local semaphore can cap each process, but it
+cannot cap the whole fleet unless every process coordinates through another
+shared system.
+
+The SQL fetch query already owns the decision to claim work, so it is the right
+place to apply global queue capacity. `MaxWorkers` becomes a shared production
+contract: if a queue is capped at three active jobs, three means three across
+all hosts that use the same database.
+
+The trade-off is extra SQL work during fetch. ChokaQ accepts that cost because
+the Hot table is intentionally small and indexed for active work. The result is
+stronger isolation with fewer moving parts.
+
+## Interview Questions
+
+**Why is a database-level bulkhead stronger than per-process worker pools?**  
+Because the database sees all active rows from all instances. Per-process pools
+multiply capacity by instance count and drift whenever autoscaling changes the
+number of hosts.
+
+**Can a bulkhead starve a queue?**  
+A queue can be intentionally capped, but it should not starve unrelated queues.
+If a queue is capped too low, its own lag grows and The Deck makes that visible
+so operators can raise `MaxWorkers` or split the workload.
+
+**What is the risk of counting active jobs in the fetch query?**  
+The risk is database overhead. The mitigation is the Three Pillars model:
+`JobsHot` only stores active lifecycle rows, so active-count queries stay bounded
+by current work instead of archive history.
 
 <br>
 

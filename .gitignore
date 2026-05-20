@@ -460,3 +460,7 @@ docs/node_modules/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
 docs/package-lock.json
+
+## Internal planning notes (not part of public docs or release artifacts)
+docs-internal/
+docx-internal/

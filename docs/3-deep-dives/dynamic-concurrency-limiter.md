@@ -10,6 +10,8 @@ ChokaQ implements a completely lock-free, state-driven `DynamicConcurrencyLimite
 
 Instead of managing `SemaphoreSlim` slots, it uses two integers (`_activeWorkers`, `_targetCapacity`) and a highly optimized `Channel<byte>`.
 
+![Dynamic concurrency limiter](/diagrams/24-dynamic-concurrency-limiter.png)
+
 ### 1. Lock-Free Fast Path
 
 When a worker tries to acquire a slot, it doesn't wait on a lock. It uses an atomic `CompareExchange` (CAS) operation:
@@ -101,4 +103,40 @@ scheduling for throughput and low overhead, which is appropriate for background
 job workers. Do not use this primitive as a user-facing rate limiter without a
 separate fairness review.
 
+## Architecture Decision
+
+The limiter is optimized for background worker throughput, not user-facing
+fairness. ChokaQ needs a primitive that can change target capacity at runtime
+when The Deck changes queue controls or when the host adapts worker pressure.
+A fixed `SemaphoreSlim` is simple, but it is awkward to resize safely without
+permit drift, leaked releases, or restarting the worker manager.
+
+The chosen design keeps the authoritative state in counters:
+`_activeWorkers` tells how many executions are currently inside the critical
+section, and `_targetCapacity` tells how many are allowed. Scaling down is
+therefore passive and safe: running jobs finish naturally, and new jobs wait
+until active count drops below the new target.
+
+The main trade-off is fairness. Waiters compete when capacity opens instead of
+being served by a strict FIFO queue. For background jobs this is acceptable
+because work ordering is already governed by SQL priority, schedule time, queue
+bulkheads, and retry policy.
+
+## Interview Questions
+
+**Why not just recreate a `SemaphoreSlim` when capacity changes?**  
+Because existing waiters and acquired permits belong to the old object. Swapping
+semaphores creates edge cases around releases, cancellation, and waiters waking
+on a primitive that is no longer authoritative.
+
+**How does the limiter avoid thundering-herd wakeups?**  
+It uses a bounded one-item signal channel and relay wakeup. A capacity change
+emits one signal; each successful acquirer wakes another waiter only if more
+capacity remains.
+
+**What invariant proves the design is safe?**  
+No caller can enter unless it successfully increments `_activeWorkers` while the
+observed active count is below `_targetCapacity`. `Release()` decrements the same
+counter and double release is treated as a bug.
+ 
 > *Next: [In-Memory Engine](/3-deep-dives/memory-management) — BoundedChannels and backpressure.*

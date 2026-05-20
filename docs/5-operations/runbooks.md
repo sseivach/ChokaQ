@@ -1,5 +1,9 @@
 # Operations Runbooks
 
+For platform probes and readiness checks, see [Health Checks](/5-operations/health-checks).
+For schema startup behavior, see [Schema Bootstrap And Migrations](/5-operations/schema-bootstrap-and-migrations).
+For history growth and deletion policy, see [Retention Cleanup](/5-operations/retention-cleanup).
+
 This page turns ChokaQ signals into concrete operator actions. It intentionally
 uses plain language: when something is red, the important question is "what do I
 check first and what should I avoid doing?"
@@ -355,4 +359,3 @@ Use this minimal template for serious incidents:
 
 This does not replace a full incident process. It keeps ChokaQ-specific facts in
 one place so the team can learn from the event.
-

@@ -1,5 +1,7 @@
 # Runtime Configuration
 
+![Configuration validation](/diagrams/60-configuration-validation.png)
+
 Configuration is where the host application describes operational policy.
 
 Code tells ChokaQ what jobs exist. Configuration tells ChokaQ how the runtime
@@ -15,6 +17,10 @@ Configuration does not change ChokaQ's delivery contract. ChokaQ provides
 at-least-once execution; it does not provide exactly-once external side effects.
 Review [Delivery Guarantees](/delivery-guarantees) before tuning production
 queues, retries, timeouts, or shutdown behavior.
+
+For SQL storage retry settings, see [SQL Transient Retry Policy](/3-deep-dives/sql-transient-retry-policy).
+For payload and metadata limits, see [Serialization And Envelope Limits](/3-deep-dives/serialization-and-envelope-limits).
+For queue runtime controls, see [Queue Controls](/4-the-deck/queue-controls).
 
 ## How To Think About The Knobs
 
@@ -415,3 +421,38 @@ Examples of rejected values:
 - blank metric unknown or overflow tag value.
 
 Fail-fast validation is deliberate. A queue processor should not discover invalid operational policy after it has already accepted production work.
+
+## Architecture Decision
+
+### Why this pattern?
+
+Runtime configuration controls durability, retry, recovery, health, metrics,
+and security posture. Failing fast at startup is safer than letting a worker run
+with invalid operational policy.
+
+### Trade-offs
+
+Strict validation can reject a host that might otherwise start. For queue
+infrastructure, bad config should be visible before jobs are claimed.
+
+### Alternatives considered
+
+| Alternative | Benefit | Cost |
+|---|---|---|
+| Silent defaults | Easy startup. | Hidden production mistakes. |
+| Warn only | Flexible. | Workers may run with unsafe policy. |
+| Validate at first use | Lazy. | Failures happen after jobs are accepted. |
+
+### Interview questions
+
+**Why validate config at startup?**  
+Because retry, storage, and dashboard policy must be correct before workers
+claim production work.
+
+**Which config is most dangerous?**  
+Connection string, timeout, retry, heartbeat/zombie recovery, and dashboard
+authorization settings.
+
+**Why separate code registration from appsettings policy?**  
+Code owns compile-time contracts; configuration owns environment-specific
+runtime behavior.

@@ -28,7 +28,7 @@ builder.Services.AddChokaQTheDeck(options =>
 
 ## Architecture: Blazor Server + SignalR
 
-<img src="/signalr_architecture.png" alt="SignalR Architecture Diagram" style="width: 100%; max-width: 900px; margin: 1.5rem auto; display: block;" />
+![SignalR dashboard architecture](/diagrams/53-signalr-notification-contract.png)
 
 **Why Blazor Server?**
 - UI logic runs on the server — no API layer needed

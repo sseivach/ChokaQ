@@ -1,5 +1,7 @@
 # SQL Concurrency: UPDLOCK + READPAST
 
+![SQL locking with READPAST and UPDLOCK](/diagrams/21-sql-locking-readpast-updlock.png)
+
 ## The Challenge: Competing Consumers
 
 Multiple worker instances (or threads) need to grab jobs from the **same table simultaneously** without:
@@ -236,3 +238,35 @@ after the initial fetch.
 <br>
 
 > *Next: See how [Expression Trees](/3-deep-dives/expression-trees) eliminate reflection overhead for handler invocation.*
+
+## Architecture Decision
+
+### Why this pattern?
+
+SQL is the coordination boundary. `UPDLOCK` reserves candidate rows before the
+update and `READPAST` lets other workers skip locked rows instead of blocking.
+
+### Trade-offs
+
+`READPAST` can skip locked rows temporarily, so strict FIFO is not guaranteed
+under contention. ChokaQ prefers progress and concurrency over perfect ordering.
+
+### Alternatives considered
+
+| Alternative | Benefit | Cost |
+|---|---|---|
+| Distributed lock service | Explicit locks. | Extra infrastructure and failure modes. |
+| `SELECT` then `UPDATE` | Simple. | Races under concurrent workers. |
+| Broker visibility timeout | Mature primitive. | Different operational model. |
+
+### Interview questions
+
+**Why use `UPDATE ... OUTPUT`?**  
+To claim and return the exact rows in one database operation.
+
+**What is the downside of `READPAST`?**  
+It trades strict ordering for throughput by skipping locked rows.
+
+**Where is duplicate execution still possible?**  
+After handler side effects but before finalization; handler idempotency handles
+that boundary.
