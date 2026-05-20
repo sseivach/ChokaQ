@@ -1,10 +1,14 @@
 ﻿using ChokaQ.Core.Extensions;
 using ChokaQ.Sample.Bus.Components;
+using ChokaQ.Sample.Bus.Infrastructure;
 using ChokaQ.Sample.Bus.Profiles;
 using ChokaQ.Storage.SqlServer;
 using ChokaQ.TheDeck.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var sqlConnectionString = SqlConnectionStringResolver.Resolve(builder.Configuration);
+SqlDatabaseBootstrapper.EnsureDatabaseExists(sqlConnectionString);
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -26,23 +30,7 @@ builder.Services.UseSqlServer(
     builder.Configuration.GetSection("ChokaQ:SqlServer"),
     options =>
     {
-        var connectionString = options.ConnectionString;
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            connectionString = builder.Configuration.GetConnectionString("ChokaQDb")
-                ?? Environment.GetEnvironmentVariable("CHOKAQ_SAMPLE_SQL");
-        }
-
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            // Samples should teach safe production habits. Keep real passwords out of appsettings
-            // and provide the connection string via user-secrets, environment variables, or local
-            // launch configuration instead.
-            throw new InvalidOperationException(
-                "Configure ChokaQ:SqlServer:ConnectionString, ConnectionStrings:ChokaQDb, or CHOKAQ_SAMPLE_SQL before running the SQL sample.");
-        }
-
-        options.ConnectionString = connectionString;
+        options.ConnectionString = sqlConnectionString;
         options.AutoCreateSqlTable = builder.Environment.IsDevelopment();
     });
 

@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace ChokaQ.Sample.NuGetLab.Infrastructure;
+namespace ChokaQ.Sample.Bus.Infrastructure;
 
 internal static class LocalDockerSqlDiscovery
 {
