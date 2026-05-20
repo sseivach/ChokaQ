@@ -12,10 +12,14 @@ A job fails because of a malformed JSON payload:
 }
 ```
 
-In most frameworks, your options are:
-1. Fix the code, deploy, manually re-enqueue — **slow**
-2. Write a SQL script to update the payload in the DLQ table — **risky**
-3. Accept the loss — **unacceptable**
+Without an operator workflow, teams often fall back to manual recovery:
+
+1. fix code or data, then manually enqueue replacement work;
+2. write an ad hoc SQL script to update a failed row;
+3. leave the failed work unresolved until a support process handles it.
+
+Those paths can be valid in emergencies, but they are hard to audit and easy to
+apply inconsistently.
 
 ## ChokaQ's Solution: Edit + Resurrect
 

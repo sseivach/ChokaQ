@@ -4,7 +4,11 @@
 
 ## The Core Problem
 
-Many traditional background job frameworks store **everything in a single table**:
+A background job store can model the full lifecycle in one table: pending,
+processing, succeeded, failed, cancelled, and delayed rows all share the same
+physical structure. That is a reasonable starting point because the schema is
+simple, but it creates pressure once active work and long-lived history grow at
+different rates:
 
 ```
 | Id | Status    | Payload | CreatedAt | ... |
@@ -12,10 +16,13 @@ Many traditional background job frameworks store **everything in a single table*
 | 1  | Succeeded | ...     | Jan 1     |     |  ← Completed 6 months ago
 | 2  | Succeeded | ...     | Jan 2     |     |  ← Completed 6 months ago
 | .. | ...       | ...     | ...       |     |  ← 2 million more rows
-| N  | Pending   | ...     | Today     |     |  ← THE ONE WE ACTUALLY NEED
+| N  | Pending   | ...     | Today     |     |  ← Active work the worker needs now
 ```
 
-To find that one Pending job, the database must **scan past millions of irrelevant rows**, even with indexes. Over time:
+The fetch path is interested in eligible active rows. Historical rows have a
+different job: audit, investigation, retention, and reporting. When both shapes
+live together, the active fetch path must keep filtering around data it does not
+need. Over time:
 - Index fragmentation increases (constant INSERT/DELETE in the same B-tree)
 - Page splits slow down writes
 - `COUNT(*)` for dashboard stats becomes expensive
@@ -26,7 +33,7 @@ ChokaQ splits data into **three physically separate tables**, each optimized for
 
 ![Three Pillars architecture](/diagrams/20-three-pillars-enterprise.png)
 
-### Pillar 1: JobsHot (The Engine Room) 🔵
+### Pillar 1: JobsHot
 
 The high-concurrency workhorse. Only contains jobs that are **actively in play**.
 
@@ -48,10 +55,11 @@ WHERE [Status] = 0                    -- 👈 Only Pending jobs in the index
 WITH (DATA_COMPRESSION = PAGE, FILLFACTOR = 80);
 ```
 
-This means the index is always **tiny** — even if thousands of jobs are processing, the fetch index only tracks pending ones.
+This keeps the fetch index focused on eligible work. Even if thousands of jobs
+are processing or retained elsewhere, the fetch index only tracks pending rows.
 `CreatedAtUtc` is part of the key because delayed jobs and immediate jobs share the same fetch path; the engine orders by effective schedule time and uses creation time as the stable tie-breaker.
 
-### Pillar 2: JobsArchive (The Success Vault) 🟢
+### Pillar 2: JobsArchive
 
 Write-once, read-many. Once a job succeeds, it's atomically moved here.
 
@@ -69,9 +77,10 @@ WITH (DATA_COMPRESSION = PAGE)
 
 SQL Server PAGE compression can achieve **50-70% storage reduction** on text-heavy rows.
 
-### Pillar 3: JobsDLQ — The Morgue 🔴
+### Pillar 3: JobsDLQ
 
-Jobs that **died**. Each has a detailed cause of death:
+Jobs that reached a terminal failure state and need inspection, repair, or
+explicit cleanup. Each row keeps the failure reason and diagnostic details:
 
 ```csharp
 public enum FailureReason
@@ -93,7 +102,7 @@ DLQ supports:
 - **Payload editing** — fix broken JSON directly in The Deck
 - **Resurrection** — move back to Hot table with reset `AttemptCount`
 
-### Pillar 4: StatsSummary (The Speedometer) 📊
+### Pillar 4: StatsSummary
 
 Pre-aggregated counters for **O(1) dashboard reads**:
 
@@ -107,7 +116,8 @@ CREATE TABLE [chokaq].[StatsSummary](
 );
 ```
 
-Instead of `SELECT COUNT(*) FROM JobsArchive` (expensive scan), the dashboard reads a single pre-computed row.
+Instead of counting retained history on each dashboard refresh, The Deck reads
+a single pre-computed row.
 
 ### Pillar 5: MetricBuckets (The Rolling Speedometer)
 
@@ -197,7 +207,9 @@ WHERE [Id] = @JobId;
 ```
 
 ::: tip 💡 Architecture Insight
-Updating a status column instead of moving the row means the fetch query must always filter out completed rows. With physical separation, the fetch index only contains **active** jobs — eliminating wasted I/O and maintaining a tiny index footprint.
+Updating only a status column keeps the schema smaller, but the fetch query must
+always filter around completed rows. With physical separation, the fetch index
+only contains active jobs, which keeps the hot path focused and predictable.
 :::
 
 ## Performance Impact
@@ -208,7 +220,7 @@ Updating a status column instead of moving the row means the fetch query must al
 | Index fragmentation | High (mixed INSERT/DELETE) | Low (append-mostly per table) |
 | Archive query speed | Competes with active queries | Dedicated index, PAGE compressed |
 | Dashboard stats | `COUNT(*)` full scan | O(1) read from StatsSummary |
-| Storage efficiency | Uncompressed hot data | PAGE compression on cold data |
+| Storage efficiency | One storage policy for mixed lifecycle rows | PAGE compression on cold data |
 
 <br>
 

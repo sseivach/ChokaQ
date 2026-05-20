@@ -26,8 +26,8 @@ The SQL health check verifies:
   `MetricBuckets`, and `Queues`;
 - command timeout policy is applied.
 
-Connectivity alone is not enough. A database can be reachable but missing the
-runtime schema.
+Connectivity alone does not prove runtime readiness. A database can be reachable
+but missing the runtime schema.
 
 ## Worker Heartbeat
 
@@ -83,4 +83,3 @@ failure.
 
 **Should health endpoints be public?**  
 No. They should be infrastructure-scoped or protected.
-

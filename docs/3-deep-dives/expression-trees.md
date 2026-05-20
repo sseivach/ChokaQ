@@ -1,23 +1,27 @@
-# CHK-04: Expression Trees — Killing Reflection
+# CHK-04: Expression Trees For Dispatch
 
 ![Expression tree dispatch](/diagrams/66-expression-tree-dispatch.png)
 
-## The Problem: Reflection is Slow
+## The Problem: Runtime Type Dispatch
 
-In a typical job framework using the `IJobHandler<TJob>` pattern, you need to:
+When a runtime uses the `IJobHandler<TJob>` pattern, it needs to:
 1. Determine the handler type from the job type
 2. Resolve the handler from DI
 3. **Invoke** `HandleAsync(job, ct)` on the handler
 
-Step 3 is the problem. The handler and job types are known only at runtime — the dispatcher works with `object`, not `IChokaQJobHandler<SendEmailJob>`. The naive solution is reflection:
+Step 3 needs care. The handler and job types are known only at runtime, so the
+dispatcher works with `object`, not `IChokaQJobHandler<SendEmailJob>`. A direct
+reflection invocation is simple to implement:
 
 ```csharp
-// ❌ SLOW — Reflection-based dispatch
+// Reflection-based dispatch
 var method = handlerType.GetMethod("HandleAsync");
 await (Task)method.Invoke(handler, new object[] { job, ct });
 ```
 
-`MethodInfo.Invoke` is 10–100x slower than a direct method call. For a job engine processing thousands of jobs per second, this overhead is unacceptable.
+`MethodInfo.Invoke` adds overhead on every execution. For a job engine, handler
+dispatch is on the hot path, so ChokaQ pays the dynamic-binding cost once and
+then reuses a compiled delegate.
 
 ## The Solution: Compiled Expression Trees
 
@@ -66,7 +70,8 @@ The Expression Tree above generates the **equivalent of this C# code**:
         .HandleAsync((SendEmailJob)job, ct);
 ```
 
-This is a **direct method call** — no `MethodInfo.Invoke`, no boxing (beyond the initial cast), no reflection lookup.
+This call path avoids `MethodInfo.Invoke` on repeated executions and keeps the
+dynamic work outside the per-job hot path.
 
 ## The Caching Layer
 
@@ -105,7 +110,8 @@ public async Task DispatchAsync(JobHotEntity job, CancellationToken ct)
 | Compile to delegate | ✅ Once (~1ms) | ❌ Skipped |
 | Execute delegate | ✅ Direct call | ✅ Direct call |
 
-After the first invocation, every call is **zero-overhead** — just a dictionary lookup + delegate invoke.
+After the first invocation, every call uses the cached delegate instead of
+rebuilding the dispatch path.
 
 ## Step-by-Step: Building the Expression Tree
 
@@ -155,14 +161,14 @@ return lambda.Compile();
 // Returns: a delegate that can be called like a normal method
 ```
 
-## Why Not Alternatives?
+## Alternatives
 
-| Approach | Speed | Complexity | Why Not |
+| Approach | Speed | Complexity | Trade-off |
 |----------|-------|-----------|---------|
-| `MethodInfo.Invoke` | 🐌 Slow | Low | 10–100x overhead per call |
-| `DynamicMethod` + IL Emit | 🚀 Fastest | Very High | Writing raw IL is error-prone, hard to maintain |
-| **Expression Trees** | 🚀 Near-native | Medium | ✅ **Best balance of speed and readability** |
-| Source Generators | 🚀 Zero-runtime | High | Requires compile-time knowledge of all types |
+| `MethodInfo.Invoke` | Slower | Low | Simple, but pays invocation overhead on every job. |
+| `DynamicMethod` + IL Emit | Very fast | Very High | Powerful, but harder to maintain and review. |
+| **Expression Trees** | Near direct-call | Medium | Good balance of speed, clarity, and runtime flexibility. |
+| Source Generators | Compile-time dispatch | High | Strong option when all job types are known at compile time. |
 
 ::: tip 💡 Architecture Insight
 This pattern is widely used in high-performance .NET libraries. EF Core uses Expression Trees for LINQ-to-SQL translation. ASP.NET Core uses them for model binding and request delegate compilation. AutoMapper uses them for property mapping. ChokaQ applies this same technique specifically to bypass the DI → Handler invocation bottleneck.
@@ -196,8 +202,9 @@ pipeline and make dynamic registration harder. Expression trees keep the runtime
 package simpler while removing the per-job reflection cost.
 
 **What is the failure mode if a handler signature is wrong?**  
-Delegate creation fails early for that job type. That is better than silently
-accepting a handler that cannot execute the registered payload.
+Delegate creation fails early for that job type. That gives an explicit startup
+or first-use failure instead of accepting a handler that cannot execute the
+registered payload.
 
 ## Who Else Uses This Pattern?
 

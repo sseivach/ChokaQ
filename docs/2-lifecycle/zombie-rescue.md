@@ -78,7 +78,8 @@ WHERE [Status] = 1           -- Fetched
   AND DATEDIFF(SECOND, [LastUpdatedUtc], SYSUTCDATETIME()) > @TimeoutSeconds
 ```
 
-These jobs return to the queue as if nothing happened — the next fetch cycle picks them up.
+These jobs return to the queue because user code has not started yet. The next
+fetch cycle can pick them up.
 
 `Recovery.FetchedJobTimeout` is intentionally separate from `Recovery.ProcessingZombieTimeout`.
 Fetched jobs are only reserved in a worker's prefetch buffer; user code has not
@@ -156,11 +157,14 @@ Either way, the ZombieRescueService safely archives it.
 
 | Condition | Action | Why |
 |-----------|--------|-----|
-| `Status = Fetched` + expired | **Recover** → reset to Pending | Worker crashed after fetch but before processing. Job is untouched — safe to re-queue |
-| `Status = Processing` + expired heartbeat | **Archive** → move to DLQ | Worker crashed during execution. Job may be partially processed — **unsafe** to blindly retry |
+| `Status = Fetched` + expired | **Recover** → reset to Pending | Worker crashed after fetch but before processing. Job is untouched, so it can return to the queue. |
+| `Status = Processing` + expired heartbeat | **Archive** → move to DLQ | Worker crashed during execution. Job may be partially processed, so it needs inspection before retry. |
 
-::: danger 🔴 Why Not Auto-Retry Zombies?
-A zombie in `Processing` state may have **partially completed** side effects — sent an email, charged a credit card, updated a database. Automatically retrying would cause **duplicate processing**. Instead, zombies go to DLQ where an admin can inspect the state and decide: resurrect (if idempotent) or purge (if not).
+::: danger Processing zombies require inspection
+A zombie in `Processing` state may have **partially completed** side effects:
+sent an email, charged a credit card, or updated a database. ChokaQ moves these
+jobs to DLQ so an operator can inspect the state and decide whether resurrection
+is safe for that handler and payload.
 :::
 
 ## Dashboard Integration
@@ -186,8 +190,8 @@ automatically.
 
 The alternative is automatic retry for every expired lease. That maximizes
 throughput recovery, but it can duplicate side effects after a process crash.
-ChokaQ chooses operator-visible safety over invisible retry because background
-jobs frequently interact with email, payments, files, and external APIs.
+ChokaQ chooses operator-visible safety because background jobs frequently
+interact with email, payments, files, and external APIs.
 
 The result is a conservative recovery model: untouched reservations are
 reclaimed automatically, while uncertain executions require inspection,
@@ -201,7 +205,8 @@ Processing means the handler started and may have performed side effects.
 
 **Why not let heartbeat expiration retry the job immediately?**  
 Because heartbeat loss tells you the worker stopped reporting, not whether the
-business operation completed. Retrying blindly can duplicate external effects.
+business operation completed. Retrying without inspection can duplicate external
+effects.
 
 **How should operators decide whether to resurrect a zombie?**  
 They should inspect the handler's idempotency guarantees, downstream state, and

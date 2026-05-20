@@ -42,7 +42,8 @@ to DLQ. Failure taxonomy is the persisted operator-facing result.
 ### Why this pattern?
 
 Operators need routing metadata. Raw exception text is useful for debugging, but
-not enough for safe bulk actions, dashboards, or incident triage.
+safe bulk actions, dashboards, and incident triage also need stable failure
+categories.
 
 ### Trade-offs
 
@@ -62,11 +63,10 @@ should throw meaningful fatal/throttled/transient signals where possible.
 **Why persist failure reason separately from error details?**  
 Because operators need stable categories for filtering, dashboards, and actions.
 
-**Which failure should not be blindly retried?**  
+**Which failures need inspection before retry?**  
 Zombie, fatal payload/code errors, cancelled jobs, and stale jobs beyond
 lifetime policy.
 
 **How does this help The Deck?**  
 The Deck can group, filter, badge, and bulk-preview based on reason instead of
 free-form exception text.
-

@@ -67,7 +67,7 @@ based on failure rate, failure severity, and recovery behavior.
 |---|---|---|
 | Retry only | Simpler. | Can overwhelm a broken dependency. |
 | Global pause | Strong protection. | Stops unrelated job types. |
-| Downstream rate limit only | Delegates protection. | The queue still wastes workers on doomed calls. |
+| Downstream rate limit only | Delegates protection. | Workers can still spend capacity on calls that the dependency is already rejecting. |
 
 ### Interview questions
 

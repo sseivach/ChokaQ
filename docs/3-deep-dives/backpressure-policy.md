@@ -91,8 +91,9 @@ Backpressure should be observed through age, not just count.
 | SQL command timeout | Database cannot keep up with storage/admin reads/writes | Tune indexes, reduce dashboard/admin load, scale SQL, or slow producers |
 | DLQ rate | Workers are processing but jobs are failing | Fix downstream dependency, payload, timeout, or code issue |
 
-Queue depth can be useful, but it is not enough. A queue with many tiny jobs can
-be healthy; a queue with a few very old jobs can be saturated. ChokaQ therefore
+Queue depth can be useful, but age gives the stronger operational signal. A
+queue with many tiny jobs can be healthy; a queue with a few very old jobs can
+be saturated. ChokaQ therefore
 exposes queue lag in The Deck and health checks.
 
 ## Tuning Levers
@@ -128,11 +129,11 @@ the source of truth for backlog, while workers use bounded prefetch and queue
 limits to avoid turning one process into an unbounded second queue.
 
 The alternative would be producer-side rejection when workers are behind. That
-can be useful for request throttling, but it is a poor default for background
-jobs because the caller often expects accepted work to survive restarts and
-temporary worker shortages. ChokaQ therefore treats enqueue success as durable
-acceptance and exposes queue lag, SQL latency, and worker health as the pressure
-signals operators should act on.
+can be useful for request throttling, but ChokaQ chooses a different default for
+durable background work: once a job is accepted, the caller can expect it to
+survive restarts and temporary worker shortages. ChokaQ therefore treats enqueue
+success as durable acceptance and exposes queue lag, SQL latency, and worker
+health as the pressure signals operators should act on.
 
 The trade-off is explicit: the system protects accepted jobs, but it does not
 magically protect the database from an unlimited producer. Production systems

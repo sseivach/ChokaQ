@@ -118,7 +118,7 @@ Start with these alerts and tune them after observing real workload behavior.
 | Worker unhealthy | Worker heartbeat stale | Process stopped, host overloaded, or worker loop blocked. | Check host logs, restart if needed, confirm abandoned `Fetched` jobs recover. |
 | Heartbeat failures | `chokaq.jobs.heartbeat_failures` increasing | SQL writes, network, locks, or host resources are under pressure. | Follow the heartbeat pressure runbook; avoid immediate cancellation unless configured intentionally. |
 | State transition conflicts | Conflicts spike | Stale worker tried to finalize work it no longer owns. | Check for slow handlers, zombie recovery, clock/timeout settings, and worker restarts. |
-| Circuit open events | Circuit open/reject events rising | One job type is repeatedly failing. | Do not scale that job type blindly; inspect error family and downstream health. |
+| Circuit open events | Circuit open/reject events rising | One job type is repeatedly failing. | Inspect error family and downstream health before adding capacity to that job type. |
 
 ## Safe Alert Response
 
@@ -175,4 +175,3 @@ spiking. It cannot know your business impact. You still decide:
 
 Use ChokaQ's signals as the control plane, then encode your application's
 business meaning in alerts and runbooks.
-

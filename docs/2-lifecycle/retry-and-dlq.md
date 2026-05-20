@@ -77,14 +77,14 @@ destroying evidence.
 ### Trade-offs
 
 DLQ creates an operational responsibility. Someone must monitor it and decide
-what to do. That is a cost, but it is better than hiding poison messages inside
-an infinite retry loop.
+what to do. The benefit is explicit evidence and operator control instead of
+unbounded retry churn around the same poison message.
 
 ### Alternatives considered
 
 | Alternative | Benefit | Cost |
 |---|---|---|
-| Infinite retries | Simple to implement. | Retry storms, wasted workers, hidden poison jobs. |
+| Infinite retries | Simple to implement. | Retry storms, extra worker usage, hidden poison jobs. |
 | Drop failed jobs | Keeps queues clean. | Loses accepted work and destroys audit evidence. |
 | External error topic only | Works in broker systems. | Still needs storage, tooling, and operator workflow. |
 

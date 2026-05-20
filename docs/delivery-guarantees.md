@@ -107,7 +107,7 @@ remove work. Public docs and operator views should treat timeout and admin
 cancellation as different outcomes.
 
 Shutdown is cooperative. Workers can release `Fetched` jobs that have not
-started user code. Started `Processing` jobs are not blindly returned to
+started user code. Started `Processing` jobs are not automatically returned to
 `Pending`, because the handler may already have produced side effects. If the
 process dies before finalization, recovery moves the expired `Processing` row to
 DLQ as a zombie.

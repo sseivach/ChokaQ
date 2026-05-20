@@ -2,19 +2,23 @@
 
 ## The Retry Storm Problem
 
-A typical background job framework processes errors like this:
+A retry policy that treats every exception the same can produce this pattern:
 
 ```
 Job fails with NullReferenceException
   → Retry #1 (wait 3s)... fails with NullReferenceException
   → Retry #2 (wait 6s)... fails with NullReferenceException
   → Retry #3 (wait 12s)... fails with NullReferenceException
-  → Move to DLQ after 21 seconds of wasted compute
+  → Move to DLQ after 21 seconds of unsuccessful retries
 ```
 
-This job had **zero chance of succeeding** on retry — `NullReferenceException` is a code bug, not a network blip. Yet the system burned 21 seconds of CPU, 3 database round-trips, and 3 retry slots that could've served transient failures.
+This job is unlikely to recover through time alone: `NullReferenceException` is
+usually a code or payload bug, not a temporary network condition. Retrying it
+adds delay, database writes, and retry traffic without increasing the chance of
+success.
 
-**ChokaQ's Smart Worker fixes this.**
+ChokaQ's Smart Worker separates failures that should retry from failures that
+should be sent to DLQ for inspection.
 
 ## Fatal vs Transient Classification
 
@@ -40,7 +44,7 @@ private static bool IsFatalException(Exception ex)
 
 ### The Two Paths
 
-| Exception Type | Classification | Action | Time Wasted |
+| Exception Type | Classification | Action | Retry Cost |
 |---------------|---------------|--------|-------------|
 | `NullReferenceException` | **Fatal** | → DLQ immediately | ~0s |
 | `ArgumentException` | **Fatal** | → DLQ immediately | ~0s |
@@ -92,7 +96,10 @@ private int CalculateBackoffMs(int attempt)
 | 5 | 48,000ms | 0–1,000ms | ~48–49s |
 
 ::: warning 🎯 Why Jitter?
-Without jitter, if an external API goes down and 100 jobs fail simultaneously, all 100 will retry at **exactly** the same time (3s, 6s, 12s...). This is the **Thundering Herd** problem — the retry storm itself becomes a DDoS attack on the recovering service. Jitter spreads retries across a 1-second window, smoothing the load.
+Without jitter, if an external API goes down and 100 jobs fail simultaneously,
+all 100 can retry at exactly the same time (3s, 6s, 12s...). This is the
+Thundering Herd problem. Jitter spreads retries across a short window so the
+recovering dependency sees smoother traffic.
 :::
 
 ## Custom Fatal Exceptions
@@ -108,12 +115,12 @@ public class PaymentHandler : IChokaQJobHandler<ProcessPaymentJob>
 
         if (result.Status == PaymentStatus.CardDeclined)
         {
-            // No point retrying — the card is declined
+            // Retrying will not change this business outcome.
             throw new ChokaQFatalException(
                 $"Card declined for order {job.OrderId}");
         }
 
-        // Other errors (timeout, 500) will bubble up as transient
+        // Other errors (timeout, 500) can bubble up as transient.
     }
 }
 ```
@@ -127,7 +134,7 @@ The Smart Worker works **alongside** the Circuit Breaker. Before executing any j
 
 if (!_breaker.IsExecutionPermitted(job.Type))
 {
-    // Circuit is Open — don't even try
+    // Circuit is Open — delay execution instead of calling the dependency.
     await _storage.ArchiveFailedAsync(job.Id,
         "Circuit breaker is open for this job type");
     return;
@@ -152,7 +159,7 @@ shutdown should not leave all probe slots consumed forever.
 
 **The synergy:**
 - Smart Worker handles **individual job failures** (fatal vs transient)
-- Circuit Breaker handles **systemic failures** (if ALL jobs of type X are failing, stop trying)
+- Circuit Breaker handles **systemic failures** (if a job type is failing as a group, delay execution)
 
 ::: tip 💡 Architecture Insight
 The Smart Worker and Circuit Breaker act together. Smart Worker is **reactive** (classifies individual jobs after failure). Circuit Breaker is **preventive** (blocks the entire queue before execution). Together they provide both micro-level and macro-level fault tolerance.
@@ -168,10 +175,10 @@ problem visible and preserves worker capacity for jobs that can actually
 recover.
 
 The alternative is a uniform retry policy for every exception. That is simpler
-to explain, but operationally weaker: a bad deployment can create a retry storm,
-inflate database writes, and delay healthy queues. The chosen design accepts a
-classification responsibility in exchange for faster incident visibility and
-less wasted compute.
+to explain, but it can increase retry traffic, database writes, and queue lag
+when the failure is not time-dependent. The chosen design accepts a
+classification responsibility in exchange for clearer incident visibility and
+more focused retry behavior.
 
 Classification must stay conservative. If a failure might be transient, it
 should remain retryable unless the application explicitly marks it fatal with

@@ -30,8 +30,8 @@ reset stale fetched rows later.
 
 ## Processing Rows
 
-Processing rows may already have external side effects. They are not blindly
-reset to pending. If the process dies and heartbeat stops, zombie rescue moves
+Processing rows may already have external side effects. They are not
+automatically reset to pending. If the process dies and heartbeat stops, zombie rescue moves
 them to DLQ for operator review.
 
 ## Configuration
@@ -76,4 +76,3 @@ them later.
 **What is the production tuning knob?**  
 `WorkerShutdownGracePeriod`, balanced against deployment speed and handler
 duration.
-

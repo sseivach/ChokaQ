@@ -68,7 +68,7 @@ top-level package and get the transitive runtime assets it needs.
 
 ### Why this pattern?
 
-The top-level package gives consumers one obvious install target while the
+The top-level package gives consumers one primary install target while the
 subpackages preserve internal ownership. This is the same product shape used by
 many mature .NET libraries: a simple default package plus lower-level packages
 for advanced integrations.
@@ -84,7 +84,7 @@ single install path reduces setup mistakes.
 
 | Alternative | Benefit | Cost |
 |---|---|---|
-| Make users install every subpackage | Maximum explicitness. | High onboarding friction and more broken setups. |
+| Ask users to install every subpackage | Maximum explicitness. | Higher onboarding friction and more setup combinations to validate. |
 | Publish only one monolithic assembly | Very simple packaging. | Weak module boundaries and harder future provider work. |
 | Separate `ChokaQ.SqlServer` and `ChokaQ.Dashboard` install guides | More control for advanced users. | New users must understand topology too early. |
 
@@ -96,7 +96,7 @@ not a replacement for the default `ChokaQ` package.
 
 ### Interview questions
 
-**Why not publish only one assembly?**  
+**Why keep more than one internal package?**  
 Because internal package boundaries express ownership: abstractions, core
 runtime, storage provider, and dashboard evolve for different reasons.
 

@@ -62,16 +62,16 @@ resilience dependency for one storage concern.
 
 ### Trade-offs
 
-A local policy is smaller and explicit, but less feature-rich than libraries
-like Polly. If future provider behavior becomes more complex, this may deserve
-a pluggable policy.
+A local policy is smaller and explicit, but less feature-rich than a
+general-purpose resilience library. If future provider behavior becomes more
+complex, this may deserve a pluggable policy.
 
 ### Alternatives considered
 
 | Alternative | Benefit | Cost |
 |---|---|---|
 | No SQL retry | Simple failure visibility. | Too brittle under deadlocks/network blips. |
-| Polly dependency | Mature resilience features. | Extra dependency for one narrow path. |
+| General-purpose resilience dependency | Mature resilience features. | Extra dependency for one narrow path. |
 | Retry every SQL error | More aggressive recovery. | Can hide real bugs and overload SQL. |
 
 ### Interview questions
@@ -85,4 +85,3 @@ To avoid workers retrying at the same time after a shared outage.
 
 **What errors should not be retried?**  
 Schema errors, invalid SQL, permission failures, and data contract violations.
-

@@ -58,7 +58,7 @@ connectivity, handler failures, heartbeat failures, or circuit protection.
 |---|---|---|
 | Logs only | Easy to emit. | Hard to alert and aggregate accurately. |
 | Metrics only | Good for SLOs. | Weak payload/state investigation. |
-| Dashboard only | Operator friendly. | Not enough for automated alerting. |
+| Dashboard only | Operator friendly. | Needs metrics or logs for automated alerting. |
 
 ### Interview questions
 
@@ -72,4 +72,3 @@ Queue lag, because it measures how long eligible work waits.
 **Why keep `MetricBuckets` if OpenTelemetry exists?**  
 The Deck needs fast local rolling windows from durable state without depending
 on an external metrics backend.
-

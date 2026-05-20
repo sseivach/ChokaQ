@@ -18,8 +18,8 @@ Example:
 3. A background job sends the receipt email.
 4. If email fails, the system can retry or show the failure to an operator.
 
-This is better than making the user wait for a slow email provider during the
-checkout request.
+This keeps checkout latency independent from the email provider and gives the
+system a place to retry or expose failures later.
 
 ## Why Store Jobs?
 

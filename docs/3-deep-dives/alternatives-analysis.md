@@ -7,7 +7,7 @@ decision, not a claim that SQL is the best queue for every workload.
 
 ## Comparison
 
-| Backend | Strength | Weakness | When it is better |
+| Backend | Strength | Trade-off | Best fit |
 |---|---|---|---|
 | SQL Server | Durable, transactional, inspectable, easy for SQL shops. | Central DB bottleneck. | Business jobs, operational repair, moderate/high reliability needs. |
 | RabbitMQ | Mature broker, routing, acknowledgements. | Separate infrastructure and management model. | Message routing and broker-native workflows. |
@@ -27,7 +27,7 @@ SQL Server gives ChokaQ a compact production story:
 - samples can run with Docker;
 - many enterprise .NET teams already operate SQL Server.
 
-## Why Not Broker First?
+## Why SQL Before Broker Backends?
 
 A broker-first product would need a separate durable history/repair store to
 support The Deck, DLQ editing, history paging, failure grouping, and SQL-like
@@ -41,7 +41,7 @@ or event-stream replay. That decision aligns storage, state transitions,
 operator UI, and repair workflows around one durable relational model.
 
 This is not a universal claim. Kafka, RabbitMQ, SQS, PostgreSQL, and in-memory
-channels all have contexts where they are better choices. The documentation
+channels all have contexts where they are a stronger fit. The documentation
 therefore frames SQL Server as the deliberate product default for this release,
 not as the only possible backend forever.
 
@@ -50,11 +50,11 @@ same lifecycle semantics, not merely accept and deliver messages.
 
 ## Interview Questions
 
-**When would Kafka be better?**  
+**When is Kafka the stronger fit?**  
 When the core requirement is high-volume ordered event streaming and replay, not
 operator-managed background jobs.
 
-**When would RabbitMQ be better?**  
+**When is RabbitMQ the stronger fit?**  
 When routing, exchange semantics, and broker-native acknowledgements are the
 center of the system.
 

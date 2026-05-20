@@ -9,7 +9,7 @@ host metrics and ChokaQ signals, with SQL Server mode as the durable backlog.
 |---|---|
 | `chokaq.jobs.queue_lag` | Primary saturation signal. Rising lag means jobs wait too long before execution. |
 | `chokaq.workers.active` | Shows active execution pressure per queue. |
-| `chokaq.jobs.failed` and `chokaq.jobs.dlq` | Do not scale blindly if failures are dependency or poison-payload problems. |
+| `chokaq.jobs.failed` and `chokaq.jobs.dlq` | Scale only after checking whether failures are capacity-related, dependency-related, or payload-related. |
 | `chokaq.circuits.events` | Open/rejected circuits mean scaling may increase pressure on an unhealthy dependency. |
 | Worker health check | A stale worker heartbeat means the host may be stuck or stopped. |
 | SQL latency and locks | Scale SQL or reduce workers before adding more hosts when storage is saturated. |

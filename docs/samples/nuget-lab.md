@@ -225,7 +225,7 @@ host would use:
 | Unlimit `reports` | `POST /api/lab/queues/reports/max-workers/0` | Removes the per-queue cap. |
 
 These controls are intentionally simple. The Deck provides richer UI workflows,
-but the lab makes the HTTP calls obvious and repeatable.
+but the lab keeps the HTTP calls visible and repeatable.
 
 ## Troubleshooting
 

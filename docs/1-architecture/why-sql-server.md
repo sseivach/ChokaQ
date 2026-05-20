@@ -2,9 +2,12 @@
 
 ## The Deliberate Choice
 
-ChokaQ uses SQL Server not because "it's all we know" — but because SQL Server provides **database-level primitives** that are impossible to replicate in application code or with generic key-value stores.
+ChokaQ uses SQL Server because it provides database-level primitives that match
+the product goal: durable job state, transactional lifecycle transitions,
+operator inspection, and concurrent worker coordination inside the same storage
+boundary.
 
-## The Four Killer Features
+## The Four Key Features
 
 ### 1. Row-Level Locking: `UPDLOCK + READPAST`
 
@@ -24,8 +27,11 @@ ORDER BY h.[Priority] DESC, ISNULL(h.[ScheduledAtUtc], h.[CreatedAtUtc]) ASC
 
 **Result:** many workers can execute this query simultaneously, and each committed fetch gets a unique set of claimed rows. The pattern reduces blocking and prevents duplicate claims on the fetch path; SQL Server can still detect and resolve deadlocks in unrelated transactions, so ChokaQ also treats deadlocks as transient SQL failures.
 
-::: warning 🎯 Why Not Redis?
-Redis uses `RPOPLPUSH` for competing consumers, which only supports FIFO ordering. ChokaQ supports **priority-based** ordering (`ORDER BY Priority DESC`), scheduled execution, and multi-column filtering — all in a single atomic query. Try doing that with Redis lists.
+::: warning Design Boundary
+Key-value and list-based queues are excellent for simple enqueue/dequeue
+workflows. ChokaQ needs priority ordering, delayed execution, queue filtering,
+worker ownership, and lifecycle inspection in one durable model, so the first
+provider uses SQL Server rather than a list-oriented backend.
 :::
 
 ### 2. OUTPUT Clause: Atomic Cross-Table Moves
@@ -72,15 +78,15 @@ WHERE [Status] = 0
 - B-tree stays shallow → consistent O(log n) lookup time
 - `CreatedAtUtc` matches the fetch tie-breaker, avoiding avoidable sort/lookups on the hottest path
 
-## Why Not Other Databases?
+## Backend Trade-Offs
 
-| Database | Missing Feature | Impact |
+| Backend | Trade-off for ChokaQ's current provider |
 |----------|----------------|--------|
-| **PostgreSQL** | No `READPAST` equivalent | Must use `SKIP LOCKED` (similar but different semantics) |
-| **MySQL** | No filtered indexes | Cannot optimize fetch index for Pending-only rows |
-| **SQLite** | No row-level locking | Single-writer model — no concurrent fetching |
-| **MongoDB** | No ACID cross-collection moves | Cannot atomically move doc between collections |
-| **Redis** | No complex ordering | Only FIFO, no priority + scheduling + filtering |
+| **PostgreSQL** | Similar competing-consumer behavior is possible with `SKIP LOCKED`, but it needs a separate provider and test matrix. |
+| **MySQL** | Provider support would need a different indexing and locking design. |
+| **SQLite** | Useful for embedded scenarios, but the single-writer model does not match ChokaQ's concurrent worker target. |
+| **MongoDB** | A document provider would need a separate lifecycle and transaction design. |
+| **Redis** | Strong fit for fast queue primitives, but ChokaQ's first provider prioritizes relational inspection and transactional state moves. |
 
 ::: tip 💡 PostgreSQL Support?
 `SKIP LOCKED` in PostgreSQL solves a similar competing-consumer problem. A future PostgreSQL provider is architecturally possible because the `IJobStorage` abstraction is database-facing. It should become a separate package only when it is real production support, not while SQL Server is the only provider.
@@ -95,7 +101,9 @@ SQL Server transactions give us guarantees that application-level locking cannot
 3. **Durability:** Once committed, data survives power failures (WAL + checkpoints)
 4. **Deadlock Detection:** SQL Server's lock manager automatically detects and resolves deadlocks (though `READPAST` prevents most)
 
-Compare this to Redis-based queues where a crash between `RPOPLPUSH` and `ACK` can lose messages, or MongoDB where cross-collection atomicity requires distributed transactions.
+This is the storage contract ChokaQ optimizes around. Other backends can be
+valid choices, but each one would need an equivalent provider-specific answer
+for claiming work, recording final state, and recovering after process failure.
 
 ## Read Consistency Policy
 

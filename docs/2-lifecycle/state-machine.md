@@ -12,8 +12,8 @@ Every job in ChokaQ follows a deterministic path through a series of states. Und
 | **Fetched** | `1` | JobsHot | Pulled into worker memory buffer — waiting for processing slot |
 | **Processing** | `2` | JobsHot | Actively executing — heartbeat ticking |
 | **Succeeded** | `3` | JobsArchive | Completed successfully — moved to archive |
-| **Failed** | `4` | JobsDLQ | Failed permanently — moved to morgue |
-| **Cancelled** | `5` | JobsDLQ | Admin cancelled — moved to morgue |
+| **Failed** | `4` | JobsDLQ | Failed permanently — moved to DLQ for inspection |
+| **Cancelled** | `5` | JobsDLQ | Admin cancelled — retained in DLQ/history workflow |
 | **Zombie** | `6` | JobsDLQ | Worker crashed — heartbeat expired |
 
 ::: info 📝 Note

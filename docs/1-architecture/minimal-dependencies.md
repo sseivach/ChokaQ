@@ -3,23 +3,24 @@
 ChokaQ uses a minimal dependency philosophy, not a misleading claim that SQL
 Server mode can avoid the official SQL Server driver. The practical rule is
 stricter and more useful: ChokaQ should not force host applications to take
-framework-level dependencies such as EF Core, Dapper, Polly, MediatR, or a
-custom telemetry/exporter stack just to run background jobs.
+framework-level dependencies such as a general ORM, SQL mapper, resilience
+policy builder, mediator, or custom telemetry/exporter stack just to run
+background jobs.
 
 Core stays on Microsoft.Extensions abstractions. SQL Server storage uses
 `Microsoft.Data.SqlClient`, the official ADO.NET driver. Everything else is
 owned by ChokaQ so the behavior is explicit and inspectable.
 
-## The Dependency Tax
+## Dependency Cost
 
-Every NuGet package you add to a project carries hidden costs:
+Every NuGet package added to a runtime component carries engineering cost:
 
 | Cost | Example |
 |------|---------|
-| **Version Conflicts** | Dapper 2.x vs Dapper 3.x — different apps in the same solution need different versions |
-| **Transitive Dependencies** | Polly pulls in `Microsoft.Extensions.Http`, which pulls in `System.Net.Http` |
-| **Security Surface** | Each dependency is a CVE waiting to happen — `log4j` taught the industry this |
-| **Breaking Changes** | A minor version bump in a transitive dep can break your entire CI pipeline |
+| **Version Conflicts** | Different apps in the same solution may need different package versions |
+| **Transitive Dependencies** | A small direct dependency can bring additional runtime packages through its graph |
+| **Security Surface** | Each transitive package becomes part of the audited runtime surface |
+| **Breaking Changes** | A minor version bump in a transitive dependency can break CI or host integration |
 | **License Compliance** | Enterprise legal teams must audit every transitive dependency |
 
 ## ChokaQ's Dependency Tree
@@ -36,19 +37,19 @@ ChokaQ.Core
 
 ChokaQ.Storage.SqlServer
 ├── ChokaQ.Core
-└── Microsoft.Data.SqlClient     ← The only "real" dependency
+└── Microsoft.Data.SqlClient     ← SQL Server provider dependency
 ```
 
 Everything else is built directly in ChokaQ.
 
-## What We Built (and Why)
+## What ChokaQ Owns
 
-### Custom SqlMapper — Replacing Dapper
+### Small SQL Mapper
 
 **172 lines** of extension methods on `SqlConnection`:
 
 ```csharp
-// Our SqlMapper API — familiar if you've used Dapper
+// ChokaQ's small SQL mapper API.
 public static async Task<IEnumerable<T>> QueryAsync<T>(
     this SqlConnection conn,
     string sql,
@@ -64,12 +65,15 @@ public static async Task<IEnumerable<T>> QueryAsync<T>(
 }
 ```
 
-**Why not Dapper?**
-- Dapper brings `System.Data` extension methods that may conflict with other versions
-- Dapper's `DynamicParameters` allocates objects we don't need
-- We only use 4 patterns: `QueryAsync<T>`, `QueryFirstOrDefaultAsync<T>`, `ExecuteAsync`, `ExecuteScalarAsync` — no need for 300+ methods
+**Why own this layer?**
+- ChokaQ needs only four SQL access patterns: `QueryAsync<T>`,
+  `QueryFirstOrDefaultAsync<T>`, `ExecuteAsync`, and `ExecuteScalarAsync`.
+- Keeping this layer internal avoids adding a general-purpose mapper to every
+  host application that installs ChokaQ.
+- The mapper stays narrow enough that the SQL behavior is easy to inspect during
+  incident review.
 
-### Custom TypeMapper — Zero-Reflection Materialization
+### Small TypeMapper
 
 Maps `IDataReader` columns to object properties:
 
@@ -94,9 +98,10 @@ public static T MapSingle<T>(IDataReader reader) where T : new()
 }
 ```
 
-### Custom ParameterBuilder — Smart Parameter Expansion
+### ParameterBuilder
 
-Converts anonymous objects to `SqlParameter[]` with a killer feature — **automatic array expansion for `IN` clauses**:
+Converts anonymous objects to `SqlParameter[]`, including automatic array
+expansion for `IN` clauses:
 
 ```csharp
 // Application code:
@@ -110,9 +115,11 @@ var jobs = await conn.QueryAsync<JobHotEntity>(
 // Parameters: @Ids_0="job-1", @Ids_1="job-2", @Ids_2="job-3"
 ```
 
-No `OPENJSON`, no temp tables — just clean parameter expansion.
+This keeps the common small-list path explicit and parameterized. If a future
+workload needs very large sets, that can be handled as a separate SQL shape
+rather than making the default path heavier.
 
-### Custom SqlRetryPolicy — Replacing Polly
+### SQL Retry Policy
 
 Transient fault handling tailored to SQL Server:
 
@@ -141,14 +148,17 @@ private static bool IsTransient(SqlException ex)
 }
 ```
 
-**Why not Polly?**
-- Polly v8 has a completely different API from Polly v7 — breaking change nightmare
-- Polly brings `Microsoft.Extensions.Http` and other transitive deps
-- We only need retry with backoff for SQL transient faults — not the full policy builder
+**Why own this layer?**
+- ChokaQ storage needs one narrow policy: retry SQL Server transient faults with
+  backoff.
+- The retry rules are tied to SQL error numbers and storage commands, not to
+  general HTTP or application resilience policy.
+- Host applications remain free to use their own resilience package versions
+  without ChokaQ forcing a policy-builder dependency into the app graph.
 
-### Custom InMemoryCircuitBreaker — Per-Job-Type Protection
+### InMemoryCircuitBreaker
 
-Thread-safe circuit breaker with **lock-free reads** on the hot path:
+Thread-safe circuit breaker with lock-free reads on the hot path:
 
 ```csharp
 public bool IsExecutionPermitted(string jobType)
@@ -177,8 +187,11 @@ Three states per job type:
 | **Open** | All executions blocked | → Half-Open (after 30s timeout) |
 | **Half-Open** | One test execution | → Closed (success) or → Open (failure) |
 
-::: tip 💡 Performance Insight
-The Status field is marked as `volatile` because `IsExecutionPermitted()` is called on the hot path for every single job. Using `volatile` allows **lock-free reads** — we only acquire the lock for state mutations (reporting success/failure), not for the check itself. This is the same high-performance pattern used in `CancellationToken`.
+::: tip Performance note
+The Status field is marked as `volatile` because `IsExecutionPermitted()` is
+called on the hot path for every job. Using `volatile` allows lock-free reads.
+The implementation acquires a lock for state mutations such as reporting
+success or failure, not for the common permission check.
 :::
 
 Half-open probes are permits, not just booleans. If a worker is allowed through
@@ -206,10 +219,10 @@ ChokaQ.Storage.SqlServer:
   → the official SQL Server ADO.NET driver
 ```
 
-SQL Server mode therefore has one unavoidable external package: the official SQL
-Server driver. The important architectural constraint is that ChokaQ does not
-outsource its queueing, retry, circuit breaker, SQL mapping, dashboard, health,
-or metrics behavior to opaque infrastructure libraries.
+SQL Server mode therefore has one expected external package: the official SQL
+Server driver. The important architectural constraint is that ChokaQ keeps its
+queueing, retry, circuit breaker, SQL mapping, dashboard, health, and metrics
+behavior inside the project boundary so those decisions remain inspectable.
 
 <br>
 

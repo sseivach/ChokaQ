@@ -9,9 +9,12 @@ Imagine two queues in your system:
 | `pdf-generation` | Generate 200-page reports | 30–120 seconds | 50/hour |
 | `sms-notifications` | Send SMS via API | 200ms | 10,000/hour |
 
-Without isolation, a flood of 50 PDF jobs will **consume all worker slots**. The 10,000 SMS notifications sit in the queue starving — customers don't get their notifications because the system is busy generating PDFs for internal reports.
+Without isolation, a burst of PDF jobs can consume the available execution
+slots. SMS notifications then wait behind a workload with very different
+duration and urgency.
 
-This is the **Noisy Neighbor** problem — one resource-intensive workload degrades service for everyone else.
+This is the **Noisy Neighbor** problem: one resource-intensive workload affects
+latency for unrelated work.
 
 ## ChokaQ's Solution: Database-Level Bulkheads
 
@@ -71,26 +74,36 @@ CREATE TABLE [chokaq].[Queues](
 
 ![Queue bulkhead isolation](/diagrams/40-queue-bulkhead-isolation.png)
 
-Even with 50 PDF jobs flooding the queue, SMS notifications **never wait more than one polling cycle** — the PDF queue is capped at 3 concurrent slots.
+With the PDF queue capped at three active jobs, SMS work can still be claimed
+when worker capacity is available instead of waiting behind the entire PDF
+backlog.
 
 ## Why Database-Level?
 
-Most frameworks implement bulkhead at the **application level** — separate thread pools or semaphores per queue. This has a critical flaw:
+Bulkheads can be enforced in several places. Process-local semaphores are easy
+to reason about inside one host. ChokaQ enforces this limit in the storage claim
+path because the SQL database is shared by all worker instances:
 
-| Approach | Problem |
+| Approach | Trade-off |
 |----------|---------|
-| **App-level** (thread pools) | If you run multiple instances, each has its own pool. 3 instances × 3 threads = 9 concurrent PDFs, not 3 |
-| **Database-level** (ChokaQ) | The `COUNT(*)` check runs inside the fetch query. All instances see the same counts. Limit is global |
+| **Process-local** (thread pools or semaphores) | Simple inside one host, but each instance owns its own limit. |
+| **Database-level** (ChokaQ) | Slightly more SQL work during fetch, but all instances see the same active counts. |
 
 ::: tip 💡 Architecture Insight
-Enforcing the Bulkhead pattern at the database level solves the multi-instance problem. Application-level semaphores do not coordinate between instances. Every worker reads the same `JobsHot` table, so the `ActiveCounts` CTE gives a committed shared view of currently active work. Production SQL also ranks candidates per queue, which prevents one fetch batch from claiming more rows than the queue's remaining capacity.
+Enforcing the Bulkhead pattern at the database level gives every worker the
+same committed view of active work. Production SQL also ranks candidates per
+queue, which prevents one fetch batch from claiming more rows than the queue's
+remaining capacity.
 :::
 
 ::: tip 💡 The Scale Trade-off (Why Database-Level?)
 You might ask: "Isn't running `COUNT(1)` on the database for every fetch expensive?" 
-In a traditional single-table queue design (where history and active jobs are mixed), yes. But because ChokaQ uses the **Three Pillars** architecture, the `JobsHot` table only contains currently active jobs. Executing an indexed `COUNT` on a table with a few hundred or thousand rows is instantaneous for a relational database. 
+The cost depends on table shape. Because ChokaQ uses the **Three Pillars**
+architecture, `JobsHot` only contains active lifecycle rows. Active-count reads
+therefore stay bounded by current work instead of retained history.
 
-By trading a microscopic amount of database CPU, you get **perfect, cluster-wide distributed coordination** without the operational burden of deploying and monitoring a separate distributed caching layer.
+The trade-off is intentional: spend a small amount of SQL work to keep
+cluster-wide queue capacity in the same consistency boundary as job claiming.
 :::
 
 ## Runtime Adjustment
@@ -139,7 +152,7 @@ stronger isolation with fewer moving parts.
 
 ## Interview Questions
 
-**Why is a database-level bulkhead stronger than per-process worker pools?**  
+**Why choose a database-level bulkhead over per-process worker pools?**  
 Because the database sees all active rows from all instances. Per-process pools
 multiply capacity by instance count and drift whenever autoscaling changes the
 number of hosts.

@@ -2,10 +2,15 @@
 
 ## The Problem
 
-Most .NET background job solutions fall into two extremes:
+ChokaQ is designed for teams that want durable background processing without
+turning the job system into a separate infrastructure platform. In practice, a
+.NET team often has to choose how much persistence, observability, and operator
+control it wants to own:
 
-1. **Too Simple:** `Channel<T>` + `BackgroundService` — volatile, no persistence, no monitoring, lost on crash
-2. **Too Heavy:** Third-party frameworks with external dependencies, infrastructure overhead, complex configuration
+1. `Channel<T>` + `BackgroundService` is small and direct, but process-local.
+   It needs additional work for durability, monitoring, retries, and recovery.
+2. A larger job platform can provide more built-in capability, but it also
+   brings more infrastructure, dependencies, and configuration surface.
 
 ChokaQ sits in the middle: **SQL Server-backed reliability with in-process simplicity**.
 
@@ -14,7 +19,7 @@ ChokaQ sits in the middle: **SQL Server-backed reliability with in-process simpl
 | Capability | ChokaQ |
 |---------|--------|
 | **Storage** | SQL Server (raw ADO.NET) — atomic, transactional |
-| **Dependency Footprint** | Core uses Microsoft abstractions; SQL uses official `Microsoft.Data.SqlClient`; no EF/Dapper/Polly |
+| **Dependency Footprint** | Core uses Microsoft abstractions; SQL uses official `Microsoft.Data.SqlClient`; no general ORM, mapper, or resilience dependency |
 | **Dashboard** | **The Deck** (Blazor Server + SignalR) — built-in |
 | **ORM** | **Custom SqlMapper** — 172 lines, zero deps |
 | **DLQ Management** | **Edit + Resurrect** — fix payloads in-browser |
@@ -28,11 +33,13 @@ ChokaQ sits in the middle: **SQL Server-backed reliability with in-process simpl
 
 ## The Single-Table Problem
 
-Many background job frameworks store **all jobs** — pending, succeeded, failed — in one giant table. Over time:
+A lifecycle store can keep pending, succeeded, and failed jobs in one physical
+table. That is easy to start with, but active fetch and historical retention
+pull the table in different directions. Over time:
 
-- 📈 **Index fragmentation** degrades query performance
-- 🐌 **Fetch queries slow down** because the engine scans millions of completed rows to find the few pending ones
-- 💾 **Storage bloats** without manual cleanup scripts
+- active indexes must coexist with long-lived historical rows;
+- fetch queries spend more work filtering out rows that are not executable;
+- cleanup and retention become part of hot-path performance management.
 
 ChokaQ's **Three Pillars** architecture solves this by physically separating data:
 
@@ -59,17 +66,19 @@ ChokaQ.Storage.SqlServer
 └── Microsoft.Data.SqlClient (official Microsoft ADO.NET driver)
 ```
 
-**What we built ourselves instead of importing:**
+**What ChokaQ keeps inside the project boundary:**
 
-| Instead of... | We built... | Why |
+| Area | ChokaQ implementation | Why |
 |---------------|------------|-----|
-| **Third-party ORMs** | `SqlMapper` + `TypeMapper` | Full control over parameter mapping, no transitive deps |
-| **Resilience libraries** | `SqlRetryPolicy` + `InMemoryCircuitBreaker` | Tailored to our specific failure modes, no policy bloat |
-| **Heavy ORM frameworks** | `Queries.cs` (raw SQL templates) | Precise control over locking hints, OUTPUT clauses, CTEs |
-| **Mediator libraries** | `BusJobDispatcher` + Expression Trees | Compiled delegates instead of reflection-based dispatch |
+| SQL mapping | `SqlMapper` + `TypeMapper` | Full control over parameter mapping and transitive dependencies |
+| Storage resilience | `SqlRetryPolicy` + `InMemoryCircuitBreaker` | Policies tailored to ChokaQ storage and execution failures |
+| SQL query shape | `Queries.cs` raw SQL templates | Precise control over locking hints, `OUTPUT` clauses, and CTEs |
+| Handler dispatch | `BusJobDispatcher` + Expression Trees | Cached compiled delegates for typed handler invocation |
 
 ::: warning 🎯 Design Decision
-Even lightweight ORMs are dependencies. They bring `System.Data` extension methods that may conflict with other versions. ChokaQ's SqlMapper is 172 lines of code that does exactly what we need, nothing more.
+Even small dependencies become part of the host application's compatibility
+surface. ChokaQ keeps the SQL mapping layer narrow so the package can control
+its query behavior and avoid unnecessary transitive version pressure.
 :::
 
 ## Production Patterns Already Implemented
@@ -105,23 +114,23 @@ Lifecycle logs use stable `EventId` values as well. Operators can query `JobRetr
 
 ## When to Choose ChokaQ
 
-✅ **Ideal for:**
-* **SQL Server-centric teams:** Systems that already trust SQL Server and want durable job state without operating a separate broker for background work.
-* **Low extra infrastructure:** Teams that want durable, distributed queues but do not want to deploy and maintain dedicated cluster infrastructure, such as external brokers or distributed caches, just for background jobs.
-* **Complex concurrency needs:** Workloads that require cluster-wide queue limits and bulkhead-style isolation without introducing external distributed lock managers.
-- SQL Server-centric environments
-- Zero dependency conflict requirements
-- Real-time dashboard with edit capabilities
-- Database-level concurrency isolation (Bulkhead)
-- Compliance environments requiring minimal attack surface (fewer deps = fewer CVEs)
-- Teams wanting full control over every line of infrastructure code
+ChokaQ is a good fit when the application already uses SQL Server and the team
+wants durable background work with a small dependency footprint:
 
-❌ **Not designed for:**
-* **Extreme-Scale Event Streaming (1M+ RPS):** If you need to process millions of events per second, a dedicated log-based streaming platform is required. ChokaQ prioritizes transactional safety, rich state management, and operational simplicity over raw extreme throughput.
-- Cross-service pub/sub messaging patterns
-- PostgreSQL or Redis storage (SQL Server only, by design)
-- Recurring/scheduled jobs (not yet supported)
-- Multi-region distributed coordination
+- SQL Server-centric environments;
+- durable queue state without a separate broker for background work;
+- real-time dashboard with operator recovery workflows;
+- database-level queue isolation and bulkhead controls;
+- environments that prefer a smaller transitive dependency surface;
+- teams that want SQL query behavior and lifecycle transitions to be explicit.
+
+**Not designed for:**
+
+- event streaming systems where replayable logs and very high event volume are the primary requirement;
+- cross-service pub/sub messaging patterns;
+- PostgreSQL or Redis storage in the current preview line;
+- recurring/scheduled jobs, which are not yet supported;
+- multi-region distributed coordination.
 
 ## Architecture Notes
 

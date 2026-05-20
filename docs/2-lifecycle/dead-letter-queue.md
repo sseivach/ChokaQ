@@ -8,8 +8,8 @@ or developer needs to inspect the failure.
 
 ## One-Minute Explanation
 
-DLQ is not a trash bin. It is a quarantine table for work that could not safely
-finish through the normal worker path.
+DLQ is not a discard path. It is an inspection and recovery table for work that
+could not safely finish through the normal worker path.
 
 In ChokaQ, failed jobs leave `JobsHot` and move to `JobsDLQ` with their payload,
 type key, queue, attempts, worker information, failure reason, and error details.
@@ -20,7 +20,7 @@ trace, and optionally resurrect the job back into Hot.
 
 | Path | Trigger | Why DLQ is safer than retry |
 | --- | --- | --- |
-| Fatal failure | Smart Worker classifies an exception as non-retryable | Retrying code or payload bugs wastes capacity |
+| Fatal failure | Smart Worker classifies an exception as non-retryable | Repeating code or payload failures increases queue lag without changing the root cause |
 | Max retries exceeded | Transient retries are exhausted | The dependency or handler did not recover in time |
 | Zombie processing job | Heartbeat expires while job is Processing | Side effects may have partially completed |
 | Manual operator action | Admin cancels or isolates failed work | Human decision is required before retry |
@@ -53,7 +53,7 @@ is not only "failed" but "what kind of failure happened?"
 
 ## The Deck Visibility
 
-The Deck should make DLQ work operationally obvious:
+The Deck should make DLQ work clear and repeatable:
 
 - queue and job type;
 - failure reason;

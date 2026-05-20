@@ -19,8 +19,8 @@ While the handler is running, a heartbeat task periodically updates
 `HeartbeatUtc`.
 
 Zombie rescue later checks processing rows whose heartbeat is older than the
-configured timeout. Those rows move to DLQ as `Zombie` rather than being retried
-blindly.
+configured timeout. Those rows move to DLQ as `Zombie` so an operator can
+inspect side-effect risk before resurrection.
 
 ## Why Heartbeat Instead Of Start Time?
 
@@ -80,4 +80,3 @@ can make healthy jobs look dead.
 
 **What metric matters here?**  
 `chokaq.jobs.heartbeat_failures`, plus DLQ rows with `FailureReason = Zombie`.
-

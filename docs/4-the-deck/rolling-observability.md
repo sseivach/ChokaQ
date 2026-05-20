@@ -27,7 +27,7 @@ FROM [chokaq].[JobsDLQ]
 WHERE [FailedAtUtc] >= @OneMinuteCutoff;
 ```
 
-This was not a bad design. It was a good production-preview step because it was:
+This was a reasonable production-preview step because it was:
 
 - easy to reason about;
 - based on the canonical job state tables;
@@ -38,7 +38,7 @@ This was not a bad design. It was a good production-preview step because it was:
 For a small or early system, this version is often exactly where you should
 start. It gives real signals without inventing metrics infrastructure too early.
 
-## Where Version 1 Breaks Down
+## Where Version 1 Stops Being Enough
 
 The bounded lookback has several limits:
 
@@ -57,7 +57,7 @@ outcomes, not the current contents of the DLQ table.
 
 ## Version 2: MetricBuckets
 
-The stronger design separates lifecycle history from rolling observability:
+The next design separates lifecycle history from rolling observability:
 
 ```text
 Hot -> Archive transaction
@@ -90,7 +90,7 @@ CREATE TABLE [chokaq].[MetricBuckets](
 The bucket is currently one UTC second. That is precise enough for 1-minute and
 5-minute dashboard windows without storing one metrics row per job.
 
-## Why The New Version Is Better
+## Why MetricBuckets Became The Next Step
 
 The dashboard now reads this shape:
 
@@ -107,7 +107,7 @@ FROM [chokaq].[MetricBuckets]
 WHERE [BucketStartUtc] >= @FiveMinuteCutoff;
 ```
 
-The advantages are:
+The practical benefits are:
 
 - The dashboard reads tiny time buckets instead of lifecycle history.
 - Requeue and purge no longer erase recent outcome events.
@@ -119,7 +119,7 @@ The advantages are:
 
 ## Trade-Offs
 
-This design is stronger, but not free:
+This design improves the operational read model, but it is not free:
 
 | Cost | Mitigation |
 |---|---|

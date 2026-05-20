@@ -36,12 +36,11 @@ Every major decision should be defendable with:
 Using SQL as the durable coordination boundary. Everything else builds from
 that: fetch, retry, DLQ, observability, and operations.
 
-**What is ChokaQ not trying to be?**  
-It is not Kafka, RabbitMQ, or a distributed log. It is a SQL-backed background
-job engine with strong operational visibility.
+**What boundary does ChokaQ choose?**  
+ChokaQ is a SQL-backed background job engine with strong operational visibility.
+It is not designed as a streaming platform, broker mesh, or distributed log.
 
 **Where is the hardest correctness boundary?**  
 Between handler side effects and job finalization. ChokaQ protects its own
 state with transactions, but external side effects require idempotent handler
 design.
-
