@@ -1,4 +1,4 @@
-# Idempotency Middleware
+﻿# Idempotency Middleware
 
 ![Idempotency middleware claims](/diagrams/35-idempotency-middleware-claims.png)
 
@@ -67,7 +67,7 @@ escape.
 | Handler-only manual dedupe | Flexible. | Repeated boilerplate and inconsistent behavior. |
 | Downstream provider idempotency only | Strong for supported APIs. | Not every side effect has provider keys. |
 
-### Interview questions
+### Additional Questions
 
 **Why is enqueue idempotency not enough?**  
 Because a single accepted job can execute twice after a crash or recovery.

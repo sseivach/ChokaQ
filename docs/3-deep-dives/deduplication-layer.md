@@ -1,4 +1,4 @@
-# Deduplication Layer
+﻿# Deduplication Layer
 
 ![Deduplication layer](/diagrams/58-deduplication-layer.png)
 
@@ -51,7 +51,7 @@ on restart. That is acceptable only for soft suppression, not correctness.
 | Distributed cache lock | Cross-host. | Extra infrastructure and failure modes. |
 | No dedupe layer | Simpler. | More repeated local work under bursts. |
 
-### Interview questions
+### Additional Questions
 
 **Is this exactly-once protection?**  
 No. It is a soft process-local duplicate guard.

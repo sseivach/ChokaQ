@@ -1,4 +1,4 @@
-# Zombie Rescue Service
+﻿# Zombie Rescue Service
 
 ## What is a Zombie Job?
 
@@ -197,7 +197,7 @@ The result is a conservative recovery model: untouched reservations are
 reclaimed automatically, while uncertain executions require inspection,
 idempotency confidence, and an explicit resurrect decision.
 
-## Interview Questions
+## Additional Questions
 
 **Why are Fetched and Processing jobs handled differently?**  
 Fetched means the row is in a local prefetch buffer and user code has not run.

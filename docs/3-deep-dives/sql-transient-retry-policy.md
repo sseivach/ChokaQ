@@ -1,4 +1,4 @@
-# SQL Transient Retry Policy
+﻿# SQL Transient Retry Policy
 
 ![SQL transient retry policy](/diagrams/49-sql-transient-retry-policy.png)
 
@@ -74,7 +74,7 @@ complex, this may deserve a pluggable policy.
 | General-purpose resilience dependency | Mature resilience features. | Extra dependency for one narrow path. |
 | Retry every SQL error | More aggressive recovery. | Can hide real bugs and overload SQL. |
 
-### Interview questions
+### Additional Questions
 
 **Why not count SQL retry as job retry?**  
 Because user code did not run. Job attempts track handler execution, not storage

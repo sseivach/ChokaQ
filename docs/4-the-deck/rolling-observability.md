@@ -1,4 +1,4 @@
-# Rolling Observability Buckets
+﻿# Rolling Observability Buckets
 
 This chapter documents how ChokaQ calculates recent throughput and failure-rate
 signals for The Deck.
@@ -162,7 +162,7 @@ The trade-off is an additional write during finalization. ChokaQ accepts that
 because finalization is already a transactional boundary, and bounded dashboard
 reads are more important than avoiding one small aggregate update.
 
-## Interview Questions
+## Additional Questions
 
 **Why not compute dashboard rates directly from Archive and DLQ forever?**  
 Because those tables grow with retention and operator workflows. Requeue and

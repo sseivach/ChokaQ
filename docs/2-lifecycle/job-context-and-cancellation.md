@@ -1,4 +1,4 @@
-# Job Context And Cancellation
+﻿# Job Context And Cancellation
 
 ![Job context and cancellation](/diagrams/45-job-context-cancellation.png)
 
@@ -71,7 +71,7 @@ storage APIs because that would let handlers bypass lifecycle policy.
 | Ambient static context | Convenient. | Harder tests and hidden coupling. |
 | No context | Simple. | No progress reporting or job-local cancellation surface. |
 
-### Interview questions
+### Additional Questions
 
 **Is cancellation guaranteed to stop side effects?**  
 No. It is cooperative. Downstream systems may already have accepted work.

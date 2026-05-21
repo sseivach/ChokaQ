@@ -1,4 +1,4 @@
-# Health Checks
+﻿# Health Checks
 
 ![Health checks](/diagrams/52-health-checks.png)
 
@@ -71,7 +71,7 @@ operational problem.
 | SQL-only endpoint | Validates storage. | Misses dead background loops. |
 | Metrics-only alerting | Great for trends. | Not ideal for readiness probes. |
 
-### Interview questions
+### Additional Questions
 
 **Why use queue lag instead of depth?**  
 Depth lacks job duration context. Lag measures user-visible waiting time for

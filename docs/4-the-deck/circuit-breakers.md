@@ -1,4 +1,4 @@
-# Circuit Breakers
+﻿# Circuit Breakers
 
 ![Circuit breaker state flow](/diagrams/31-circuit-breaker-state-flow.png)
 
@@ -69,7 +69,7 @@ based on failure rate, failure severity, and recovery behavior.
 | Global pause | Strong protection. | Stops unrelated job types. |
 | Downstream rate limit only | Delegates protection. | Workers can still spend capacity on calls that the dependency is already rejecting. |
 
-### Interview questions
+### Additional Questions
 
 **Why not just use retries?**  
 Retries react per job. A circuit breaker reacts to systemic failure and stops

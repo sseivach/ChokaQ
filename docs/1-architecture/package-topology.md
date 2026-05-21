@@ -1,4 +1,4 @@
-# Package Topology
+﻿# Package Topology
 
 ![Package topology](/diagrams/01-package-topology.png)
 
@@ -94,7 +94,7 @@ For a long-term stable release, it may be useful to add a smaller headless
 package for hosts that do not want dashboard assets. That should be additive,
 not a replacement for the default `ChokaQ` package.
 
-### Interview questions
+### Additional Questions
 
 **Why keep more than one internal package?**  
 Because internal package boundaries express ownership: abstractions, core

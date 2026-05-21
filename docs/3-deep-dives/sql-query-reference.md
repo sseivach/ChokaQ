@@ -1,4 +1,4 @@
-# SQL Query Reference
+﻿# SQL Query Reference
 
 ![Fetch next batch query flow](/diagrams/04-fetch-next-batch-query.png)
 
@@ -216,7 +216,7 @@ queries are therefore part of the runtime contract.
 | Broker visibility timeout | Proven queue primitive. | Less direct SQL inspection and different operational model. |
 | App-level copy/delete | Easy to write. | Unsafe cross-table moves under crash/failure. |
 
-### Interview questions
+### Additional Questions
 
 **Why use `UPDATE ... OUTPUT` for fetch?**  
 Because claiming and returning the exact claimed rows must be one operation.

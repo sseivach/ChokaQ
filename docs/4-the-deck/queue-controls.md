@@ -1,4 +1,4 @@
-# Queue Controls
+﻿# Queue Controls
 
 ![Per-queue runtime controls](/diagrams/47-per-queue-runtime-controls.png)
 
@@ -59,7 +59,7 @@ The Deck must show state clearly and audit/destructive operations separately.
 | Global worker count only | Simple. | Cannot isolate a bad queue. |
 | Separate worker pools per queue | Strong isolation. | More infrastructure and tuning. |
 
-### Interview questions
+### Additional Questions
 
 **Does pause stop running work?**  
 No. It stops new fetches. Running handlers must finish or be cancelled.

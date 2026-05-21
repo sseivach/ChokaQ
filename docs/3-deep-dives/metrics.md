@@ -1,4 +1,4 @@
-# Metrics
+﻿# Metrics
 
 ![Metrics instruments and tags](/diagrams/37-metrics-instruments-tags.png)
 
@@ -71,7 +71,7 @@ can become unbounded if applications feed dynamic strings into them.
 | Logs-derived metrics | Flexible. | Slower and more expensive for alerting. |
 | No built-in metrics | Small runtime surface. | Weak production story. |
 
-### Interview questions
+### Additional Questions
 
 **Why is queue lag more important than queue depth?**  
 Depth lacks time context. Lag tells you how long eligible work is actually

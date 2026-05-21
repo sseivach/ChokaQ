@@ -1,4 +1,4 @@
-# Telemetry
+﻿# Telemetry
 
 ![Telemetry signal flow](/diagrams/36-telemetry-signal-flow.png)
 
@@ -60,7 +60,7 @@ connectivity, handler failures, heartbeat failures, or circuit protection.
 | Metrics only | Good for SLOs. | Weak payload/state investigation. |
 | Dashboard only | Operator friendly. | Needs metrics or logs for automated alerting. |
 
-### Interview questions
+### Additional Questions
 
 **What is the source of truth?**  
 SQL storage is authoritative for job state. Metrics and SignalR are derived

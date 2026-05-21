@@ -1,4 +1,4 @@
-# API Examples
+﻿# API Examples
 
 This page collects small, copyable examples for the public ChokaQ APIs. Start
 with [Getting Started](/getting-started) for the full walkthrough; use this page
@@ -235,7 +235,7 @@ registration shortcuts. The goal is that an application host can install
 `ChokaQ`, register profiles, select storage, map The Deck, and then reason about
 runtime behavior through the documentation.
 
-## Interview Questions
+## Additional Questions
 
 **Why does the handler still need idempotency if enqueue has an idempotency key?**  
 Because enqueue dedupe prevents duplicate active rows. It does not prevent a

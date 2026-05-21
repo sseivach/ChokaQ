@@ -1,4 +1,4 @@
-# Type Resolution
+﻿# Type Resolution
 
 ![Type resolution registry](/diagrams/41-type-resolution-registry.png)
 
@@ -74,7 +74,7 @@ handlers available during migration windows.
 | Store only numeric type IDs | Compact. | Requires central registry and harder debugging. |
 | Dynamic assembly scanning | Flexible. | Slow, unsafe, and unpredictable in trimmed/AOT hosts. |
 
-### Interview questions
+### Additional Questions
 
 **Why not persist CLR type names?**  
 Because SQL rows can outlive refactors. Persisted contracts should be stable

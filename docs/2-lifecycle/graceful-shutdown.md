@@ -1,4 +1,4 @@
-# Graceful Shutdown
+﻿# Graceful Shutdown
 
 ![Graceful shutdown and prefetch release](/diagrams/48-graceful-shutdown-prefetch-release.png)
 
@@ -64,7 +64,7 @@ grace period improves deployment speed but creates more zombie review work.
 | Wait forever | Avoids interruption. | Can hang deployments. |
 | Reset all rows to pending | Simple recovery. | Unsafe for processing side effects. |
 
-### Interview questions
+### Additional Questions
 
 **Why not return processing rows to pending on shutdown?**  
 Because user code may have already changed external systems.

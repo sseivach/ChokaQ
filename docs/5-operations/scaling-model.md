@@ -1,4 +1,4 @@
-# Scaling Model
+﻿# Scaling Model
 
 ![Scaling model](/diagrams/65-scaling-model.png)
 
@@ -36,7 +36,7 @@ Multiple workers can fetch concurrently because SQL row locks and ownership
 predicates coordinate claims. More workers help until SQL or downstream systems
 become the bottleneck.
 
-## Interview Questions
+## Additional Questions
 
 **What happens at 10x load?**  
 First watch queue lag, SQL waits, active workers, and downstream latency. Add

@@ -1,4 +1,4 @@
-# In-Memory Engine
+﻿# In-Memory Engine
 
 ## Two Storage Modes, One Interface
 
@@ -212,7 +212,7 @@ default and in-memory mode as a deliberate local or ephemeral choice.
 The important engineering boundary is that in-memory mode still has pressure
 limits. It does not use "demo mode" as an excuse for unbounded heap growth.
 
-## Interview Questions
+## Additional Questions
 
 **Why keep an in-memory provider at all if SQL Server is the production path?**  
 Because a storage abstraction is easier to trust when it can run fast tests and

@@ -1,4 +1,4 @@
-# Authorization Model
+﻿# Authorization Model
 
 ![The Deck authorization model](/diagrams/54-thedeck-authorization-model.png)
 
@@ -55,7 +55,7 @@ incident visibility and destructive authority.
 | One policy for everything | Simple. | No read-only operator role. |
 | App-specific auth inside every component | Flexible. | Repeated and error-prone. |
 
-### Interview questions
+### Additional Questions
 
 **Why secure The Deck by default?**  
 Because it is a write-capable operations console.

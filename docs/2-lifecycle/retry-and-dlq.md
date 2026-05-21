@@ -1,4 +1,4 @@
-# Retry And DLQ Lifecycle
+﻿# Retry And DLQ Lifecycle
 
 ![Retry and DLQ lifecycle](/diagrams/12-retry-dlq-lifecycle.png)
 
@@ -94,7 +94,7 @@ For disposable telemetry events where loss is acceptable, a durable DLQ may be
 too heavy. For business workflows, payments, emails, reports, and integrations,
 DLQ is the safer default.
 
-### Interview questions
+### Additional Questions
 
 **Why not retry forever?**  
 Because permanent failures become retry storms and consume capacity that healthy

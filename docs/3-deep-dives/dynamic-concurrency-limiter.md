@@ -1,4 +1,4 @@
-# Dynamic Concurrency Limiter (Lock-Free)
+﻿# Dynamic Concurrency Limiter (Lock-Free)
 
 ## The Problem: Static Concurrency Limits
 
@@ -122,7 +122,7 @@ being served by a strict FIFO queue. For background jobs this is acceptable
 because work ordering is already governed by SQL priority, schedule time, queue
 bulkheads, and retry policy.
 
-## Interview Questions
+## Additional Questions
 
 **Why not just recreate a `SemaphoreSlim` when capacity changes?**  
 Because existing waiters and acquired permits belong to the old object. Swapping

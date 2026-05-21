@@ -1,4 +1,4 @@
-# Queue Registry And Job Profiles
+﻿# Queue Registry And Job Profiles
 
 ![Queue registry and profiles](/diagrams/46-queue-registry-profiles.png)
 
@@ -73,7 +73,7 @@ and The Deck must make both visible.
 | Queue owns handler mapping | Operationally direct. | Makes dispatch depend on runtime queue config. |
 | No named queues | Simpler storage. | No per-queue throttling or pause. |
 
-### Interview questions
+### Additional Questions
 
 **Why separate type key from queue?**  
 Type key is the message contract. Queue is an operational partition.

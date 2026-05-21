@@ -1,4 +1,4 @@
-# Smart Worker (Fast-Fail)
+﻿# Smart Worker (Fast-Fail)
 
 ## The Retry Storm Problem
 
@@ -184,7 +184,7 @@ Classification must stay conservative. If a failure might be transient, it
 should remain retryable unless the application explicitly marks it fatal with
 `ChokaQFatalException`.
 
-## Interview Questions
+## Additional Questions
 
 **Why not let every failed job retry until max attempts?**  
 Because retry is a recovery tool, not a correctness tool. Fatal code and payload

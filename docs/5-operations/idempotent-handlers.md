@@ -1,4 +1,4 @@
-# Idempotent Handler Checklist
+﻿# Idempotent Handler Checklist
 
 ![Idempotency key flow](/diagrams/34-idempotency-key-flow.png)
 
@@ -59,7 +59,7 @@ for payments, email, webhooks, and external writes.
 | Disable retries | Avoids retry duplicates. | Loses resilience and still does not solve crash windows. |
 | Provider idempotency only | Strong where available. | Not every dependency supports it. |
 
-### Interview questions
+### Additional Questions
 
 **Why is handler idempotency required?**  
 Because a job can execute more than once after crash/recovery.

@@ -1,4 +1,4 @@
-# Production Readiness Checklist
+﻿# Production Readiness Checklist
 
 ![Production readiness map](/diagrams/08-production-readiness-map.png)
 
@@ -104,7 +104,7 @@ Most production failures are not caused by one missing API call. They happen at
 the boundary between code, database, deployment, observability, and operator
 permissions. This checklist forces those boundaries into the release process.
 
-### Interview questions
+### Additional Questions
 
 **What is the first production metric you would watch?**  
 Queue lag. Depth matters, but lag tells you how long eligible work is waiting.

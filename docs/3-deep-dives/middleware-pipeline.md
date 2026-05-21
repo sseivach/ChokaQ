@@ -1,4 +1,4 @@
-# Middleware Pipeline
+﻿# Middleware Pipeline
 
 ![Middleware pipeline](/diagrams/43-middleware-pipeline.png)
 
@@ -66,7 +66,7 @@ so registration should be explicit and documented.
 | Attributes only | Declarative. | Harder dependency injection and ordering. |
 | No middleware | Smaller runtime. | Repeated handler boilerplate. |
 
-### Interview questions
+### Additional Questions
 
 **Why not let middleware own final state transitions?**  
 Because lifecycle correctness must stay centralized in the processor/storage

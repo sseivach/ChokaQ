@@ -1,4 +1,4 @@
-# CHK-04: Expression Trees For Dispatch
+﻿# CHK-04: Expression Trees For Dispatch
 
 ![Expression tree dispatch](/diagrams/66-expression-tree-dispatch.png)
 
@@ -190,7 +190,7 @@ The main trade-off is startup cost for the first job of each type and a small
 cache surface. That is acceptable because the cost is paid once per job type,
 not once per job execution.
 
-## Interview Questions
+## Additional Questions
 
 **Why is reflection lookup acceptable but `MethodInfo.Invoke` is not?**  
 Reflection lookup happens during delegate creation and is cached. `Invoke` would

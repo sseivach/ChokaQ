@@ -1,4 +1,4 @@
-# Retention Cleanup
+﻿# Retention Cleanup
 
 ![Retention cleanup](/diagrams/51-retention-cleanup.png)
 
@@ -60,7 +60,7 @@ retention reduces investigation ability.
 | Purge aggressively | Small database. | Weak incident analysis and recovery. |
 | Archive externally | Keeps SQL smaller. | Adds data pipeline and split investigation surface. |
 
-### Interview questions
+### Additional Questions
 
 **Why batch cleanup?**  
 To bound locks, log growth, and operational impact.

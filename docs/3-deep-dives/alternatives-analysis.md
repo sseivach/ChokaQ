@@ -1,4 +1,4 @@
-# Alternatives Analysis
+﻿# Alternatives Analysis
 
 ![Alternatives analysis](/diagrams/63-alternatives-analysis.png)
 
@@ -48,7 +48,7 @@ not as the only possible backend forever.
 The extension path is provider-oriented: another backend must reproduce the
 same lifecycle semantics, not merely accept and deliver messages.
 
-## Interview Questions
+## Additional Questions
 
 **When is Kafka the stronger fit?**  
 When the core requirement is high-volume ordered event streaming and replay, not

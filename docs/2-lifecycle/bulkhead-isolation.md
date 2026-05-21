@@ -1,4 +1,4 @@
-# CHK-03: Bulkhead Isolation
+﻿# CHK-03: Bulkhead Isolation
 
 ## The Noisy Neighbor Problem
 
@@ -150,7 +150,7 @@ The trade-off is extra SQL work during fetch. ChokaQ accepts that cost because
 the Hot table is intentionally small and indexed for active work. The result is
 stronger isolation with fewer moving parts.
 
-## Interview Questions
+## Additional Questions
 
 **Why choose a database-level bulkhead over per-process worker pools?**  
 Because the database sees all active rows from all instances. Per-process pools

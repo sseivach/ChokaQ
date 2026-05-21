@@ -1,4 +1,4 @@
-# Bus Vs Pipe Dispatch
+﻿# Bus Vs Pipe Dispatch
 
 ![Bus vs Pipe dispatch](/diagrams/44-bus-vs-pipe-dispatch.png)
 
@@ -75,7 +75,7 @@ forking the runtime.
 | Pipe only | Minimal dispatch model. | Loses typed handler ergonomics. |
 | Separate products | Strong isolation. | Duplicated runtime policy. |
 
-### Interview questions
+### Additional Questions
 
 **Which mode should most apps start with?**  
 Bus mode, because typed contracts and handlers are easier to reason about.

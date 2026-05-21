@@ -1,4 +1,4 @@
-# Serialization And Envelope Limits
+﻿# Serialization And Envelope Limits
 
 ![Serialization and envelope limits](/diagrams/42-serialization-envelope-limits.png)
 
@@ -74,7 +74,7 @@ discipline. The benefit is operational readability and lower dependency burden.
 | Persist CLR object graph | Convenient. | Fragile across deployments. |
 | External schema registry | Strong governance. | More infrastructure and friction for preview scope. |
 
-### Interview questions
+### Additional Questions
 
 **Why validate envelope length before storage?**  
 Because database columns and indexes have finite limits. Failing early produces

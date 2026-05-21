@@ -1,4 +1,4 @@
-# Schema Bootstrap And Migrations
+﻿# Schema Bootstrap And Migrations
 
 ![Schema bootstrap and migrations](/diagrams/50-schema-bootstrap-migrations.png)
 
@@ -65,7 +65,7 @@ also be usable in a deployment pipeline.
 | EF migrations | Familiar to many .NET teams. | Adds dependency and does not match hand-tuned SQL templates. |
 | No migration ledger | Simpler. | Harder support and upgrade diagnosis. |
 
-### Interview questions
+### Additional Questions
 
 **Why validate schema name?**  
 Because schema is injected into SQL templates and cannot be parameterized like a

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$DocsRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 )
 
@@ -178,8 +178,8 @@ foreach ($file in $deepDiveFiles) {
     if ($text -notmatch '## Architecture Decision') {
         Add-Failure "Deep-dive article lacks Architecture Decision: $($file.FullName)"
     }
-    if ($text -notmatch '(?i)## Interview Questions|### Interview questions') {
-        Add-Failure "Deep-dive article lacks Interview Questions: $($file.FullName)"
+    if ($text -notmatch '(?i)## Additional Questions|### Additional questions') {
+        Add-Failure "Deep-dive article lacks Additional Questions: $($file.FullName)"
     }
 }
 

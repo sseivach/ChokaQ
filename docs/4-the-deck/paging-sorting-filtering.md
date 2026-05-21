@@ -1,4 +1,4 @@
-# Paging, Sorting And Filtering
+﻿# Paging, Sorting And Filtering
 
 ![Dashboard paging sorting filtering](/diagrams/56-dashboard-paging-sorting-filtering.png)
 
@@ -60,7 +60,7 @@ Deep reporting should use dedicated analytics/export pipelines.
 | Raw SQL sort/filter from UI | Flexible. | Injection and performance risk. |
 | External search index | Powerful. | Extra infrastructure and consistency model. |
 
-### Interview questions
+### Additional Questions
 
 **Why whitelist sort columns?**  
 Because dynamic `ORDER BY` cannot be parameterized like values.

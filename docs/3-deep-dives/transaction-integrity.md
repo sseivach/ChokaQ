@@ -1,4 +1,4 @@
-# Transaction Integrity
+﻿# Transaction Integrity
 
 ![Transaction integrity across Hot, Archive, and DLQ](/diagrams/22-transaction-integrity-hot-archive-dlq.png)
 
@@ -92,7 +92,7 @@ For extremely high-throughput ephemeral events where audit/history is
 unimportant, a broker append log may be a better fit. ChokaQ optimizes for
 durable business work, visibility, and repairability.
 
-### Interview questions
+### Additional Questions
 
 **Which operations must be atomic?**  
 Final state transitions: Hot to Archive, Hot to DLQ, DLQ to Hot, and their

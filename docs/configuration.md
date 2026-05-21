@@ -1,4 +1,4 @@
-# Runtime Configuration
+﻿# Runtime Configuration
 
 ![Configuration validation](/diagrams/60-configuration-validation.png)
 
@@ -443,7 +443,7 @@ infrastructure, bad config should be visible before jobs are claimed.
 | Warn only | Flexible. | Workers may run with unsafe policy. |
 | Validate at first use | Lazy. | Failures happen after jobs are accepted. |
 
-### Interview questions
+### Additional Questions
 
 **Why validate config at startup?**  
 Because retry, storage, and dashboard policy must be correct before workers

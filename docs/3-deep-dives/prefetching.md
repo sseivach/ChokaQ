@@ -1,4 +1,4 @@
-# Prefetching
+﻿# Prefetching
 
 ![Prefetch worker pipeline](/diagrams/25-prefetch-worker-pipeline.png)
 
@@ -69,7 +69,7 @@ the final `MarkAsProcessing` lease gate.
 | Fetch huge batches | Fewer SQL calls. | More stale ownership and memory risk. |
 | Broker push model | Great for some workloads. | Different infrastructure and less direct SQL operational state. |
 
-### Interview questions
+### Additional Questions
 
 **What is the main risk of prefetching?**  
 The worker can hold jobs locally that it has not started yet. ChokaQ bounds that

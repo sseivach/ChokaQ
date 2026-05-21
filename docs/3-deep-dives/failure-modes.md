@@ -1,4 +1,4 @@
-# Failure Modes
+﻿# Failure Modes
 
 ![Failure modes map](/diagrams/64-failure-modes-map.png)
 
@@ -45,7 +45,7 @@ arbitrary dependencies.
 The trade-off is operational work. Teams must monitor DLQ, write idempotent
 handlers, and define resurrection policy for business-critical jobs.
 
-## Interview Questions
+## Additional Questions
 
 **Which failures are automatically safe to retry?**  
 Fetched-but-not-started jobs and explicitly transient handler failures within

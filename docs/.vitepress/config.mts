@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitepress'
+﻿import { defineConfig } from 'vitepress'
 
 const base = process.env.VITEPRESS_BASE ?? '/'
 
@@ -37,7 +37,7 @@ export default defineConfig({
           { text: 'Getting Started', link: '/getting-started' },
           { text: 'API Examples', link: '/api-examples' },
           { text: 'Architecture Decisions', link: '/architecture-decisions' },
-          { text: 'Architecture Interview Guide', link: '/architecture-interview-guide' },
+          { text: 'Architecture Q&A', link: '/architecture-questions' },
           { text: 'Job Contracts', link: '/job-contracts' },
           { text: 'Docker Compose Sample', link: '/samples/docker-compose' },
           { text: 'Local NuGet Lab', link: '/samples/nuget-lab' },

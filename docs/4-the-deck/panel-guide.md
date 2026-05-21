@@ -1,4 +1,4 @@
-# The Deck Panel Guide
+﻿# The Deck Panel Guide
 
 ![The Deck dashboard](/screenshots/the-deck/dashboard.png)
 
@@ -110,7 +110,7 @@ requires ad hoc SQL surgery.
 | Logs-only diagnosis | Easy to add. | Logs do not expose repair actions or current state. |
 | External APM only | Good metrics. | Does not own job lifecycle decisions. |
 
-### Interview questions
+### Additional Questions
 
 **Why does a queue engine need a UI?**  
 Because DLQ, pause, bulk requeue, and circuit inspection are operational

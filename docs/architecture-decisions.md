@@ -1,4 +1,4 @@
-# Architecture Decisions
+﻿# Architecture Decisions
 
 ![Architecture decision map](/diagrams/61-architecture-decision-map.png)
 
@@ -30,7 +30,7 @@ Every major decision should be defendable with:
 - the alternative that was rejected;
 - the failure mode that still remains.
 
-## Interview Questions
+## Additional Questions
 
 **What is the single most important design choice?**  
 Using SQL as the durable coordination boundary. Everything else builds from

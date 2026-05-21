@@ -1,9 +1,8 @@
-# Architecture Interview Guide
+﻿# Architecture Q&A
 
-![Interview system design map](/diagrams/62-interview-system-design-map.png)
+![Architecture questions map](/diagrams/62-architecture-questions-map.png)
 
-This guide prepares ChokaQ for a senior architecture review or system-design
-interview. The goal is not to memorize implementation trivia. The goal is to
+This guide prepares ChokaQ for a senior architecture review or system-design discussion. The goal is not to memorize implementation trivia. The goal is to
 show that each important design has a reason, a cost, and a recovery story.
 
 ## The One-Minute Pitch
@@ -14,7 +13,7 @@ jobs in `JobsDLQ`. Workers claim rows with SQL locking, process them through a
 typed or raw dispatcher, and finalize state through atomic SQL transitions. The
 Deck provides real-time operational inspection and repair workflows.
 
-## Questions A Staff Interviewer Will Ask
+## Additional Architecture Questions
 
 ### Why SQL Server?
 

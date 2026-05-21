@@ -1,4 +1,4 @@
-# CHK-01: Three Pillars Architecture
+﻿# CHK-01: Three Pillars Architecture
 
 ![Three Pillars enterprise map](/diagrams/20-three-pillars-enterprise.png)
 
@@ -247,7 +247,7 @@ uses short SQL transactions so rows are not half-moved.
 | Broker plus separate history store | High broker throughput. | Split operational state. |
 | No DLQ | Smaller model. | Failed work has no repair workflow. |
 
-### Interview questions
+### Additional Questions
 
 **Why not a single jobs table?**  
 Because active fetch should not degrade as history grows.

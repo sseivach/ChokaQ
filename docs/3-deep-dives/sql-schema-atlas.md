@@ -1,4 +1,4 @@
-# SQL Schema Atlas
+﻿# SQL Schema Atlas
 
 ![SQL schema map](/diagrams/03-sql-schema-map.png)
 
@@ -140,7 +140,7 @@ and `OUTPUT` to make those moves atomic.
 | Broker-only queue | High throughput. | Less transparent operational state without extra storage. |
 | Archive outside SQL | Smaller database. | Harder debugging and split-brain evidence. |
 
-### Interview questions
+### Additional Questions
 
 **Why not keep every job in one table?**  
 Because active fetch queries would share indexes and storage with years of

@@ -1,4 +1,4 @@
-# Edit + Resurrect (DLQ Management)
+﻿# Edit + Resurrect (DLQ Management)
 
 ## The Problem: Dead Jobs With Fixable Errors
 
@@ -230,7 +230,7 @@ The trade-off is power. Editing payloads is a dangerous capability and should be
 protected by authorization, audit logging, and operational discipline. The Deck
 should make the workflow easy, but not casual.
 
-## Interview Questions
+## Additional Questions
 
 **Why reset `AttemptCount` during resurrection?**  
 Resurrection implies an operator changed the conditions: payload fixed, code

@@ -1,4 +1,4 @@
-# System.Threading.Channels
+﻿# System.Threading.Channels
 
 ![System.Threading.Channels flow](/diagrams/27-system-threading-channels-flow.png)
 
@@ -54,7 +54,7 @@ production durable queue by itself.
 | Custom lock queue | Full control. | Easy to get cancellation/backpressure wrong. |
 | External broker | Durable and scalable. | Extra infrastructure and different product scope. |
 
-### Interview questions
+### Additional Questions
 
 **Are channels the queue?**  
 Only in in-memory mode. In SQL Server mode, channels are local buffers.

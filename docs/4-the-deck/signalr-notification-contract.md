@@ -1,4 +1,4 @@
-# SignalR Notification Contract
+﻿# SignalR Notification Contract
 
 ![SignalR notification contract](/diagrams/53-signalr-notification-contract.png)
 
@@ -57,7 +57,7 @@ refresh from storage.
 | External pub/sub | Durable fanout possible. | Extra infrastructure for dashboard invalidation. |
 | Browser refresh only | Minimal code. | Poor incident workflow. |
 
-### Interview questions
+### Additional Questions
 
 **Is SignalR authoritative?**  
 No. SQL is authoritative. SignalR is a notification and invalidation layer.

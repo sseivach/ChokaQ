@@ -1,4 +1,4 @@
-# Heartbeat
+﻿# Heartbeat
 
 ![Heartbeat contract](/diagrams/32-heartbeat-contract.png)
 
@@ -68,7 +68,7 @@ budget.
 | External worker registry only | Good process visibility. | Does not prove individual job progress. |
 | No heartbeat | Less database traffic. | Dead workers leave processing rows ambiguous. |
 
-### Interview questions
+### Additional Questions
 
 **Why move heartbeat-expired jobs to DLQ?**  
 Because user code may have already produced side effects. The operator must

@@ -1,4 +1,4 @@
-# Dead Letter Queue
+﻿# Dead Letter Queue
 
 The Dead Letter Queue is the controlled failure boundary in ChokaQ. A job enters
 DLQ when the runtime decides that normal processing should stop and an operator
@@ -112,7 +112,7 @@ evidence, and require a deliberate next action.
 The trade-off is operational responsibility. A DLQ only helps if teams review it
 and have clear ownership for resurrection, purge, or bug fixes.
 
-## Interview Questions
+## Additional Questions
 
 **Why is DLQ separate from Archive?**  
 Archive is retained completion history. DLQ is unresolved failed work that may

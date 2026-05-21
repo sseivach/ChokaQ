@@ -1,4 +1,4 @@
-# Destructive Actions
+﻿# Destructive Actions
 
 ![Destructive actions safety](/diagrams/55-destructive-actions-safety.png)
 
@@ -67,7 +67,7 @@ actions like purge.
 | Hub-only validation | Strong boundary. | Worse UX without previews/confirmations. |
 | No destructive actions | Safer surface. | Operators fall back to dangerous ad hoc SQL. |
 
-### Interview questions
+### Additional Questions
 
 **What is the riskiest action?**  
 Bulk purge, because it permanently destroys recovery evidence.

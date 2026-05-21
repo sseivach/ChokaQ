@@ -1,4 +1,4 @@
-# Failure Taxonomy
+﻿# Failure Taxonomy
 
 ![Failure taxonomy](/diagrams/59-failure-taxonomy.png)
 
@@ -58,7 +58,7 @@ should throw meaningful fatal/throttled/transient signals where possible.
 | Use exception type only | Automatic. | Loses operational categories like zombie/cancelled. |
 | App-owned categories only | Flexible. | No consistent runtime semantics. |
 
-### Interview questions
+### Additional Questions
 
 **Why persist failure reason separately from error details?**  
 Because operators need stable categories for filtering, dashboards, and actions.

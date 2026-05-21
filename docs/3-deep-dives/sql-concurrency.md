@@ -1,4 +1,4 @@
-# SQL Concurrency: UPDLOCK + READPAST
+﻿# SQL Concurrency: UPDLOCK + READPAST
 
 ![SQL locking with READPAST and UPDLOCK](/diagrams/21-sql-locking-readpast-updlock.png)
 
@@ -259,7 +259,7 @@ under contention. ChokaQ prefers progress and concurrency over perfect ordering.
 | `SELECT` then `UPDATE` | Simple. | Races under concurrent workers. |
 | Broker visibility timeout | Mature primitive. | Different operational model. |
 
-### Interview questions
+### Additional Questions
 
 **Why use `UPDATE ... OUTPUT`?**  
 To claim and return the exact rows in one database operation.

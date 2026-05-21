@@ -1,4 +1,4 @@
-# Backpressure Policy
+﻿# Backpressure Policy
 
 Backpressure is the part of a queue system that answers a simple production
 question: what happens when producers create work faster than workers can finish
@@ -140,7 +140,7 @@ magically protect the database from an unlimited producer. Production systems
 still need API rate limits, capacity planning, alerting, and queue-specific
 worker limits.
 
-## Interview Questions
+## Additional Questions
 
 **Why not use an unbounded channel between fetch and processing?**  
 Because an unbounded channel hides pressure until memory becomes the failure

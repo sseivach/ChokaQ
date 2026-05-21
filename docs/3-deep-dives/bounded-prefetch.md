@@ -1,4 +1,4 @@
-# Bounded Prefetch
+﻿# Bounded Prefetch
 
 ![Bounded prefetch capacity](/diagrams/26-bounded-prefetch-capacity.png)
 
@@ -60,7 +60,7 @@ the smallest buffer that keeps processors fed under normal latency.
 | No buffer | Simpler correctness. | More SQL latency on the execution path. |
 | Per-queue buffers | More isolation. | More complexity and tuning surface. |
 
-### Interview questions
+### Additional Questions
 
 **What does bounded prefetch protect?**  
 Process memory, SQL visibility, and fairness across workers.
