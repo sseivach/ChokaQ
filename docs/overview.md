@@ -6,6 +6,8 @@ You do not need to understand every internal detail before using ChokaQ. Start
 with the basic flow, run a sample, then use the deeper pages when a specific
 runtime behavior matters.
 
+![ChokaQ system context](/diagrams/00-global-system-context.png)
+
 ## What Is A Background Job?
 
 A background job is work your application accepts now but runs outside the
