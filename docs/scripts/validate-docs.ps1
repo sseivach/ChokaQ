@@ -1,5 +1,6 @@
-﻿param(
-    [string]$DocsRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+param(
+    [string]$DocsRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
+    [switch]$RequireCompleteRussian
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,16 +35,27 @@ function Resolve-PublicAsset([string]$absoluteUrl) {
     return Join-Path (Join-Path $DocsRoot 'public') $relative
 }
 
+function Get-RelativePathFromRoot([string]$root, [string]$path) {
+    $rootUri = New-Object Uri (($root.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar))
+    $fileUri = New-Object Uri $path
+    return [Uri]::UnescapeDataString($rootUri.MakeRelativeUri($fileUri).ToString()) -replace '/', [IO.Path]::DirectorySeparatorChar
+}
+
 $markdownFiles = Get-ChildItem $DocsRoot -Recurse -Filter '*.md' |
     Where-Object { $_.FullName -notmatch '\\node_modules\\' -and $_.FullName -notmatch '\\.vitepress\\dist\\' }
 
+$englishMarkdownFiles = $markdownFiles |
+    Where-Object { $_.FullName -notmatch '\\ru\\' }
+
+$russianMarkdownFiles = $markdownFiles |
+    Where-Object { $_.FullName -match '\\ru\\' }
+
 $pageUrls = New-Object 'System.Collections.Generic.HashSet[string]'
 foreach ($file in $markdownFiles) {
-    $rootUri = New-Object Uri (($DocsRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar))
-    $fileUri = New-Object Uri $file.FullName
-    $relative = [Uri]::UnescapeDataString($rootUri.MakeRelativeUri($fileUri).ToString()) -replace '/', [IO.Path]::DirectorySeparatorChar
+    $relative = Get-RelativePathFromRoot $DocsRoot $file.FullName
     $url = '/' + (Normalize-UrlPath ($relative -replace '\.md$', ''))
     if ($url -eq '/index') { $url = '/' }
+    if ($url -eq '/ru/index') { $url = '/ru/' }
     $pageUrls.Add($url) | Out-Null
 }
 
@@ -106,6 +118,7 @@ foreach ($file in $markdownFiles) {
             else {
                 $pageUrl = $url.TrimEnd('/')
                 if ($pageUrl -eq '') { $pageUrl = '/' }
+                if ($url -eq '/ru/') { $pageUrl = '/ru/' }
                 if (-not $pageUrls.Contains($pageUrl)) {
                     Add-Failure "Missing page link: $($file.FullName) -> $url"
                 }
@@ -128,6 +141,7 @@ if (Test-Path -LiteralPath $configPath) {
         if (Is-SkippedUrl $url) { continue }
         $pageUrl = $url.TrimEnd('/')
         if ($pageUrl -eq '') { $pageUrl = '/' }
+        if ($url -eq '/ru/') { $pageUrl = '/ru/' }
         if (-not $pageUrls.Contains($pageUrl)) {
             Add-Failure "Missing VitePress nav/sidebar page: $url"
         }
@@ -180,6 +194,45 @@ foreach ($file in $deepDiveFiles) {
     }
     if ($text -notmatch '(?i)## Additional Questions|### Additional questions') {
         Add-Failure "Deep-dive article lacks Additional Questions: $($file.FullName)"
+    }
+}
+
+$russianDeepDiveRoot = Join-Path $DocsRoot 'ru/3-deep-dives'
+$russianDeepDiveFiles = Get-ChildItem $russianDeepDiveRoot -Filter '*.md' -File -ErrorAction SilentlyContinue
+$ruArchitectureDecision = '## ' + [string]::Concat([char[]]@(
+    0x0410, 0x0440, 0x0445, 0x0438, 0x0442, 0x0435, 0x043A, 0x0442, 0x0443, 0x0440,
+    0x043D, 0x043E, 0x0435, 0x0020, 0x0440, 0x0435, 0x0448, 0x0435, 0x043D, 0x0438, 0x0435
+))
+$ruAdditionalQuestions = '## ' + [string]::Concat([char[]]@(
+    0x0414, 0x043E, 0x043F, 0x043E, 0x043B, 0x043D, 0x0438, 0x0442, 0x0435, 0x043B,
+    0x044C, 0x043D, 0x044B, 0x0435, 0x0020, 0x0432, 0x043E, 0x043F, 0x0440, 0x043E, 0x0441, 0x044B
+))
+foreach ($file in $russianDeepDiveFiles) {
+    $text = Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName
+    if ($text -notmatch [regex]::Escape($ruArchitectureDecision)) {
+        Add-Failure "Russian deep-dive article lacks required Architecture Decision heading: $($file.FullName)"
+    }
+    if ($text -notmatch [regex]::Escape($ruAdditionalQuestions)) {
+        Add-Failure "Russian deep-dive article lacks required Additional Questions heading: $($file.FullName)"
+    }
+}
+
+$ruRoot = Join-Path $DocsRoot 'ru'
+foreach ($file in $russianMarkdownFiles) {
+    $relative = Get-RelativePathFromRoot $ruRoot $file.FullName
+    $englishPeer = Join-Path $DocsRoot $relative
+    if (-not (Test-Path -LiteralPath $englishPeer)) {
+        Add-Failure "Russian page has no English source peer: $($file.FullName)"
+    }
+}
+
+if ($RequireCompleteRussian) {
+    foreach ($file in $englishMarkdownFiles) {
+        $relative = Get-RelativePathFromRoot $DocsRoot $file.FullName
+        $russianPeer = Join-Path $ruRoot $relative
+        if (-not (Test-Path -LiteralPath $russianPeer)) {
+            Add-Failure "Missing Russian translation: $relative"
+        }
     }
 }
 
