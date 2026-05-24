@@ -6,6 +6,9 @@ You do not need to understand every internal detail before using ChokaQ. Start
 with the basic flow, run a sample, then use the deeper pages when a specific
 runtime behavior matters.
 
+For the end-to-end embedded runtime picture, read [Runtime Model](/runtime-model)
+first.
+
 ![ChokaQ system context](/diagrams/00-global-system-context.png)
 
 ## What Is A Background Job?

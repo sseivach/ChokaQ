@@ -16,6 +16,7 @@ const enSidebar = [
     text: 'Introduction',
     items: [
       { text: 'Overview', link: '/overview' },
+      { text: 'Runtime Model', link: '/runtime-model' },
       { text: 'Getting Started', link: '/getting-started' },
       { text: 'API Examples', link: '/api-examples' },
       { text: 'Architecture Decisions', link: '/architecture-decisions' },
@@ -135,6 +136,7 @@ const ruSidebar = [
     text: 'Введение',
     items: [
       { text: 'Обзор', link: '/ru/overview' },
+      { text: 'Runtime Model', link: '/ru/runtime-model' },
       { text: 'Быстрый старт', link: '/ru/getting-started' },
       { text: 'Примеры API', link: '/ru/api-examples' },
       { text: 'Job Contracts', link: '/ru/job-contracts' },

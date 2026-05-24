@@ -80,8 +80,9 @@ out of Hot so the active-work table stays small.
 
 ## What To Read First
 
-If you are new to ChokaQ, start with [Overview](/overview). It explains the
-system in small steps.
+If you are new to ChokaQ, start with [Runtime Model](/runtime-model). It explains
+where ChokaQ runs, how it stores work, and how your handlers are called. Then
+continue with [Overview](/overview) for the broader tour.
 
 If you want to run code immediately, start with
 [Getting Started](/getting-started) or the [Docker Compose Sample](/samples/docker-compose).

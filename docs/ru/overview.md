@@ -6,6 +6,9 @@
 деталь. Сначала разберите базовый flow, запустите пример, а к глубоким статьям
 возвращайтесь тогда, когда конкретное runtime-поведение становится важным.
 
+Если нужна end-to-end картина embedded runtime, сначала прочитайте
+[Runtime Model](/ru/runtime-model).
+
 ![ChokaQ system context](/diagrams/00-global-system-context.png)
 
 ## Что такое background job
