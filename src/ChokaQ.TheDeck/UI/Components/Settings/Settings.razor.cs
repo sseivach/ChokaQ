@@ -32,6 +32,8 @@ public partial class Settings
     {
         // Validation logic
         if (RetryDelaySeconds < 1) RetryDelaySeconds = 1;
+        if (MaxRetries < 1) MaxRetries = 1;
+        if (MaxRetries > 10) MaxRetries = 10;
         if (DesiredWorkers < 0) DesiredWorkers = 0;
         if (DesiredWorkers > 100) DesiredWorkers = 100;
 

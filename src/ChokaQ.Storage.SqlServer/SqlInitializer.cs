@@ -56,18 +56,26 @@ internal class SqlInitializer
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync(ct);
             connection.SetCommandTimeout(_commandTimeoutSeconds);
+            await AcquireInitializationLockAsync(connection, ct);
 
-            // 2. Define execution order
-            // Tables must be created before Stored Procedures
-            var scripts = new[]
+            try
             {
-                "ChokaQ.Storage.SqlServer.Scripts.SchemaTemplate.sql",
-                "ChokaQ.Storage.SqlServer.Scripts.CleanupProcTemplate.sql"
-            };
+                // 2. Define execution order
+                // Tables must be created before Stored Procedures
+                var scripts = new[]
+                {
+                    "ChokaQ.Storage.SqlServer.Scripts.SchemaTemplate.sql",
+                    "ChokaQ.Storage.SqlServer.Scripts.CleanupProcTemplate.sql"
+                };
 
-            foreach (var resourceName in scripts)
+                foreach (var resourceName in scripts)
+                {
+                    await ExecuteScriptFromResourceAsync(connection, resourceName, ct);
+                }
+            }
+            finally
             {
-                await ExecuteScriptFromResourceAsync(connection, resourceName, ct);
+                await ReleaseInitializationLockAsync(connection);
             }
 
             _logger.LogInformation(
@@ -81,6 +89,68 @@ internal class SqlInitializer
                 ex,
                 "ChokaQ database initialization failed. Application may not function correctly.");
             throw;
+        }
+    }
+
+    private async Task ReleaseInitializationLockAsync(SqlConnection connection)
+    {
+        try
+        {
+            using var command = new SqlCommand(
+                """
+                EXEC sp_releaseapplock
+                    @Resource = @Resource,
+                    @LockOwner = 'Session';
+                """,
+                connection)
+            {
+                CommandTimeout = Math.Max(_commandTimeoutSeconds, 30)
+            };
+
+            command.Parameters.AddWithValue("@Resource", $"ChokaQ.SqlInitializer.{_schemaName}");
+            await command.ExecuteNonQueryAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to release ChokaQ SQL initialization lock for schema {Schema}.",
+                _schemaName);
+        }
+    }
+
+    private async Task AcquireInitializationLockAsync(SqlConnection connection, CancellationToken ct)
+    {
+        var lockTimeoutMs = (int)Math.Min(
+            Math.Max((long)_commandTimeoutSeconds * 1000, 300_000),
+            int.MaxValue);
+        using var command = new SqlCommand(
+            """
+            DECLARE @Result int;
+
+            EXEC @Result = sp_getapplock
+                @Resource = @Resource,
+                @LockMode = 'Exclusive',
+                @LockOwner = 'Session',
+                @LockTimeout = @LockTimeoutMs;
+
+            SELECT @Result;
+            """,
+            connection)
+        {
+            CommandTimeout = Math.Max(_commandTimeoutSeconds, 300)
+        };
+
+        command.Parameters.AddWithValue("@Resource", $"ChokaQ.SqlInitializer.{_schemaName}");
+        command.Parameters.AddWithValue("@LockTimeoutMs", lockTimeoutMs);
+
+        var scalar = await command.ExecuteScalarAsync(ct);
+        var lockResult = Convert.ToInt32(scalar);
+
+        if (lockResult < 0)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for ChokaQ SQL initialization lock for schema '{_schemaName}'.");
         }
     }
 

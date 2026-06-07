@@ -99,18 +99,24 @@ internal sealed class Queries
             (@Id, @Queue, @Type, @Payload, @Tags, @IdempotencyKey, @Priority, 0,
              0, @ScheduledAt, SYSUTCDATETIME(), SYSUTCDATETIME(), @CreatedBy);
             
-            -- Ensure queue exists in config (Added MaxWorkers)
-            IF NOT EXISTS (SELECT 1 FROM [{schema}].[Queues] WHERE [Name] = @Queue)
-                INSERT INTO [{schema}].[Queues] ([Name], [IsPaused], [IsActive], [MaxWorkers], [LastUpdatedUtc])
-                VALUES (@Queue, 0, 1, NULL, SYSUTCDATETIME());
+            -- Ensure queue exists in config. The lock hint makes concurrent first-use enqueue
+            -- calls serialize on the queue key instead of racing into a duplicate PK insert.
+            INSERT INTO [{schema}].[Queues] ([Name], [IsPaused], [IsActive], [MaxWorkers], [LastUpdatedUtc])
+            SELECT @Queue, 0, 1, NULL, SYSUTCDATETIME()
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM [{schema}].[Queues] WITH (UPDLOCK, HOLDLOCK)
+                WHERE [Name] = @Queue
+            );
             
-            -- Ensure stats row exists (MERGE for atomicity)
-            MERGE [{schema}].[StatsSummary] AS target
-            USING (SELECT @Queue AS Queue) AS source
-            ON target.[Queue] = source.Queue
-            WHEN NOT MATCHED THEN
-                INSERT ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal])
-                VALUES (@Queue, 0, 0, 0);";
+            -- Ensure stats row exists under the same first-use concurrency pattern.
+            INSERT INTO [{schema}].[StatsSummary] ([Queue], [SucceededTotal], [FailedTotal], [RetriedTotal])
+            SELECT @Queue, 0, 0, 0
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM [{schema}].[StatsSummary] WITH (UPDLOCK, HOLDLOCK)
+                WHERE [Queue] = @Queue
+            );";
 
         // THE BULKHEAD PATTERN:
         // Calculates currently active jobs per queue and also ranks candidates inside each queue.
@@ -233,7 +239,7 @@ internal sealed class Queries
                        [CreatedBy], [LastModifiedBy], [CreatedAtUtc], [StartedAtUtc], SYSUTCDATETIME(), @DurationMs
                 FROM @Moved;
 
-                MERGE [{schema}].[StatsSummary] AS target
+                MERGE [{schema}].[StatsSummary] WITH (HOLDLOCK) AS target
                 USING (
                     SELECT [Queue], COUNT_BIG(1) AS SucceededCount
                     FROM @Moved
@@ -297,7 +303,7 @@ internal sealed class Queries
                        [WorkerId], [CreatedBy], [LastModifiedBy], [CreatedAtUtc], SYSUTCDATETIME()
                 FROM @Moved;
 
-                MERGE [{schema}].[StatsSummary] AS target
+                MERGE [{schema}].[StatsSummary] WITH (HOLDLOCK) AS target
                 USING (
                     SELECT [Queue], COUNT_BIG(1) AS FailedCount
                     FROM @Moved
@@ -456,7 +462,7 @@ internal sealed class Queries
                 WHERE [Id] = @Id
                   AND (@WorkerId IS NULL OR [WorkerId] = @WorkerId);
 
-                MERGE [{schema}].[StatsSummary] AS target
+                MERGE [{schema}].[StatsSummary] WITH (HOLDLOCK) AS target
                 USING (
                     SELECT [Queue], COUNT_BIG(1) AS RetriedCount
                     FROM @Moved
@@ -840,7 +846,7 @@ internal sealed class Queries
             ORDER BY q.[Name]";
 
         SetQueuePaused = $@"
-            MERGE [{schema}].[Queues] AS t
+            MERGE [{schema}].[Queues] WITH (HOLDLOCK) AS t
             USING (SELECT @Name AS Name) AS s ON (t.[Name] = s.Name)
             WHEN MATCHED THEN 
                 UPDATE SET [IsPaused] = @IsPaused, [LastUpdatedUtc] = SYSUTCDATETIME()
@@ -849,7 +855,7 @@ internal sealed class Queries
                 VALUES (@Name, @IsPaused, 1, NULL, SYSUTCDATETIME());";
 
         SetQueueZombieTimeout = $@"
-            MERGE [{schema}].[Queues] AS t
+            MERGE [{schema}].[Queues] WITH (HOLDLOCK) AS t
             USING (SELECT @Name AS Name) AS s ON (t.[Name] = s.Name)
             WHEN MATCHED THEN 
                 UPDATE SET [ZombieTimeoutSeconds] = @Timeout, [LastUpdatedUtc] = SYSUTCDATETIME()
@@ -858,7 +864,7 @@ internal sealed class Queries
                 VALUES (@Name, 0, 1, @Timeout, NULL, SYSUTCDATETIME());";
 
         SetQueueMaxWorkers = $@"
-            MERGE [{schema}].[Queues] AS t
+            MERGE [{schema}].[Queues] WITH (HOLDLOCK) AS t
             USING (SELECT @Name AS Name) AS s ON (t.[Name] = s.Name)
             WHEN MATCHED THEN 
                 UPDATE SET [MaxWorkers] = @MaxWorkers, [LastUpdatedUtc] = SYSUTCDATETIME()
@@ -942,7 +948,7 @@ internal sealed class Queries
                        [CreatedAtUtc], SYSUTCDATETIME()
                 FROM @Moved;
 
-                MERGE [{schema}].[StatsSummary] AS target
+                MERGE [{schema}].[StatsSummary] WITH (HOLDLOCK) AS target
                 USING (
                     SELECT [Queue], COUNT_BIG(1) AS ZombieCount
                     FROM @Moved
@@ -1027,7 +1033,7 @@ internal sealed class Queries
                        [WorkerId], [CreatedBy], @CancelledBy, [CreatedAtUtc], SYSUTCDATETIME()
                 FROM @Moved;
 
-                MERGE [{schema}].[StatsSummary] AS target
+                MERGE [{schema}].[StatsSummary] WITH (HOLDLOCK) AS target
                 USING (
                     SELECT [Queue], COUNT_BIG(1) AS CancelledCount
                     FROM @Moved
@@ -1071,7 +1077,7 @@ internal sealed class Queries
                         DATEDIFF(SECOND, CONVERT(datetime2(0), '20000101'), @MetricObservedAtUtc),
                         CONVERT(datetime2(0), '20000101'));
 
-                MERGE [{schema}].[MetricBuckets] AS target
+                MERGE [{schema}].[MetricBuckets] WITH (HOLDLOCK) AS target
                 USING (
                     SELECT
                         @MetricBucketStartUtc AS [BucketStartUtc],

@@ -89,6 +89,54 @@ public class SqlConcurrencyTests
         marked.Should().OnlyContain(result => result);
     }
 
+    [Fact]
+    public async Task EnqueueAsync_ConcurrentSameNewQueue_ShouldCreateQueueMetadataOnce()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+        var queue = $"burst-{NewId()}";
+
+        // Act
+        var tasks = Enumerable.Range(0, 100)
+            .Select(_ => _storage.EnqueueAsync(NewId(), queue, "BurstJob", "{}").AsTask())
+            .ToArray();
+
+        var jobIds = await Task.WhenAll(tasks);
+
+        // Assert
+        jobIds.Should().OnlyHaveUniqueItems();
+
+        var queues = (await _storage.GetQueuesAsync()).ToList();
+        queues.Should().ContainSingle(q => q.Name == queue);
+
+        var stats = (await _storage.GetQueueStatsAsync()).ToList();
+        stats.Should().ContainSingle(s => s.Queue == queue);
+    }
+
+    [Fact]
+    public async Task QueueManagementAsync_ConcurrentSameNewQueue_ShouldCreateQueueMetadataOnce()
+    {
+        // Arrange
+        await _fixture.CleanTablesAsync();
+        var queue = $"control-{NewId()}";
+
+        // Act
+        var tasks = Enumerable.Range(0, 60)
+            .Select(i => (i % 3) switch
+            {
+                0 => _storage.SetQueuePausedAsync(queue, i % 2 == 0).AsTask(),
+                1 => _storage.SetQueueZombieTimeoutAsync(queue, 30 + i).AsTask(),
+                _ => _storage.SetQueueMaxWorkersAsync(queue, 1 + i).AsTask()
+            })
+            .ToArray();
+
+        await Task.WhenAll(tasks);
+
+        // Assert
+        var queues = (await _storage.GetQueuesAsync()).ToList();
+        queues.Should().ContainSingle(q => q.Name == queue);
+    }
+
     [Fact(Skip = "SQL Server deadlock under high concurrency - known limitation")]
     public async Task EnqueueAsync_WithSameIdempotencyKey_ShouldReturnSameId()
     {

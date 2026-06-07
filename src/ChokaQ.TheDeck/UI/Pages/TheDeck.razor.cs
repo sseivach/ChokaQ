@@ -34,6 +34,8 @@ public partial class TheDeck : IAsyncDisposable
     private Components.JobMatrix.JobMatrix _jobMatrix = default!;
     private System.Timers.Timer? _uiRefreshTimer;
     private readonly SemaphoreSlim _reconciliationGate = new(1, 1);
+    private readonly CancellationTokenSource _disposeCts = new();
+    private volatile bool _isDisposed;
 
 
     private JobSource _currentContext = JobSource.Hot;
@@ -60,7 +62,7 @@ public partial class TheDeck : IAsyncDisposable
 
         _uiRefreshTimer = new System.Timers.Timer(2000);
         _uiRefreshTimer.AutoReset = true;
-        _uiRefreshTimer.Elapsed += async (sender, e) => await LoadDataAsync(skipIfBusy: true);
+        _uiRefreshTimer.Elapsed += OnUiRefreshTimerElapsed;
         _uiRefreshTimer.Start();
 
         var hubPath = Options.RoutePrefix.TrimEnd('/') + "/hub";
@@ -75,6 +77,25 @@ public partial class TheDeck : IAsyncDisposable
 
         await _hubConnection.StartAsync();
         AddLog("System connected", "Success");
+    }
+
+    private async void OnUiRefreshTimerElapsed(object? sender, System.Timers.ElapsedEventArgs e)
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        try
+        {
+            await LoadDataAsync(skipIfBusy: true);
+        }
+        catch (OperationCanceledException) when (_isDisposed)
+        {
+        }
+        catch (ObjectDisposedException) when (_isDisposed)
+        {
+        }
     }
 
     private async Task LoadDataAsync(bool skipIfBusy = false)
@@ -490,15 +511,27 @@ public partial class TheDeck : IAsyncDisposable
 
     private async Task RunExclusiveReconciliationAsync(Func<Task> action, bool skipIfBusy = false)
     {
-        bool entered;
-        if (skipIfBusy)
+        if (_isDisposed)
         {
-            entered = await _reconciliationGate.WaitAsync(0);
+            return;
         }
-        else
+
+        bool entered;
+        try
         {
-            await _reconciliationGate.WaitAsync();
-            entered = true;
+            if (skipIfBusy)
+            {
+                entered = await _reconciliationGate.WaitAsync(0, _disposeCts.Token);
+            }
+            else
+            {
+                await _reconciliationGate.WaitAsync(_disposeCts.Token);
+                entered = true;
+            }
+        }
+        catch (OperationCanceledException) when (_isDisposed)
+        {
+            return;
         }
 
         if (!entered)
@@ -508,7 +541,10 @@ public partial class TheDeck : IAsyncDisposable
 
         try
         {
-            await action();
+            if (!_isDisposed)
+            {
+                await action();
+            }
         }
         finally
         {
@@ -531,14 +567,26 @@ public partial class TheDeck : IAsyncDisposable
 
     private async Task ShowToastAsync(string message, string level)
     {
+        if (_isDisposed)
+        {
+            return;
+        }
+
         var toast = new ToastModel(Guid.NewGuid(), message, level);
         _activeToasts.Add(toast);
         await InvokeAsync(StateHasChanged);
 
 
-        await Task.Delay(4000);
+        try
+        {
+            await Task.Delay(4000, _disposeCts.Token);
+        }
+        catch (OperationCanceledException) when (_isDisposed)
+        {
+            return;
+        }
 
-        if (_activeToasts.Contains(toast))
+        if (!_isDisposed && _activeToasts.Contains(toast))
         {
             _activeToasts.Remove(toast);
             await InvokeAsync(StateHasChanged);
@@ -559,12 +607,30 @@ public partial class TheDeck : IAsyncDisposable
 
     private void ThrottledRender()
     {
+        if (_isDisposed)
+        {
+            return;
+        }
+
         if (_renderPending) return;
         _renderPending = true;
 
         InvokeAsync(async () =>
         {
-            await Task.Delay(100);
+            try
+            {
+                await Task.Delay(100, _disposeCts.Token);
+            }
+            catch (OperationCanceledException) when (_isDisposed)
+            {
+                return;
+            }
+
+            if (_isDisposed)
+            {
+                return;
+            }
+
             _renderPending = false;
             StateHasChanged();
         });
@@ -572,13 +638,17 @@ public partial class TheDeck : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _isDisposed = true;
+        _disposeCts.Cancel();
+
         if (_uiRefreshTimer is not null)
         {
             _uiRefreshTimer.Stop();
+            _uiRefreshTimer.Elapsed -= OnUiRefreshTimerElapsed;
             _uiRefreshTimer.Dispose();
         }
         if (_hubConnection is not null) await _hubConnection.DisposeAsync();
-        _reconciliationGate.Dispose();
+        _disposeCts.Dispose();
         GC.SuppressFinalize(this);
     }
 }

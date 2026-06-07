@@ -61,6 +61,38 @@ body {
     width: 25%;
     min-width: 300px;
     flex-shrink: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.deck__side-scroll {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 0.35rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--sector-border-highlight) transparent;
+}
+
+.deck__side-scroll::-webkit-scrollbar {
+    width: 8px;
+}
+
+.deck__side-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.deck__side-scroll::-webkit-scrollbar-thumb {
+    background-color: var(--sector-border-color);
+    border-radius: 4px;
+}
+
+.deck__side-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: var(--sector-border-highlight);
 }
 
 
@@ -98,17 +130,18 @@ body {
 }
 
 .deck__row--health {
-    height: 10rem;
+    height: 14rem;
     flex-shrink: 0;
 }
 
 .deck__row--circuits {
-    height: 6rem;
+    height: 10rem;
     flex-shrink: 0;
 }
 
 .deck__row--ops {
-    flex: 1;
+    height: 34rem;
+    flex-shrink: 0;
     min-height: 0;
 }
 
@@ -147,47 +180,6 @@ body {
 
 
 /* Sector Styling applied via classes directly */
-
-/* ==========================================
-   COMPONENT STYLES: HeaderRight
-   ========================================== */
-
-.header-right {
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 2rem;
-}
-
-.header-right__selector {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.header-right__label {
-    opacity: 0.8;
-    font-size: 0.8em;
-}
-
-.header-right__select {
-    background: rgba(0, 0, 0, 0.3);
-    color: var(--deck-text-color);
-    border: 1px solid var(--sector-border-color);
-    padding: 0.2rem 0.5rem;
-    font-family: var(--deck-font-family);
-    font-size: 0.9em;
-    text-transform: uppercase;
-    cursor: pointer;
-}
-
-.header-right__select:focus {
-    outline: none;
-    border-color: var(--sector-border-highlight);
-    background: rgba(0, 0, 0, 0.5);
-}
-
 
 /* ==========================================
    SHARED COMPONENT STYLES
@@ -570,6 +562,40 @@ input[type="checkbox"]:checked::after {
     letter-spacing: 0.5px;
 }
 
+.header-left__theme {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding-left: 1rem;
+    margin-left: 0.5rem;
+    border-left: 1px solid var(--sector-border-color);
+}
+
+.header-left__theme-label {
+    font-size: 0.75rem;
+    opacity: 0.7;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.header-left__theme-select {
+    width: 7rem;
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--deck-text-color);
+    border: 1px solid var(--sector-border-color);
+    padding: 0.2rem 0.5rem;
+    font-family: var(--deck-font-family);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.header-left__theme-select:focus {
+    outline: none;
+    border-color: var(--sector-border-highlight);
+    background: rgba(0, 0, 0, 0.5);
+}
+
 /* ==========================================
    COMPONENT STYLES: Circuits
    ========================================== */
@@ -601,6 +627,7 @@ input[type="checkbox"]:checked::after {
     flex: 1;
     min-height: 0;
     display: flex;
+    align-items: flex-start;
     flex-wrap: wrap;
     gap: 0.5rem;
     overflow-y: auto;
@@ -634,7 +661,7 @@ input[type="checkbox"]:checked::after {
     padding: 0.5rem;
     min-width: 10rem;
     max-width: 10rem;
-    flex: 1;
+    flex: 0 0 10rem;
     font-family: var(--deck-font-family);
 }
 

@@ -18,12 +18,7 @@
 
             <div class="settings__row">
                 <label class="settings__label">MAX RETRIES</label>
-                <select class="settings__select" @bind="MaxRetries">
-                    @for (int i = 1; i <= 10; i++)
-                    {
-                        <option value="@i">@i</option>
-                    }
-                </select>
+                <input type="number" class="settings__input" min="1" max="10" @bind="MaxRetries" />
             </div>
 
             <div class="settings__row">

@@ -1,7 +1,6 @@
 @page "/chokaq"
 @using ChokaQ.TheDeck.Enums
 @using ChokaQ.TheDeck.UI.Components.HeaderLeft
-@using ChokaQ.TheDeck.UI.Components.HeaderRight
 @using ChokaQ.TheDeck.UI.Components.Stats
 @using ChokaQ.TheDeck.UI.Components.JobMatrix
 @using ChokaQ.TheDeck.UI.Components.Queues
@@ -54,37 +53,35 @@
     </div>
 
     <aside class="deck__col deck__col--side">
-        <header class="deck__row deck__row--header">
-            <HeaderRight />
-        </header>
+        <div class="deck__side-scroll">
+            <section class="deck__row deck__row--settings">
+                <Settings IsConnected="IsConnected" OnLog="HandleLog" />
+            </section>
 
-        <section class="deck__row deck__row--settings">
-            <Settings IsConnected="IsConnected" OnLog="HandleLog" />
-        </section>
+            <section class="deck__row deck__row--health">
+                <Health HealthSnapshot="_systemHealth"
+                        OnTopErrorSelected="HandleTopErrorSelected" />
+            </section>
 
-        <section class="deck__row deck__row--health">
-            <Health HealthSnapshot="_systemHealth"
-                    OnTopErrorSelected="HandleTopErrorSelected" />
-        </section>
+            <section class="deck__row deck__row--circuits">
+                <Circuits Breakers="_circuits" />
+            </section>
 
-        <section class="deck__row deck__row--circuits">
-            <Circuits Breakers="_circuits" />
-        </section>
-
-        <section class="deck__row deck__row--ops">
-            <OpsPanel @ref="_opsPanel"
-                      HubConnection="_hubConnection"
-                      IsHistoryMode="IsHistoryMode"
-                      CurrentContext="_currentContext"
-                      TotalItems="_historyTotalItems"
-                      CurrentPage="_historyPageNumber"
-                      PageSize="_historyPageSize"
-                      ActiveHistoryFilter="_lastHistoryFilter"
-                      OnLoadRequest="HandleHistoryLoadRequest"
-                      OnDataChanged="HandleDataRefreshRequest"
-                      OnRequeue="HandleRequeueRequested"
-                      OnDelete="HandleDeleteRequested" />
-        </section>
+            <section class="deck__row deck__row--ops">
+                <OpsPanel @ref="_opsPanel"
+                          HubConnection="_hubConnection"
+                          IsHistoryMode="IsHistoryMode"
+                          CurrentContext="_currentContext"
+                          TotalItems="_historyTotalItems"
+                          CurrentPage="_historyPageNumber"
+                          PageSize="_historyPageSize"
+                          ActiveHistoryFilter="_lastHistoryFilter"
+                          OnLoadRequest="HandleHistoryLoadRequest"
+                          OnDataChanged="HandleDataRefreshRequest"
+                          OnRequeue="HandleRequeueRequested"
+                          OnDelete="HandleDeleteRequested" />
+            </section>
+        </div>
     </aside>
 
     <ToastContainer Toasts="_activeToasts" OnClose="RemoveToast" />

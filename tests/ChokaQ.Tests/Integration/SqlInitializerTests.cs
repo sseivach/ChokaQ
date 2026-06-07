@@ -207,4 +207,46 @@ public class SqlInitializerTests
         var count = (int)(await cmd.ExecuteScalarAsync())!;
         count.Should().Be(7, "All ChokaQ tables, including MetricBuckets and SchemaMigrations, should exist after double initialization");
     }
+
+    [Fact]
+    public async Task InitializeAsync_ConcurrentSameSchema_ShouldBeIdempotent()
+    {
+        // Arrange
+        var testSchema = "test_schema_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+
+        // Act
+        var tasks = Enumerable.Range(0, 4)
+            .Select(_ =>
+            {
+                var initializer = new SqlInitializer(
+                    _fixture.ConnectionString,
+                    testSchema,
+                    NullLogger<SqlInitializer>.Instance);
+
+                return initializer.InitializeAsync(CancellationToken.None);
+            })
+            .ToArray();
+
+        await Task.WhenAll(tasks);
+
+        // Assert
+        await using var conn = new SqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+
+        var tableCountCmd = new SqlCommand($@"
+            SELECT COUNT(*)
+            FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_SCHEMA = @Schema", conn);
+        tableCountCmd.Parameters.AddWithValue("@Schema", testSchema);
+
+        var tableCount = (int)(await tableCountCmd.ExecuteScalarAsync())!;
+        tableCount.Should().Be(7);
+
+        var migrationCountCmd = new SqlCommand($@"
+            SELECT COUNT(*)
+            FROM [{testSchema}].[SchemaMigrations]", conn);
+
+        var migrationCount = (int)(await migrationCountCmd.ExecuteScalarAsync())!;
+        migrationCount.Should().Be(3);
+    }
 }
