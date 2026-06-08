@@ -33,8 +33,8 @@ The lab validates the NuGet consumer experience:
 - retry, throttling, timeout, and fatal-DLQ paths are visible;
 - queue pause/resume and worker scaling work through public APIs.
 
-If this app fails to restore or run from local packages, the package shape is not
-ready to publish.
+If this app fails to restore or run from a NuGet feed, the package-consumer path
+is not healthy.
 
 ## Why It Uses SQL Server
 
@@ -53,19 +53,7 @@ miss the most important parts of ChokaQ:
 
 For that reason, NuGetLab intentionally starts with SQL.
 
-## Run The Lab
-
-From the repository root, build local packages into `artifacts/packages`.
-
-```powershell
-New-Item -ItemType Directory -Force artifacts\packages | Out-Null
-dotnet build ChokaQ.sln --configuration Release --no-restore
-dotnet pack src\ChokaQ.Abstractions\ChokaQ.Abstractions.csproj --configuration Release --no-build --no-restore -o artifacts\packages
-dotnet pack src\ChokaQ.Core\ChokaQ.Core.csproj --configuration Release --no-build --no-restore -o artifacts\packages
-dotnet pack src\ChokaQ.Storage.SqlServer\ChokaQ.Storage.SqlServer.csproj --configuration Release --no-build --no-restore -o artifacts\packages
-dotnet pack src\ChokaQ.TheDeck\ChokaQ.TheDeck.csproj --configuration Release --no-build --no-restore -o artifacts\packages
-dotnet pack src\ChokaQ\ChokaQ.csproj --configuration Release --no-build --no-restore -o artifacts\packages
-```
+## Run The Lab From NuGet
 
 Start SQL Server. The repository compose file starts a SQL container named
 `chokaq-sql`.
@@ -77,9 +65,8 @@ docker compose up -d sqlserver
 Run the lab.
 
 ```powershell
-dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --no-cache --force-evaluate
-dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release --no-restore
-dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj
+dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --source https://api.nuget.org/v3/index.json
+dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj --no-restore
 ```
 
 The launch profile starts the app in Development mode. In Development mode the
@@ -92,9 +79,8 @@ string:
 
 ```powershell
 $env:CHOKAQ_NUGET_LAB_SQL="Server=localhost,1433;Database=ChokaQNuGetLab;User Id=sa;Password=<password>;Encrypt=True;TrustServerCertificate=True;"
-dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --no-cache --force-evaluate
-dotnet build samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --configuration Release --no-restore
-dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj
+dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --source https://api.nuget.org/v3/index.json
+dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj --no-restore
 ```
 
 If the configured database does not exist, the sample creates it through
@@ -227,6 +213,28 @@ host would use:
 These controls are intentionally simple. The Deck provides richer UI workflows,
 but the lab keeps the HTTP calls visible and repeatable.
 
+## Validate Local Packages
+
+For release engineering, the same lab can restore from local `.nupkg` artifacts.
+Build packages into `artifacts/packages` first:
+
+```powershell
+New-Item -ItemType Directory -Force artifacts\packages | Out-Null
+dotnet build ChokaQ.sln --configuration Release --no-restore
+dotnet pack src\ChokaQ.Abstractions\ChokaQ.Abstractions.csproj --configuration Release --no-build --no-restore -o artifacts\packages
+dotnet pack src\ChokaQ.Core\ChokaQ.Core.csproj --configuration Release --no-build --no-restore -o artifacts\packages
+dotnet pack src\ChokaQ.Storage.SqlServer\ChokaQ.Storage.SqlServer.csproj --configuration Release --no-build --no-restore -o artifacts\packages
+dotnet pack src\ChokaQ.TheDeck\ChokaQ.TheDeck.csproj --configuration Release --no-build --no-restore -o artifacts\packages
+dotnet pack src\ChokaQ\ChokaQ.csproj --configuration Release --no-build --no-restore -o artifacts\packages
+```
+
+Then restore with explicit sources:
+
+```powershell
+dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --source artifacts\packages --source https://api.nuget.org/v3/index.json --no-cache --force-evaluate
+dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj --no-restore
+```
+
 ## Troubleshooting
 
 ### The App Cannot Find A Connection String
@@ -243,9 +251,11 @@ Development-mode Docker discovery only looks for a container named
 
 ### Restore Cannot Find ChokaQ
 
-Build the local packages first. The lab's `NuGet.config` points at
-`artifacts/packages`. If that folder does not contain `ChokaQ.0.1.0-preview.1`
-and the related internal packages, restore will fail.
+Restore from nuget.org explicitly:
+
+```powershell
+dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --source https://api.nuget.org/v3/index.json --no-cache --force-evaluate
+```
 
 If you repack the same preview version during local development, clear the
 cached `ChokaQ*` packages or restore with a fresh package cache. NuGet package

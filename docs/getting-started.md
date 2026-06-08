@@ -64,10 +64,10 @@ do not need to reference each internal package one by one.
 </ItemGroup>
 ```
 
-For package validation before promotion, use `samples/ChokaQ.Sample.NuGetLab`;
-its `NuGet.config` restores `ChokaQ` from `artifacts/packages` or another
-configured NuGet feed. For source development inside this repository, the Bus
-and Pipe samples still use project references.
+For package validation and preview trials, use `samples/ChokaQ.Sample.NuGetLab`;
+it restores `ChokaQ` through NuGet instead of source project references. For
+source development inside this repository, the Bus and Pipe samples still use
+project references.
 
 ## Minimal Setup (Bus Mode + SQL Server)
 

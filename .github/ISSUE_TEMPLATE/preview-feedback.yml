@@ -1,0 +1,104 @@
+name: Preview feedback
+description: Report install friction, docs confusion, runtime bugs, or The Deck UI issues from the ChokaQ preview.
+title: "[Preview feedback]: "
+labels:
+  - preview-feedback
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying the ChokaQ preview. Please include the exact command or screen where the trial stopped making sense.
+
+  - type: input
+    id: package-version
+    attributes:
+      label: ChokaQ package version
+      description: Example: 0.1.0-preview.1
+      placeholder: 0.1.0-preview.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: trial-path
+    attributes:
+      label: Trial path
+      description: Which path were you using?
+      options:
+        - NuGetLab sample
+        - Docker Compose sample
+        - Custom ASP.NET Core host
+        - Reading docs only
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Windows 11, Ubuntu 24.04, macOS
+    validations:
+      required: true
+
+  - type: input
+    id: dotnet-sdk
+    attributes:
+      label: .NET SDK version
+      description: Output of dotnet --version is enough.
+      placeholder: 10.0.x
+    validations:
+      required: true
+
+  - type: dropdown
+    id: sql-path
+    attributes:
+      label: SQL Server path
+      options:
+        - Docker SQL container
+        - Existing local SQL Server
+        - Remote SQL Server
+        - Did not reach SQL setup
+        - Not applicable
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the failure, confusion, or UI issue.
+      placeholder: The sample started, but /chokaq showed...
+    validations:
+      required: true
+
+  - type: textarea
+    id: commands
+    attributes:
+      label: Commands or steps
+      description: Paste the commands or UI steps you ran.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, exception, or screenshot
+      description: Paste logs or exception text. For UI issues, attach a screenshot after creating the issue.
+      render: text
+    validations:
+      required: false
+
+  - type: dropdown
+    id: issue-kind
+    attributes:
+      label: Main issue type
+      options:
+        - Install/setup friction
+        - Documentation unclear
+        - Runtime bug
+        - The Deck UI issue
+        - Sample ergonomics
+        - Other
+    validations:
+      required: true

@@ -61,7 +61,7 @@ intentional: it makes local changes visible without packing NuGet packages on
 every edit.
 
 Package-consumer validation uses `samples/ChokaQ.Sample.NuGetLab`. That sample
-restores from `artifacts/packages` and proves that a real host can install the
+restores `ChokaQ` through NuGet and proves that a real host can install the
 top-level package and get the transitive runtime assets it needs.
 
 ## Architecture Decision

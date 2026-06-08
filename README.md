@@ -1,28 +1,71 @@
 # ChokaQ
 
-## Documentation Site
-
-**Read the full documentation:** [https://sseivach.github.io/ChokaQ/](https://sseivach.github.io/ChokaQ/)
-
 ![.NET 10](https://img.shields.io/badge/.NET-10.0%20-blue)
 ![License](https://img.shields.io/badge/License-Apache_2.0-green)
 ![Blazor](https://img.shields.io/badge/UI-Blazor%20Server-purple)
-![Status](https://img.shields.io/badge/status-Active%20Development-orange)
+![Status](https://img.shields.io/badge/status-Public%20Preview-orange)
 
-**Current Status:** Public preview. The consumer install target is the top-level `ChokaQ` package; package validation uses `samples/ChokaQ.Sample.NuGetLab` while the API and The Deck continue to evolve.
+SQL Server-backed background jobs for .NET with typed jobs, retries, DLQ,
+delayed jobs, idempotency, health checks, and a built-in operator UI called
+The Deck.
+
+**Current Status:** Public preview. The consumer install target is the top-level
+`ChokaQ` package; package validation uses `samples/ChokaQ.Sample.NuGetLab` while
+the API and The Deck continue to evolve.
+
+## Try It In 10 Minutes
+
+Install the package in an ASP.NET Core host:
+
+```powershell
+dotnet add package ChokaQ --version 0.1.0-preview.1
+```
+
+Or run the SQL-backed package-consumer sample:
+
+```powershell
+git clone https://github.com/sseivach/ChokaQ
+cd ChokaQ
+docker compose up -d sqlserver
+dotnet restore samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.sln --source https://api.nuget.org/v3/index.json
+dotnet run --project samples\ChokaQ.Sample.NuGetLab\ChokaQ.Sample.NuGetLab.csproj --no-restore
+```
+
+Then open:
+
+| URL | What to check |
+|---|---|
+| `http://localhost:5317/` | Lab launcher with scenario buttons and a live snapshot. |
+| `http://localhost:5317/chokaq` | The Deck dashboard for queues, jobs, DLQ, health, and circuits. |
+| `http://localhost:5317/health` | ASP.NET Core health endpoint. |
+
+Run the mixed load, idempotency, delayed job, and failure scenarios from the lab
+launcher. You should see jobs move through SQL storage, successful work land in
+Archive, failed work appear in DLQ, and The Deck update queue and health signals.
+
+## Links
+
+- Documentation: [https://sseivach.github.io/ChokaQ/](https://sseivach.github.io/ChokaQ/)
+- NuGet: [ChokaQ 0.1.0-preview.1](https://www.nuget.org/packages/ChokaQ/0.1.0-preview.1)
+- Try ChokaQ: [10-minute SQL-backed preview path](https://sseivach.github.io/ChokaQ/try-chokaq)
+- NuGetLab walkthrough: [Local NuGet Lab](https://sseivach.github.io/ChokaQ/samples/nuget-lab)
+- Release notes: [ChokaQ 0.1.0-preview.1](https://github.com/sseivach/ChokaQ/releases/tag/v0.1.0-preview.1)
+- Preview feedback: [open a feedback issue](https://github.com/sseivach/ChokaQ/issues/new?template=preview-feedback.yml)
+
+## What It Is
 
 **ChokaQ** is a .NET 10 background job processor for SQL Server-centric systems where reliability, observability, and a minimal dependency footprint matter. It bridges the gap between simple in-memory channels and heavy job frameworks by combining durable SQL storage, atomic state transitions, worker ownership, The Deck dashboard, and detailed architecture documentation.
+
+![ChokaQ Dashboard](scr1.jpg)
+![ChokaQ Dashboard - Ops Panel](scr2.jpg)
 
 The docs explain both setup and runtime behavior: backpressure, circuit breakers,
 bulkheads, leases, idempotency, zombie recovery, and observability are documented
 as practical parts of operating the system.
 
-If you are evaluating ChokaQ operationally, start with the [SLOs And Alerts](https://sseivach.github.io/ChokaQ/5-operations/slo-alerts) and [Operations Runbooks](https://sseivach.github.io/ChokaQ/5-operations/runbooks). Those pages explain what queue lag, DLQ rate, worker health, throttling, timeouts, and state-transition conflicts mean in practice, plus the safe first actions when something goes wrong.
-
 Before using ChokaQ for side-effecting work, read the [Delivery Guarantees](https://sseivach.github.io/ChokaQ/delivery-guarantees). The short version: ChokaQ provides at-least-once execution. It does not provide exactly-once external side effects, so handlers that send email, charge cards, call APIs, or update other systems must be idempotent.
 
-![ChokaQ Dashboard](scr1.jpg)
-![ChokaQ Dashboard - Ops Panel](scr2.jpg)
+If you are evaluating ChokaQ operationally, start with the [SLOs And Alerts](https://sseivach.github.io/ChokaQ/5-operations/slo-alerts) and [Operations Runbooks](https://sseivach.github.io/ChokaQ/5-operations/runbooks). Those pages explain what queue lag, DLQ rate, worker health, throttling, timeouts, and state-transition conflicts mean in practice, plus the safe first actions when something goes wrong.
 
 ---
 
@@ -308,15 +351,14 @@ for details and reset commands.
 ### Local NuGet Lab
 
 `samples/ChokaQ.Sample.NuGetLab` is the package-consumer smoke app. It restores
-the top-level `ChokaQ` package from `artifacts/packages` through NuGet, not
-through source project references, and exercises SQL Server, The Deck, health
-checks, idempotency, retry/failure paths, delayed jobs, queue controls, and
-runtime worker scaling.
+the top-level `ChokaQ` package through NuGet, not through source project
+references, and exercises SQL Server, The Deck, health checks, idempotency,
+retry/failure paths, delayed jobs, queue controls, and runtime worker scaling.
 
 See [Local NuGet Lab](https://sseivach.github.io/ChokaQ/samples/nuget-lab) or
-`samples/ChokaQ.Sample.NuGetLab/README.md` for the local pack and run commands.
-Use the lab as the final package-consumer smoke before publishing or promoting a
-preview package.
+`samples/ChokaQ.Sample.NuGetLab/README.md` for NuGet and local package
+validation commands. Use the lab as the final package-consumer smoke before
+promoting a preview package.
 
 ### 1. Package Reference
 
@@ -330,8 +372,8 @@ Add the top-level package to your ASP.NET Core `.csproj` file:
 
 For source development inside this repository, the Bus and Pipe samples still
 use project references. For package validation before promotion, use
-`samples/ChokaQ.Sample.NuGetLab`, which restores `ChokaQ` from
-`artifacts/packages` or another configured NuGet feed.
+`samples/ChokaQ.Sample.NuGetLab`, which restores `ChokaQ` through NuGet instead
+of source project references.
 
 ### 2. Configuration
 

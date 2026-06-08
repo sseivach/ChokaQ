@@ -4,6 +4,7 @@ const base = process.env.VITEPRESS_BASE ?? '/'
 
 const enNav = [
   { text: 'Overview', link: '/overview' },
+  { text: 'Try ChokaQ', link: '/try-chokaq' },
   { text: 'Getting Started', link: '/getting-started' },
   { text: 'Architecture', link: '/1-architecture/three-pillars' },
   { text: 'Deep Dives', link: '/3-deep-dives/sql-concurrency' },
@@ -17,6 +18,7 @@ const enSidebar = [
     items: [
       { text: 'Overview', link: '/overview' },
       { text: 'Runtime Model', link: '/runtime-model' },
+      { text: 'Try ChokaQ', link: '/try-chokaq' },
       { text: 'Getting Started', link: '/getting-started' },
       { text: 'API Examples', link: '/api-examples' },
       { text: 'Architecture Decisions', link: '/architecture-decisions' },

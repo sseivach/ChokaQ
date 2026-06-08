@@ -10,8 +10,8 @@ hero:
       text: Start Here
       link: /overview
     - theme: alt
-      text: Run A Sample
-      link: /samples/docker-compose
+      text: Try ChokaQ
+      link: /try-chokaq
   image:
     src: /logo.png
     alt: ChokaQ Logo
@@ -84,8 +84,9 @@ If you are new to ChokaQ, start with [Runtime Model](/runtime-model). It explain
 where ChokaQ runs, how it stores work, and how your handlers are called. Then
 continue with [Overview](/overview) for the broader tour.
 
-If you want to run code immediately, start with
-[Getting Started](/getting-started) or the [Docker Compose Sample](/samples/docker-compose).
+If you want to run code immediately, start with [Try ChokaQ](/try-chokaq).
+It gives you a SQL-backed sample, The Deck, health checks, and scenario buttons
+in one short path.
 
 If you are evaluating reliability, read [Delivery Guarantees](/delivery-guarantees)
 before writing a handler that sends email, charges money, or calls another

@@ -161,12 +161,25 @@ $screenshotFiles = Get-ChildItem (Join-Path $DocsRoot 'public/screenshots/the-de
 
 try {
     Add-Type -AssemblyName System.Drawing
-    foreach ($file in @($diagramFiles) + @($screenshotFiles)) {
+    foreach ($file in $diagramFiles) {
         if ($file.Extension -ne '.png') { continue }
         $image = [System.Drawing.Image]::FromFile($file.FullName)
         try {
             if ($image.Width -ne 1920 -or $image.Height -ne 1080) {
-                Add-Failure "PNG must be 1920x1080: $($file.FullName) is $($image.Width)x$($image.Height)"
+                Add-Failure "Diagram PNG must be 1920x1080: $($file.FullName) is $($image.Width)x$($image.Height)"
+            }
+        }
+        finally {
+            $image.Dispose()
+        }
+    }
+
+    foreach ($file in $screenshotFiles) {
+        if ($file.Extension -ne '.png') { continue }
+        $image = [System.Drawing.Image]::FromFile($file.FullName)
+        try {
+            if ($image.Width -ne 1920) {
+                Add-Failure "The Deck screenshot PNG must be 1920px wide; height may vary: $($file.FullName) is $($image.Width)x$($image.Height)"
             }
         }
         finally {
