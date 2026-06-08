@@ -9,7 +9,7 @@
 ![Blazor](https://img.shields.io/badge/UI-Blazor%20Server-purple)
 ![Status](https://img.shields.io/badge/status-Active%20Development-orange)
 
-**Current Status:** Public preview candidate. The consumer install target is the top-level `ChokaQ` package; package validation uses `samples/ChokaQ.Sample.NuGetLab` while the API and The Deck continue to evolve.
+**Current Status:** Public preview. The consumer install target is the top-level `ChokaQ` package; package validation uses `samples/ChokaQ.Sample.NuGetLab` while the API and The Deck continue to evolve.
 
 **ChokaQ** is a .NET 10 background job processor for SQL Server-centric systems where reliability, observability, and a minimal dependency footprint matter. It bridges the gap between simple in-memory channels and heavy job frameworks by combining durable SQL storage, atomic state transitions, worker ownership, The Deck dashboard, and detailed architecture documentation.
 
