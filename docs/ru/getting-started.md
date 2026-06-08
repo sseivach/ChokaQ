@@ -65,11 +65,10 @@ http://localhost:5299/health
 </ItemGroup>
 ```
 
-Для проверки пакета перед promotion используйте
-`samples/ChokaQ.Sample.NuGetLab`: его `NuGet.config` восстанавливает `ChokaQ`
-из `artifacts/packages` или другого настроенного NuGet feed. Для source
-development внутри этого репозитория Bus и Pipe samples пока используют project
-references.
+Для проверки package-consumer path и preview trial используйте
+`samples/ChokaQ.Sample.NuGetLab`: он восстанавливает `ChokaQ` через NuGet, а не
+через source project references. Для source development внутри этого репозитория
+Bus и Pipe samples пока используют project references.
 
 ## Минимальная настройка: Bus Mode + SQL Server
 
