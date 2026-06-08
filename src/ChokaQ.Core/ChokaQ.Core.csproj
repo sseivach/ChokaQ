@@ -19,6 +19,8 @@
     <PackageId>ChokaQ.Core</PackageId>
     <Title>ChokaQ Core</Title>
     <Description>Core ChokaQ background job engine with in-memory development mode, retry, idempotency, health checks, and metrics.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

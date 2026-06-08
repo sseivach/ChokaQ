@@ -27,6 +27,8 @@
     <PackageId>ChokaQ.Storage.SqlServer</PackageId>
     <Title>ChokaQ SQL Server Storage</Title>
     <Description>SQL Server storage, worker, schema provisioning, and health checks for ChokaQ.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

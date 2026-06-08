@@ -8,6 +8,8 @@
     <PackageId>ChokaQ.Abstractions</PackageId>
     <Title>ChokaQ Abstractions</Title>
     <Description>Contracts and DTOs used by ChokaQ background job processing.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

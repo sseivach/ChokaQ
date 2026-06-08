@@ -12,8 +12,6 @@ namespace ChokaQ.Storage.SqlServer;
 
 /// <summary>
 /// SQL Server implementation of IJobStorage using Three Pillars architecture.
-/// /// <summary>
-/// SQL Server implementation of IJobStorage using Three Pillars architecture.
 /// 
 /// Tables:
 /// - JobsHot: Active jobs (Pending, Fetched, Processing)

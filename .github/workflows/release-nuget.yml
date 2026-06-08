@@ -1,0 +1,164 @@
+name: NuGet Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_version:
+        description: Optional package version override, for example 0.1.0-preview.2
+        required: false
+        type: string
+      publish:
+        description: Publish packages to nuget.org
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  validate-pack:
+    name: Validate and pack
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore ChokaQ.sln
+
+      - name: Build
+        run: dotnet build ChokaQ.sln --configuration Release --no-restore
+
+      - name: Unit tests
+        run: dotnet test ChokaQ.sln --configuration Release --no-build --filter "Category=Unit" --logger "trx;LogFileName=unit.trx"
+
+      - name: SQL integration tests
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: true
+        run: dotnet test ChokaQ.sln --configuration Release --no-build --filter "Category=Integration" --logger "trx;LogFileName=sql-integration.trx"
+
+      - name: Pack packages
+        shell: pwsh
+        run: |
+          $versionArg = '${{ inputs.package_version }}'
+          $commonArgs = @('--configuration', 'Release', '--no-build', '--no-restore', '--output', 'artifacts/packages')
+          if (-not [string]::IsNullOrWhiteSpace($versionArg)) {
+            $commonArgs += "-p:PackageVersion=$versionArg"
+          }
+
+          New-Item -ItemType Directory -Force artifacts/packages | Out-Null
+          $projects = @(
+            'src/ChokaQ.Abstractions/ChokaQ.Abstractions.csproj',
+            'src/ChokaQ.Core/ChokaQ.Core.csproj',
+            'src/ChokaQ.Storage.SqlServer/ChokaQ.Storage.SqlServer.csproj',
+            'src/ChokaQ.TheDeck/ChokaQ.TheDeck.csproj',
+            'src/ChokaQ/ChokaQ.csproj'
+          )
+
+          foreach ($project in $projects) {
+            dotnet pack $project @commonArgs
+          }
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: |
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.snupkg
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-results
+          path: tests/**/TestResults/*.trx
+
+  docs:
+    name: Validate docs
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install docs dependencies
+        working-directory: docs
+        run: npm ci
+
+      - name: Validate docs
+        working-directory: docs
+        run: npm run docs:validate
+
+      - name: Build docs
+        working-directory: docs
+        env:
+          VITEPRESS_BASE: /ChokaQ/
+        run: npm run docs:build
+
+  publish:
+    name: Publish to nuget.org
+    runs-on: windows-latest
+    needs:
+      - validate-pack
+      - docs
+    if: ${{ inputs.publish == true }}
+    environment: nuget.org
+
+    steps:
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: nuget-packages
+          path: artifacts/packages
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Publish packages
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:NUGET_API_KEY)) {
+            throw 'NUGET_API_KEY secret is required to publish packages.'
+          }
+
+          $packageIds = @(
+            'ChokaQ.Abstractions',
+            'ChokaQ.Core',
+            'ChokaQ.Storage.SqlServer',
+            'ChokaQ.TheDeck',
+            'ChokaQ'
+          )
+
+          foreach ($packageId in $packageIds) {
+            $escapedId = [regex]::Escape($packageId)
+            $package = Get-ChildItem artifacts/packages -Filter '*.nupkg' |
+              Where-Object { $_.Name -match "^$escapedId\.\d" } |
+              Sort-Object Name |
+              Select-Object -First 1
+
+            if ($null -eq $package) {
+              throw "Package artifact for $packageId was not found."
+            }
+
+            nuget push $package.FullName -Source https://api.nuget.org/v3/index.json -ApiKey $env:NUGET_API_KEY -SkipDuplicate
+          }

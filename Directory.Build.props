@@ -12,7 +12,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>logo.png</PackageIcon>
     <PackageTags>background-jobs;queue;sql-server;blazor;signalr;observability;dotnet</PackageTags>
-    <PackageReleaseNotes>Preview package for local NuGet smoke validation. ChokaQ provides at-least-once execution, SQL Server storage, in-memory development mode, The Deck dashboard, health checks, and OpenTelemetry metrics.</PackageReleaseNotes>
+    <PackageReleaseNotes>First public preview of ChokaQ. Provides at-least-once execution, SQL Server storage, in-memory development mode, The Deck dashboard, health checks, and OpenTelemetry metrics.</PackageReleaseNotes>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>

@@ -8,7 +8,7 @@ Lab - не benchmark и не production template. Это high-signal validation 
 
 ## What this sample proves
 
-Lab validates будущий NuGet consumer experience:
+Lab validates NuGet consumer experience:
 
 - app references only `ChokaQ` as its top-level package;
 - package `ChokaQ` transitively brings in `ChokaQ.Abstractions`, `ChokaQ.Core`, `ChokaQ.Storage.SqlServer` и `ChokaQ.TheDeck`;

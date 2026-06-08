@@ -8,6 +8,8 @@
     <PackageId>ChokaQ.TheDeck</PackageId>
     <Title>ChokaQ The Deck</Title>
     <Description>Blazor Server dashboard and SignalR operator surface for ChokaQ.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

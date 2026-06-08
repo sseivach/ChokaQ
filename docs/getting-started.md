@@ -64,9 +64,9 @@ do not need to reference each internal package one by one.
 </ItemGroup>
 ```
 
-ChokaQ is not published to nuget.org yet. For local package validation, use
-`samples/ChokaQ.Sample.NuGetLab`; its `NuGet.config` restores `ChokaQ` from
-`artifacts/packages`. For source development inside this repository, the Bus
+For package validation before promotion, use `samples/ChokaQ.Sample.NuGetLab`;
+its `NuGet.config` restores `ChokaQ` from `artifacts/packages` or another
+configured NuGet feed. For source development inside this repository, the Bus
 and Pipe samples still use project references.
 
 ## Minimal Setup (Bus Mode + SQL Server)

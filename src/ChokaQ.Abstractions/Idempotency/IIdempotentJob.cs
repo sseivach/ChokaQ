@@ -25,8 +25,8 @@ namespace ChokaQ.Abstractions.Idempotency;
 /// }
 ///
 /// // 2. Enable the plugin in your DI setup (call ONCE):
-/// services.AddChokaQ(options => options.AddProfile<PaymentProfile>())
-///         .AddResultIdempotency();     // ← enables Level 2 for IIdempotentJob jobs
+/// services.AddChokaQ(options => options.AddProfile&lt;PaymentProfile&gt;())
+///         .AddResultIdempotency();     // enables Level 2 for IIdempotentJob jobs
 /// </code>
 ///
 /// [DESIGN NOTE]:

@@ -16,7 +16,7 @@ to care about before trusting a background job engine.
 
 ## What This Sample Proves
 
-The lab validates the future NuGet consumer experience:
+The lab validates the NuGet consumer experience:
 
 - the app references only `ChokaQ` as its top-level package;
 - the `ChokaQ` package brings in `ChokaQ.Abstractions`, `ChokaQ.Core`,

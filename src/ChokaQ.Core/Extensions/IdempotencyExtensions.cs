@@ -26,12 +26,12 @@ public static class IdempotencyExtensions
     /// Usage:
     /// <code>
     /// // Development (in-memory store, zero config):
-    /// services.AddChokaQ(opts => opts.AddProfile<MyProfile>())
+    /// services.AddChokaQ(opts => opts.AddProfile&lt;MyProfile&gt;())
     ///         .AddResultIdempotency();
     ///
     /// // Production (custom store, e.g., Redis):
-    /// services.AddChokaQ(opts => opts.AddProfile<MyProfile>())
-    ///         .AddResultIdempotency<RedisIdempotencyStore>();
+    /// services.AddChokaQ(opts => opts.AddProfile&lt;MyProfile&gt;())
+    ///         .AddResultIdempotency&lt;RedisIdempotencyStore&gt;();
     /// </code>
     /// </summary>
     public static IServiceCollection AddResultIdempotency(this IServiceCollection services)

@@ -65,10 +65,11 @@ http://localhost:5299/health
 </ItemGroup>
 ```
 
-ChokaQ пока не опубликован на nuget.org. Для локальной проверки пакета
-используйте `samples/ChokaQ.Sample.NuGetLab`: его `NuGet.config` восстанавливает
-`ChokaQ` из `artifacts/packages`. Для source development внутри этого
-репозитория Bus и Pipe samples пока используют project references.
+Для проверки пакета перед promotion используйте
+`samples/ChokaQ.Sample.NuGetLab`: его `NuGet.config` восстанавливает `ChokaQ`
+из `artifacts/packages` или другого настроенного NuGet feed. Для source
+development внутри этого репозитория Bus и Pipe samples пока используют project
+references.
 
 ## Минимальная настройка: Bus Mode + SQL Server
 

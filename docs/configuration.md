@@ -9,7 +9,7 @@ should behave in this environment: how long handlers may run, how retries back
 off, when health becomes degraded, which SQL schema to use, and how much metric
 cardinality is acceptable.
 
-ChokaQ is designed for future NuGet packaging, so production hosts should be able to keep operational policy in `appsettings.json`, environment variables, Key Vault-backed configuration, or any other `IConfiguration` provider.
+ChokaQ is designed for package consumption, so production hosts should be able to keep operational policy in `appsettings.json`, environment variables, Key Vault-backed configuration, or any other `IConfiguration` provider.
 
 The code defaults are intentionally conservative. They make a local demo work without configuration, but every important timeout and retry policy can be made explicit by the host application.
 
